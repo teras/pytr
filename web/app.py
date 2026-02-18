@@ -24,24 +24,45 @@ CONFIG = {
     'quality': 'best',
 }
 
-# Downloads directory
+# Downloads directory - clear on startup
 DOWNLOADS_DIR = Path("downloads")
+if DOWNLOADS_DIR.exists():
+    import shutil
+    shutil.rmtree(DOWNLOADS_DIR)
+    log.info("Cleared downloads cache")
 DOWNLOADS_DIR.mkdir(exist_ok=True)
 
 # Track active downloads: video_id -> {"status": str, "progress": float, ...}
 active_downloads = {}
 
-# yt-dlp instances (reused for speed)
-ydl_search = yt_dlp.YoutubeDL({
+# yt-dlp options - set YOUTUBE_COOKIES_BROWSER env var to enable (e.g. "chrome", "firefox")
+import os
+_cookies_browser = os.environ.get('YOUTUBE_COOKIES_BROWSER')
+YDL_OPTS = {
     'quiet': True,
     'no_warnings': True,
+}
+_youtube_cookies = {}
+if _cookies_browser:
+    YDL_OPTS['cookiesfrombrowser'] = (_cookies_browser,)
+    # Extract cookies for use in httpx
+    try:
+        from yt_dlp.cookies import extract_cookies_from_browser
+        cookie_jar = extract_cookies_from_browser(_cookies_browser)
+        for cookie in cookie_jar:
+            if 'youtube' in cookie.domain or 'google' in cookie.domain:
+                _youtube_cookies[cookie.name] = cookie.value
+        log.info(f"Extracted {len(_youtube_cookies)} YouTube cookies from {_cookies_browser}")
+    except Exception as e:
+        log.warning(f"Could not extract cookies: {e}")
+
+# yt-dlp instances (reused for speed)
+ydl_search = yt_dlp.YoutubeDL({
+    **YDL_OPTS,
     'extract_flat': True,
 })
 
-ydl_info = yt_dlp.YoutubeDL({
-    'quiet': True,
-    'no_warnings': True,
-})
+ydl_info = yt_dlp.YoutubeDL(YDL_OPTS)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -91,8 +112,8 @@ async def search(q: str = Query(..., min_length=1), count: int = Query(default=1
 
 
 @app.get("/api/play/{video_id}")
-async def play_video(video_id: str):
-    """Start download and return stream URL"""
+async def play_video(video_id: str, quality: int = Query(default=0)):
+    """Start download and return stream URL. Quality=0 means best available."""
     video_path = DOWNLOADS_DIR / f"{video_id}.mp4"
 
     # Already downloaded?
@@ -114,18 +135,22 @@ async def play_video(video_id: str):
         "status": "starting",
         "progress": 0,
         "message": "Starting...",
+        "process": None,
     }
 
     async def download():
         try:
             url = f"https://www.youtube.com/watch?v={video_id}"
-            log.info(f"Starting download for {video_id}")
+            log.info(f"Starting download for {video_id} (quality={quality or 'best'})")
 
             active_downloads[video_id]['status'] = 'downloading'
             active_downloads[video_id]['message'] = 'Downloading...'
 
-            # Select format based on config
-            if CONFIG['quality'] == 'fast':
+            # Select format based on requested quality
+            if quality > 0:
+                # Specific quality requested
+                fmt = f'bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<={quality}]+bestaudio/best[height<={quality}]'
+            elif CONFIG['quality'] == 'fast':
                 fmt = '22/18/best'  # 720p/360p combined, fast
             else:
                 fmt = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best'  # Best quality
@@ -142,39 +167,28 @@ async def play_video(video_id: str):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
+            active_downloads[video_id]['process'] = process
 
-            # Parse progress output
-            # For best quality: video (0-80%) + audio (80-95%) + merge (95-100%)
-            phase = 'video'
+            # Parse progress output - track video only (largest file)
+            is_video_phase = True
             while True:
                 line = await process.stdout.readline()
                 if not line:
                     break
                 line = line.decode().strip()
 
-                # Detect phase changes
-                if 'Destination:' in line:
-                    if '.m4a' in line or 'audio' in line.lower():
-                        phase = 'audio'
+                # Detect when audio phase starts (stop updating progress)
+                if 'Destination:' in line and ('.m4a' in line or 'audio' in line.lower()):
+                    is_video_phase = False
+                    active_downloads[video_id]['message'] = 'Audio...'
                 elif '[Merger]' in line:
-                    phase = 'merge'
-                    active_downloads[video_id]['progress'] = 95
+                    active_downloads[video_id]['progress'] = 99
                     active_downloads[video_id]['message'] = 'Merging...'
-                elif '[download]' in line and '%' in line:
+                elif '[download]' in line and '%' in line and is_video_phase:
                     try:
                         pct = float(line.split('%')[0].split()[-1])
-                        # Scale progress based on phase
-                        if phase == 'video':
-                            scaled = pct * 0.8  # 0-80%
-                            msg = f'Video: {pct:.0f}%'
-                        elif phase == 'audio':
-                            scaled = 80 + pct * 0.15  # 80-95%
-                            msg = f'Audio: {pct:.0f}%'
-                        else:
-                            scaled = pct
-                            msg = f'{pct:.0f}%'
-                        active_downloads[video_id]['progress'] = scaled
-                        active_downloads[video_id]['message'] = msg
+                        active_downloads[video_id]['progress'] = pct
+                        active_downloads[video_id]['message'] = f'{pct:.0f}%'
                     except:
                         pass
 
@@ -243,6 +257,60 @@ async def get_video_info(video_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/formats/{video_id}")
+async def get_formats(video_id: str):
+    """Get available download qualities"""
+    try:
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        info = await asyncio.to_thread(ydl_info.extract_info, url, download=False)
+
+        # Collect all video-only formats (will be merged with audio when downloading)
+        qualities = {}  # height -> {format_id, size}
+        for fmt in info.get('formats', []):
+            if fmt.get('vcodec') in (None, 'none'):
+                continue
+            if fmt.get('acodec') not in (None, 'none'):
+                continue  # Skip combined formats
+            height = fmt.get('height') or 0
+            if height < 360:
+                continue  # Skip very low quality
+            size = fmt.get('filesize') or fmt.get('filesize_approx') or 0
+            # Keep best format for each height
+            if height not in qualities or size > qualities[height]['size']:
+                qualities[height] = {
+                    'format_id': fmt.get('format_id'),
+                    'size': size,
+                }
+
+        # Build sorted list (lowest first)
+        options = []
+        for height in sorted(qualities.keys()):
+            q = qualities[height]
+            # Estimate total size (video + audio ~15% extra)
+            size = int(q['size'] * 1.15) if q['size'] else 0
+            options.append({
+                'height': height,
+                'label': f"{height}p",
+                'size': size,
+                'size_str': format_bytes(size) if size else None,
+            })
+
+        return {'options': options}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def format_bytes(b):
+    """Format bytes: 1500000 -> 1.4 MB"""
+    if b >= 1_000_000_000:
+        return f"{b/1_000_000_000:.1f} GB"
+    if b >= 1_000_000:
+        return f"{b/1_000_000:.1f} MB"
+    if b >= 1_000:
+        return f"{b/1_000:.1f} KB"
+    return f"{b} B"
+
+
 @app.get("/api/progress/{video_id}")
 async def get_progress(video_id: str):
     """Get download progress"""
@@ -259,6 +327,32 @@ async def get_progress(video_id: str):
         return {"status": "ready", "progress": 100, "message": "Ready"}
     else:
         return {"status": "not_found", "progress": 0, "message": "Not found"}
+
+
+@app.post("/api/cancel/{video_id}")
+async def cancel_download(video_id: str):
+    """Cancel an active download"""
+    if video_id in active_downloads:
+        dl = active_downloads[video_id]
+        process = dl.get('process')
+        if process and process.returncode is None:
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                process.kill()
+            log.info(f"Cancelled download for {video_id}")
+        dl['status'] = 'cancelled'
+        dl['message'] = 'Cancelled'
+        # Clean up partial files
+        video_path = DOWNLOADS_DIR / f"{video_id}.mp4"
+        for f in DOWNLOADS_DIR.glob(f"{video_id}.*"):
+            try:
+                f.unlink()
+            except:
+                pass
+        return {"status": "cancelled"}
+    return {"status": "not_found"}
 
 
 @app.get("/api/stream/{video_id}")
@@ -292,25 +386,45 @@ async def stream_live(video_id: str, request: Request):
             ydl_info.extract_info, url, download=False
         )
 
-        # Find format 22 or 18 (progressive with audio)
+        # Find best format: prefer direct (22/18), fallback to any progressive
         video_url = None
         filesize = None
+        selected_format = None
+
+        # First try format 22 (720p direct)
         for fmt in info.get('formats', []):
-            if fmt.get('format_id') in ('22', '18'):
+            if fmt.get('format_id') == '22' and fmt.get('url'):
                 video_url = fmt.get('url')
                 filesize = fmt.get('filesize') or fmt.get('filesize_approx')
+                selected_format = '22 (720p)'
                 break
 
+        # Fallback to format 18 (360p direct)
         if not video_url:
-            # Fallback to best progressive format
             for fmt in info.get('formats', []):
-                if fmt.get('acodec') != 'none' and fmt.get('vcodec') != 'none':
+                if fmt.get('format_id') == '18' and fmt.get('url'):
                     video_url = fmt.get('url')
                     filesize = fmt.get('filesize') or fmt.get('filesize_approx')
+                    selected_format = '18 (360p)'
+                    break
+
+        # Try any direct progressive format
+        if not video_url:
+            for fmt in info.get('formats', []):
+                protocol = fmt.get('protocol', '')
+                if (fmt.get('acodec') not in (None, 'none') and
+                    fmt.get('vcodec') not in (None, 'none') and
+                    fmt.get('url') and
+                    protocol in ('https', 'http')):
+                    video_url = fmt.get('url')
+                    filesize = fmt.get('filesize') or fmt.get('filesize_approx')
+                    selected_format = f"{fmt.get('format_id')} ({fmt.get('height', '?')}p)"
                     break
 
         if not video_url:
             raise HTTPException(status_code=404, detail="No suitable format found")
+
+        log.info(f"stream-live {video_id}: using format {selected_format}")
 
     except Exception as e:
         log.error(f"Failed to get video URL: {e}")
@@ -327,10 +441,17 @@ async def stream_live(video_id: str, request: Request):
             else:
                 headers['Range'] = f'bytes={start}-'
 
-        async with httpx.AsyncClient() as client:
-            async with client.stream('GET', video_url, headers=headers, timeout=30.0) as resp:
-                async for chunk in resp.aiter_bytes(65536):
-                    yield chunk
+        try:
+            async with httpx.AsyncClient() as client:
+                async with client.stream('GET', video_url, headers=headers, timeout=30.0) as resp:
+                    if resp.status_code >= 400:
+                        log.warning(f"Upstream error {resp.status_code} for range {start}-{end}")
+                        return
+                    async for chunk in resp.aiter_bytes(65536):
+                        yield chunk
+        except Exception as e:
+            log.warning(f"Stream error: {e}")
+            return
 
     if range_header:
         # Parse range header: "bytes=start-end" or "bytes=start-"
@@ -338,13 +459,11 @@ async def stream_live(video_id: str, request: Request):
         start = int(range_match[0]) if range_match[0] else 0
         end = int(range_match[1]) if range_match[1] else None
 
-        # Calculate content length
+        # Don't set Content-Length for proxied streams (upstream may fail)
         if filesize:
             end = end or (filesize - 1)
-            content_length = end - start + 1
             content_range = f'bytes {start}-{end}/{filesize}'
         else:
-            content_length = None
             content_range = f'bytes {start}-*/*'
 
         headers = {
@@ -353,8 +472,6 @@ async def stream_live(video_id: str, request: Request):
             'Content-Range': content_range,
             'Cache-Control': 'no-cache',
         }
-        if content_length:
-            headers['Content-Length'] = str(content_length)
 
         return StreamingResponse(
             proxy_stream(start, end),
@@ -368,14 +485,94 @@ async def stream_live(video_id: str, request: Request):
             'Accept-Ranges': 'bytes',
             'Cache-Control': 'no-cache',
         }
-        if filesize:
-            headers['Content-Length'] = str(filesize)
 
         return StreamingResponse(
             proxy_stream(),
             status_code=200,
             headers=headers,
         )
+
+
+@app.get("/api/hls/{video_id}")
+async def get_hls_stream(video_id: str):
+    """Get HLS manifest with proxied segment URLs"""
+    from urllib.parse import quote
+
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    try:
+        info = await asyncio.to_thread(ydl_info.extract_info, url, download=False)
+
+        # Find best HLS format (combined video+audio)
+        best_hls = None
+        best_height = 0
+
+        for fmt in info.get('formats', []):
+            if not fmt.get('url'):
+                continue
+            protocol = fmt.get('protocol', '')
+            if 'm3u8' not in protocol:
+                continue
+            has_video = fmt.get('vcodec') not in (None, 'none')
+            has_audio = fmt.get('acodec') not in (None, 'none')
+            height = fmt.get('height') or 0
+
+            if has_video and has_audio and height > best_height:
+                best_hls = fmt
+                best_height = height
+
+        if not best_hls:
+            raise HTTPException(status_code=404, detail="No HLS format found")
+
+        log.info(f"HLS {video_id}: using format {best_hls.get('format_id')} ({best_height}p)")
+
+        # Fetch the m3u8 manifest
+        async with httpx.AsyncClient(cookies=_youtube_cookies) as client:
+            resp = await client.get(best_hls['url'], timeout=30.0)
+            manifest = resp.text
+
+        # Rewrite segment URLs to go through our proxy
+        lines = []
+        for line in manifest.split('\n'):
+            if line.startswith('http'):
+                lines.append(f"/api/hls-segment?url={quote(line, safe='')}")
+            elif line.startswith('#EXT-X-MAP:URI="'):
+                uri = line.split('URI="')[1].split('"')[0]
+                lines.append(f'#EXT-X-MAP:URI="/api/hls-segment?url={quote(uri, safe='')}"')
+            else:
+                lines.append(line)
+
+        proxied_manifest = '\n'.join(lines)
+
+        return StreamingResponse(
+            iter([proxied_manifest.encode()]),
+            media_type='application/vnd.apple.mpegurl',
+            headers={'Cache-Control': 'no-cache'}
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"HLS error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/hls-segment")
+async def proxy_hls_segment(url: str):
+    """Proxy HLS segment to avoid CORS"""
+    try:
+        async with httpx.AsyncClient(cookies=_youtube_cookies) as client:
+            resp = await client.get(url, timeout=30.0)
+            if resp.status_code == 403:
+                log.warning(f"HLS segment 403 - may need fresh cookies")
+            return StreamingResponse(
+                iter([resp.content]),
+                media_type=resp.headers.get('content-type', 'video/mp2t'),
+                headers={'Cache-Control': 'max-age=3600'}
+            )
+    except Exception as e:
+        log.error(f"HLS segment error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

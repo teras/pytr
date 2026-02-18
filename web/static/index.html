@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YouTube Player</title>
     <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
 <body>
     <div class="container">
@@ -24,14 +25,20 @@
                         <p id="video-meta"></p>
                     </div>
                     <span id="time-display"></span>
+                    <span id="quality-badge"></span>
                     <button id="close-player">Close</button>
                 </div>
                 <video id="video-player" controls autoplay></video>
+                <div id="download-offer" class="hidden">
+                    <span id="download-offer-label">Download:</span>
+                    <div id="download-buttons"></div>
+                </div>
                 <div id="download-progress" class="hidden">
                     <div id="progress-bar">
                         <div id="progress-fill"></div>
                     </div>
                     <span id="progress-text">Starting...</span>
+                    <button id="cancel-download-btn">Cancel</button>
                 </div>
             </div>
 
