@@ -93,6 +93,21 @@ header {
     color: #fff;
 }
 
+.logout-link {
+    display: block;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #3a3a3a;
+    color: #888;
+    text-decoration: none;
+    font-size: 13px;
+    text-align: center;
+}
+
+.logout-link:hover {
+    color: #ff4444;
+}
+
 h1 {
     font-size: 1.8rem;
     margin-bottom: 20px;

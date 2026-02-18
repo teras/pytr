@@ -1,2 +1,4 @@
 web/downloads/*
 web/__pycache__/*
+.env
+downloads/*

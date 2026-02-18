@@ -1,12 +1,20 @@
 """YouTube Web App - FastAPI Backend"""
 import asyncio
 import logging
+import os
 import httpx
 import yt_dlp
+import secrets
+import time
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Query, Request
+from dotenv import load_dotenv
+
+# Load .env from current dir or parent dir (for local dev)
+load_dotenv()
+load_dotenv(Path(__file__).parent.parent / ".env")
+from fastapi import FastAPI, HTTPException, Query, Request, Response, Depends, Form
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse, RedirectResponse
 
 # Setup logging
 logging.basicConfig(
@@ -24,13 +32,81 @@ CONFIG = {
     'quality': 'best',
 }
 
-# Downloads directory - clear on startup
+# Authentication
+AUTH_PASSWORD = os.environ.get('YTP_PASSWORD')
+AUTH_SESSIONS = {}  # token -> expiry_time
+AUTH_FAILURES = {}  # ip -> {"count": int, "blocked_until": float}
+
+def get_client_ip(request: Request) -> str:
+    """Get client IP, checking X-Forwarded-For for proxies"""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host
+
+def is_ip_blocked(ip: str) -> tuple[bool, int]:
+    """Check if IP is blocked. Returns (blocked, seconds_remaining)"""
+    if ip not in AUTH_FAILURES:
+        return False, 0
+    info = AUTH_FAILURES[ip]
+    if info.get("blocked_until", 0) > time.time():
+        remaining = int(info["blocked_until"] - time.time())
+        return True, remaining
+    return False, 0
+
+def record_failure(ip: str):
+    """Record a failed login attempt"""
+    if ip not in AUTH_FAILURES:
+        AUTH_FAILURES[ip] = {"count": 0, "blocked_until": 0}
+
+    AUTH_FAILURES[ip]["count"] += 1
+    count = AUTH_FAILURES[ip]["count"]
+
+    if count >= 10:
+        # Block for 24 hours
+        AUTH_FAILURES[ip]["blocked_until"] = time.time() + 86400
+        log.warning(f"IP {ip} blocked for 24 hours after {count} failures")
+    elif count >= 5:
+        # Block for 1 hour
+        AUTH_FAILURES[ip]["blocked_until"] = time.time() + 3600
+        log.warning(f"IP {ip} blocked for 1 hour after {count} failures")
+
+def clear_failures(ip: str):
+    """Clear failure count on successful login"""
+    AUTH_FAILURES.pop(ip, None)
+
+def verify_session(request: Request) -> bool:
+    """Check if request has valid session"""
+    if not AUTH_PASSWORD:
+        return True  # No password set, allow all
+    token = request.cookies.get("ytp_session")
+    if token and token in AUTH_SESSIONS:
+        if AUTH_SESSIONS[token] > time.time():
+            return True
+        del AUTH_SESSIONS[token]  # Expired
+    return False
+
+async def require_auth(request: Request):
+    """Dependency that requires authentication"""
+    if not AUTH_PASSWORD:
+        return True
+    if not verify_session(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return True
+
+# Downloads directory - clear contents on startup (not the dir itself for Docker volumes)
 DOWNLOADS_DIR = Path("downloads")
-if DOWNLOADS_DIR.exists():
-    import shutil
-    shutil.rmtree(DOWNLOADS_DIR)
-    log.info("Cleared downloads cache")
 DOWNLOADS_DIR.mkdir(exist_ok=True)
+for f in DOWNLOADS_DIR.iterdir():
+    try:
+        if f.is_file():
+            f.unlink()
+        elif f.is_dir():
+            import shutil
+            shutil.rmtree(f)
+    except Exception as e:
+        log.warning(f"Could not delete {f}: {e}")
+log.info("Cleared downloads cache")
 
 # Track active downloads: video_id -> {"status": str, "progress": float, ...}
 active_downloads = {}
@@ -66,14 +142,175 @@ ydl_info = yt_dlp.YoutubeDL(YDL_OPTS)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+LOGIN_PAGE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - YouTube Player</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #0f0f0f;
+            color: #f1f1f1;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-box {
+            background-color: #1a1a1a;
+            padding: 40px;
+            border-radius: 16px;
+            width: 100%;
+            max-width: 400px;
+            margin: 20px;
+        }
+        h1 { color: #ff0000; margin-bottom: 30px; text-align: center; font-size: 1.5rem; }
+        .error { color: #ff4444; margin-bottom: 20px; text-align: center; font-size: 14px; }
+        .blocked { color: #ff8800; }
+        input[type="password"] {
+            width: 100%;
+            padding: 14px 18px;
+            font-size: 16px;
+            border: 1px solid #303030;
+            border-radius: 12px;
+            background-color: #121212;
+            color: #f1f1f1;
+            margin-bottom: 15px;
+        }
+        input[type="password"]:focus { border-color: #3ea6ff; outline: none; }
+        .remember-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #aaa;
+        }
+        input[type="checkbox"] { width: 18px; height: 18px; }
+        button {
+            width: 100%;
+            padding: 14px;
+            font-size: 16px;
+            background-color: #cc0000;
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        button:hover { background-color: #ee0000; }
+    </style>
+</head>
+<body>
+    <form class="login-box" method="POST" action="/login">
+        <h1>YouTube Player</h1>
+        {{ERROR_PLACEHOLDER}}
+        <input type="password" name="password" placeholder="Password" autofocus autocomplete="current-password">
+        <label class="remember-row">
+            <input type="checkbox" name="remember" value="1">
+            Remember this device (30 days)
+        </label>
+        <button type="submit">Login</button>
+    </form>
+</body>
+</html>"""
+
 
 @app.get("/")
-async def index():
+async def index(request: Request):
+    if AUTH_PASSWORD and not verify_session(request):
+        return RedirectResponse(url="/login", status_code=302)
     return FileResponse("static/index.html")
 
 
+@app.get("/login")
+async def login_page(request: Request, error: str = ""):
+    if not AUTH_PASSWORD:
+        return RedirectResponse(url="/", status_code=302)
+    if verify_session(request):
+        return RedirectResponse(url="/", status_code=302)
+
+    ip = get_client_ip(request)
+    blocked, remaining = is_ip_blocked(ip)
+
+    if blocked:
+        minutes = remaining // 60
+        hours = minutes // 60
+        if hours > 0:
+            time_str = f"{hours}h {minutes % 60}m"
+        else:
+            time_str = f"{minutes}m {remaining % 60}s"
+        error_html = f'<p class="error blocked">Too many attempts. Try again in {time_str}</p>'
+    elif error:
+        error_html = f'<p class="error">{error}</p>'
+    else:
+        error_html = ""
+
+    return HTMLResponse(LOGIN_PAGE.replace("{{ERROR_PLACEHOLDER}}", error_html))
+
+
+@app.post("/login")
+async def do_login(request: Request, response: Response, password: str = Form(...), remember: str = Form(default="")):
+    if not AUTH_PASSWORD:
+        return RedirectResponse(url="/", status_code=302)
+
+    ip = get_client_ip(request)
+    blocked, remaining = is_ip_blocked(ip)
+    if blocked:
+        return RedirectResponse(url="/login", status_code=302)
+
+    if password == AUTH_PASSWORD:
+        clear_failures(ip)
+        token = secrets.token_urlsafe(32)
+        # 30 days if remember, else 24 hours
+        expiry = time.time() + (30 * 86400 if remember else 86400)
+        AUTH_SESSIONS[token] = expiry
+
+        response = RedirectResponse(url="/", status_code=302)
+        response.set_cookie(
+            key="ytp_session",
+            value=token,
+            max_age=30 * 86400 if remember else None,
+            httponly=True,
+            samesite="lax"
+        )
+        log.info(f"Login successful from {ip}")
+        return response
+    else:
+        record_failure(ip)
+        log.warning(f"Failed login attempt from {ip}")
+        return RedirectResponse(url="/login?error=Invalid+password", status_code=302)
+
+
+@app.get("/logout")
+async def logout(request: Request):
+    token = request.cookies.get("ytp_session")
+    if token and token in AUTH_SESSIONS:
+        del AUTH_SESSIONS[token]
+    response = RedirectResponse(url="/login", status_code=302)
+    response.delete_cookie("ytp_session")
+    return response
+
+
+@app.get("/auth/status")
+async def auth_status():
+    """Show blocked IPs (for debugging)"""
+    now = time.time()
+    blocked = {
+        ip: {
+            "failures": info["count"],
+            "blocked_for": int(info["blocked_until"] - now) if info["blocked_until"] > now else 0
+        }
+        for ip, info in AUTH_FAILURES.items()
+    }
+    return {"blocked_ips": blocked, "active_sessions": len(AUTH_SESSIONS)}
+
+
 @app.get("/api/search")
-async def search(q: str = Query(..., min_length=1), count: int = Query(default=10, ge=1)):
+async def search(q: str = Query(..., min_length=1), count: int = Query(default=10, ge=1), auth: bool = Depends(require_auth)):
     """Search YouTube"""
     try:
         # Cap at 100 results (YouTube's practical limit)
@@ -112,7 +349,7 @@ async def search(q: str = Query(..., min_length=1), count: int = Query(default=1
 
 
 @app.get("/api/play/{video_id}")
-async def play_video(video_id: str, quality: int = Query(default=0)):
+async def play_video(video_id: str, quality: int = Query(default=0), auth: bool = Depends(require_auth)):
     """Start download and return stream URL. Quality=0 means best available."""
     video_path = DOWNLOADS_DIR / f"{video_id}.mp4"
 
@@ -235,7 +472,7 @@ def format_number(n):
 
 
 @app.get("/api/info/{video_id}")
-async def get_video_info(video_id: str):
+async def get_video_info(video_id: str, auth: bool = Depends(require_auth)):
     """Get video info (views, likes, etc.)"""
     try:
         url = f"https://www.youtube.com/watch?v={video_id}"
@@ -258,7 +495,7 @@ async def get_video_info(video_id: str):
 
 
 @app.get("/api/formats/{video_id}")
-async def get_formats(video_id: str):
+async def get_formats(video_id: str, auth: bool = Depends(require_auth)):
     """Get available download qualities"""
     try:
         url = f"https://www.youtube.com/watch?v={video_id}"
@@ -312,7 +549,7 @@ def format_bytes(b):
 
 
 @app.get("/api/progress/{video_id}")
-async def get_progress(video_id: str):
+async def get_progress(video_id: str, auth: bool = Depends(require_auth)):
     """Get download progress"""
     video_path = DOWNLOADS_DIR / f"{video_id}.mp4"
 
@@ -330,7 +567,7 @@ async def get_progress(video_id: str):
 
 
 @app.post("/api/cancel/{video_id}")
-async def cancel_download(video_id: str):
+async def cancel_download(video_id: str, auth: bool = Depends(require_auth)):
     """Cancel an active download"""
     if video_id in active_downloads:
         dl = active_downloads[video_id]
@@ -356,7 +593,7 @@ async def cancel_download(video_id: str):
 
 
 @app.get("/api/stream/{video_id}")
-async def stream_video(video_id: str):
+async def stream_video(video_id: str, auth: bool = Depends(require_auth)):
     """Serve video file"""
     video_path = DOWNLOADS_DIR / f"{video_id}.mp4"
 
@@ -375,7 +612,7 @@ async def stream_video(video_id: str):
 
 
 @app.get("/api/stream-live/{video_id}")
-async def stream_live(video_id: str, request: Request):
+async def stream_live(video_id: str, request: Request, auth: bool = Depends(require_auth)):
     """Stream video with range request support (proxy to YouTube)"""
 
     url = f"https://www.youtube.com/watch?v={video_id}"
@@ -494,7 +731,7 @@ async def stream_live(video_id: str, request: Request):
 
 
 @app.get("/api/hls/{video_id}")
-async def get_hls_stream(video_id: str):
+async def get_hls_stream(video_id: str, auth: bool = Depends(require_auth)):
     """Get HLS manifest with proxied segment URLs"""
     from urllib.parse import quote
 
@@ -558,7 +795,7 @@ async def get_hls_stream(video_id: str):
 
 
 @app.get("/api/hls-segment")
-async def proxy_hls_segment(url: str):
+async def proxy_hls_segment(url: str, auth: bool = Depends(require_auth)):
     """Proxy HLS segment to avoid CORS"""
     try:
         async with httpx.AsyncClient(cookies=_youtube_cookies) as client:
