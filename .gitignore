@@ -1,4 +1,15 @@
-web/downloads/*
-web/__pycache__/*
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment
 .env
+
+# Downloads cache
 downloads/*
+web/downloads/*
+
+# IDE
+.vscode/
+.idea/
