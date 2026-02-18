@@ -1,11 +1,12 @@
 """YouTube Web App - FastAPI Backend"""
 import asyncio
 import logging
+import httpx
 import yt_dlp
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 # Setup logging
 logging.basicConfig(
@@ -280,44 +281,101 @@ async def stream_video(video_id: str):
 
 
 @app.get("/api/stream-live/{video_id}")
-async def stream_live(video_id: str):
-    """Stream video directly from YouTube (no download/cache)"""
-    from fastapi.responses import StreamingResponse
+async def stream_live(video_id: str, request: Request):
+    """Stream video with range request support (proxy to YouTube)"""
 
     url = f"https://www.youtube.com/watch?v={video_id}"
 
-    async def generate():
-        # Use format 22 (720p) or 18 (360p) - progressive formats work better for streaming
-        process = await asyncio.create_subprocess_exec(
-            'yt-dlp',
-            '-f', '22/18/best',
-            '-o', '-',  # Output to stdout
-            '--no-warnings',
-            '-q',
-            url,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+    # Get direct video URL from yt-dlp
+    try:
+        info = await asyncio.to_thread(
+            ydl_info.extract_info, url, download=False
         )
 
-        try:
-            while True:
-                chunk = await process.stdout.read(65536)  # 64KB chunks
-                if not chunk:
-                    break
-                yield chunk
-        finally:
-            if process.returncode is None:
-                process.kill()
-                await process.wait()
+        # Find format 22 or 18 (progressive with audio)
+        video_url = None
+        filesize = None
+        for fmt in info.get('formats', []):
+            if fmt.get('format_id') in ('22', '18'):
+                video_url = fmt.get('url')
+                filesize = fmt.get('filesize') or fmt.get('filesize_approx')
+                break
 
-    return StreamingResponse(
-        generate(),
-        media_type='video/mp4',
-        headers={
+        if not video_url:
+            # Fallback to best progressive format
+            for fmt in info.get('formats', []):
+                if fmt.get('acodec') != 'none' and fmt.get('vcodec') != 'none':
+                    video_url = fmt.get('url')
+                    filesize = fmt.get('filesize') or fmt.get('filesize_approx')
+                    break
+
+        if not video_url:
+            raise HTTPException(status_code=404, detail="No suitable format found")
+
+    except Exception as e:
+        log.error(f"Failed to get video URL: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Handle range requests
+    range_header = request.headers.get('range')
+
+    async def proxy_stream(start: int = 0, end: int = None):
+        headers = {}
+        if start > 0 or end:
+            if end:
+                headers['Range'] = f'bytes={start}-{end}'
+            else:
+                headers['Range'] = f'bytes={start}-'
+
+        async with httpx.AsyncClient() as client:
+            async with client.stream('GET', video_url, headers=headers, timeout=30.0) as resp:
+                async for chunk in resp.aiter_bytes(65536):
+                    yield chunk
+
+    if range_header:
+        # Parse range header: "bytes=start-end" or "bytes=start-"
+        range_match = range_header.replace('bytes=', '').split('-')
+        start = int(range_match[0]) if range_match[0] else 0
+        end = int(range_match[1]) if range_match[1] else None
+
+        # Calculate content length
+        if filesize:
+            end = end or (filesize - 1)
+            content_length = end - start + 1
+            content_range = f'bytes {start}-{end}/{filesize}'
+        else:
+            content_length = None
+            content_range = f'bytes {start}-*/*'
+
+        headers = {
+            'Content-Type': 'video/mp4',
+            'Accept-Ranges': 'bytes',
+            'Content-Range': content_range,
             'Cache-Control': 'no-cache',
-            'Accept-Ranges': 'none',  # No seeking support for live stream
         }
-    )
+        if content_length:
+            headers['Content-Length'] = str(content_length)
+
+        return StreamingResponse(
+            proxy_stream(start, end),
+            status_code=206,
+            headers=headers,
+        )
+    else:
+        # No range - stream from beginning
+        headers = {
+            'Content-Type': 'video/mp4',
+            'Accept-Ranges': 'bytes',
+            'Cache-Control': 'no-cache',
+        }
+        if filesize:
+            headers['Content-Length'] = str(filesize)
+
+        return StreamingResponse(
+            proxy_stream(),
+            status_code=200,
+            headers=headers,
+        )
 
 
 if __name__ == "__main__":
