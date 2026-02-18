@@ -41,37 +41,59 @@
         </header>
 
         <main>
-            <div id="player-container" class="hidden">
-                <div class="player-header">
-                    <div class="player-info">
-                        <h2 id="video-title"></h2>
-                        <p id="video-meta"></p>
-                    </div>
-                    <div id="download-pill" class="hidden">
-                        <button id="download-action">Download</button>
-                        <button id="download-gear">&#9881;</button>
-                        <div id="download-quality-menu" class="quality-menu hidden">
-                            <!-- Quality options populated by JS -->
-                        </div>
-                    </div>
-                    <button id="cancel-download-btn" class="hidden">
-                        <span>Cancel</span>
-                        <svg class="progress-ring" viewBox="0 0 28 28">
-                            <circle class="progress-ring-bg" cx="14" cy="14" r="10"></circle>
-                            <circle class="progress-ring-fill" cx="14" cy="14" r="10"></circle>
-                        </svg>
-                    </button>
-                    <button id="close-player">Close</button>
+            <!-- List View (Search / Channel) -->
+            <div id="list-view">
+                <div id="list-header" class="hidden">
+                    <h2 id="list-title"></h2>
                 </div>
-                <video id="video-player" controls autoplay></video>
+                <div id="video-grid"></div>
+                <div id="load-more-container" class="hidden"></div>
+                <div id="no-results" class="hidden">
+                    <p>No videos found.</p>
+                </div>
             </div>
 
-            <div id="video-grid"></div>
+            <!-- Video Page View -->
+            <div id="video-view" class="hidden">
+                <div class="video-page-layout">
+                    <!-- Left column: Player -->
+                    <div class="video-main">
+                        <div id="player-container">
+                            <video id="video-player" controls autoplay></video>
+                        </div>
+                        <div class="video-details">
+                            <h2 id="video-title"></h2>
+                            <div class="video-info-row">
+                                <div class="video-info-left">
+                                    <a href="#" id="video-channel" class="channel-link"></a>
+                                    <p id="video-meta"></p>
+                                </div>
+                                <div class="video-info-right">
+                                    <button id="cancel-download-btn" class="hidden">
+                                        <svg class="progress-ring" viewBox="0 0 28 28">
+                                            <circle class="progress-ring-bg" cx="14" cy="14" r="10"></circle>
+                                            <circle class="progress-ring-fill" cx="14" cy="14" r="10"></circle>
+                                        </svg>
+                                    </button>
+                                    <div id="download-pill" class="hidden">
+                                        <button id="download-action">Download</button>
+                                        <button id="download-gear">&#9881;</button>
+                                        <div id="download-quality-menu" class="quality-menu hidden"></div>
+                                    </div>
+                                    <span id="resolution-badge" class="resolution-badge hidden">720p</span>
+                                </div>
+                            </div>
+                            <div id="video-description" class="video-description hidden"></div>
+                        </div>
+                    </div>
 
-            <div id="load-more-container" class="hidden"></div>
-
-            <div id="no-results" class="hidden">
-                <p>No videos found. Try a different search.</p>
+                    <!-- Right column: Related videos -->
+                    <div class="video-sidebar">
+                        <h3>Related Videos</h3>
+                        <div id="related-videos"></div>
+                        <div id="related-load-more" class="hidden"></div>
+                    </div>
+                </div>
             </div>
         </main>
     </div>

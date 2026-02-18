@@ -225,6 +225,22 @@ async def index(request: Request):
     return FileResponse("static/index.html")
 
 
+@app.get("/watch")
+async def watch_page(request: Request):
+    """Serve index.html for /watch?v=xxx (SPA routing)"""
+    if AUTH_PASSWORD and not verify_session(request):
+        return RedirectResponse(url="/login", status_code=302)
+    return FileResponse("static/index.html")
+
+
+@app.get("/channel/{channel_id}")
+async def channel_page(request: Request, channel_id: str):
+    """Serve index.html for /channel/xxx (SPA routing)"""
+    if AUTH_PASSWORD and not verify_session(request):
+        return RedirectResponse(url="/login", status_code=302)
+    return FileResponse("static/index.html")
+
+
 @app.get("/login")
 async def login_page(request: Request, error: str = ""):
     if not AUTH_PASSWORD:
@@ -484,10 +500,12 @@ async def get_video_info(video_id: str, auth: bool = Depends(require_auth)):
         return {
             'title': info.get('title', 'Unknown'),
             'channel': info.get('channel') or info.get('uploader', 'Unknown'),
+            'channel_id': info.get('channel_id', ''),
             'upload_date': upload_date,
             'duration': info.get('duration', 0),
             'views': format_number(info.get('view_count')),
             'likes': format_number(info.get('like_count')),
+            'description': info.get('description', ''),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -808,6 +826,144 @@ async def proxy_hls_segment(url: str, auth: bool = Depends(require_auth)):
             )
     except Exception as e:
         log.error(f"HLS segment error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/related/{video_id}")
+async def get_related_videos(video_id: str, auth: bool = Depends(require_auth)):
+    """Get related videos for a video"""
+    import re
+    import json as json_module
+
+    try:
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=headers, follow_redirects=True, timeout=30.0)
+            html = resp.text
+
+        # Find ytInitialData JSON
+        match = re.search(r'var ytInitialData = ({.*?});', html)
+        if not match:
+            return {'results': []}
+
+        data = json_module.loads(match.group(1))
+
+        # Navigate to related videos
+        contents = data.get('contents', {}).get('twoColumnWatchNextResults', {})
+        secondary = contents.get('secondaryResults', {}).get('secondaryResults', {}).get('results', [])
+
+        related = []
+        for item in secondary:
+            if 'lockupViewModel' in item:
+                vm = item['lockupViewModel']
+                content_id = vm.get('contentId', '')
+
+                # Skip mixes/playlists (IDs starting with RD)
+                if content_id.startswith('RD'):
+                    continue
+
+                metadata = vm.get('metadata', {}).get('lockupMetadataViewModel', {})
+                title = metadata.get('title', {}).get('content', '')
+
+                # Get channel from metadata
+                channel = ''
+                metadata_rows = metadata.get('metadata', {}).get('contentMetadataViewModel', {}).get('metadataRows', [])
+                if metadata_rows:
+                    for row in metadata_rows:
+                        parts = row.get('metadataParts', [])
+                        if parts:
+                            channel = parts[0].get('text', {}).get('content', '')
+                            break
+
+                # Duration from contentImage overlay
+                duration_str = ''
+                content_image = vm.get('contentImage', {}).get('collectionThumbnailViewModel', {})
+                primary_thumb = content_image.get('primaryThumbnail', {}).get('thumbnailViewModel', {})
+                overlays = primary_thumb.get('overlays', [])
+                for overlay in overlays:
+                    badge = overlay.get('thumbnailOverlayBadgeViewModel', {})
+                    for b in badge.get('thumbnailBadges', []):
+                        if 'thumbnailBadgeViewModel' in b:
+                            duration_str = b['thumbnailBadgeViewModel'].get('text', '')
+                            break
+
+                if content_id and title:
+                    related.append({
+                        'id': content_id,
+                        'title': title,
+                        'channel': channel,
+                        'duration_str': duration_str,
+                        'thumbnail': f"https://i.ytimg.com/vi/{content_id}/mqdefault.jpg",
+                    })
+
+        return {'results': related}
+
+    except Exception as e:
+        log.error(f"Related videos error: {e}")
+        return {'results': []}
+
+
+@app.get("/api/channel/{channel_id}")
+async def get_channel_videos(
+    channel_id: str,
+    count: int = Query(default=10, ge=1, le=50),
+    auth: bool = Depends(require_auth)
+):
+    """Get videos from a channel"""
+    try:
+        # Use yt-dlp to get channel videos
+        url = f"https://www.youtube.com/channel/{channel_id}/videos"
+
+        # Configure to get more entries for pagination
+        ydl_opts = {
+            **YDL_OPTS,
+            'extract_flat': True,
+            'playlistend': count,
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            result = await asyncio.to_thread(ydl.extract_info, url, download=False)
+
+        videos = []
+        entries = result.get('entries', [])
+
+        for entry in entries:
+            if not entry:
+                continue
+
+            video_id = entry.get('id', '')
+            duration = entry.get('duration') or 0
+
+            if duration:
+                duration = int(duration)
+                hours, remainder = divmod(duration, 3600)
+                minutes, seconds = divmod(remainder, 60)
+                duration_str = f"{hours}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes}:{seconds:02d}"
+            else:
+                duration_str = "?"
+
+            videos.append({
+                'id': video_id,
+                'title': entry.get('title', 'Unknown'),
+                'duration': duration,
+                'duration_str': duration_str,
+                'channel': result.get('channel') or result.get('uploader', 'Unknown'),
+                'thumbnail': f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg",
+            })
+
+        return {
+            'channel': result.get('channel') or result.get('uploader', 'Unknown'),
+            'channel_id': channel_id,
+            'results': videos
+        }
+
+    except Exception as e:
+        log.error(f"Channel videos error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -1,15 +1,26 @@
 // YouTube Web App
 
+// DOM Elements - Views
+const listView = document.getElementById('list-view');
+const videoView = document.getElementById('video-view');
+const listHeader = document.getElementById('list-header');
+const listTitle = document.getElementById('list-title');
+
+// DOM Elements - Search
 const searchInput = document.getElementById('search-input');
 const searchBtn = document.getElementById('search-btn');
 const videoGrid = document.getElementById('video-grid');
+const noResults = document.getElementById('no-results');
+const loadMoreContainer = document.getElementById('load-more-container');
+
+// DOM Elements - Video Page
 const playerContainer = document.getElementById('player-container');
 const videoPlayer = document.getElementById('video-player');
 const videoTitle = document.getElementById('video-title');
+const videoChannel = document.getElementById('video-channel');
 const videoMeta = document.getElementById('video-meta');
-const closePlayerBtn = document.getElementById('close-player');
-const noResults = document.getElementById('no-results');
-const loadMoreContainer = document.getElementById('load-more-container');
+const videoDescription = document.getElementById('video-description');
+const resolutionBadge = document.getElementById('resolution-badge');
 const cancelDownloadBtn = document.getElementById('cancel-download-btn');
 const progressRingFill = document.querySelector('.progress-ring-fill');
 const downloadPill = document.getElementById('download-pill');
@@ -17,17 +28,29 @@ const downloadAction = document.getElementById('download-action');
 const downloadGear = document.getElementById('download-gear');
 const downloadQualityMenu = document.getElementById('download-quality-menu');
 
-let maxDownloadQuality = 1080; // Default max quality setting
+// DOM Elements - Related
+const relatedVideos = document.getElementById('related-videos');
+const relatedLoadMore = document.getElementById('related-load-more');
 
+// State
+let maxDownloadQuality = 1080;
 let currentQuery = '';
+let currentChannelId = null;
 let currentCount = 10;
 const BATCH_SIZE = 10;
 let progressInterval = null;
 let isLoadingMore = false;
 let hasMoreResults = true;
 let currentVideoId = null;
-let autoDownloadThreshold = 15 * 60; // 15 minutes in seconds (default)
-let loadedVideoIds = new Set(); // Track already loaded videos
+let currentVideoChannelId = null;
+let autoDownloadThreshold = 15 * 60;
+let loadedVideoIds = new Set();
+let listViewCache = null; // Cache list view for back navigation
+let listViewMode = 'search'; // 'search' or 'channel'
+let hlsPlayer = null;
+let downloadCancelled = false;
+let availableQualities = [];
+let selectedDownloadQuality = 0;
 
 // Settings dropdown
 const settingsBtn = document.getElementById('settings-btn');
@@ -38,32 +61,27 @@ settingsBtn.addEventListener('click', (e) => {
     settingsMenu.classList.toggle('show');
 });
 
-// Close dropdowns when clicking outside
 document.addEventListener('click', () => {
     settingsMenu.classList.remove('show');
     downloadQualityMenu.classList.add('hidden');
 });
 
 settingsMenu.addEventListener('click', (e) => {
-    e.stopPropagation(); // Keep open when clicking inside
+    e.stopPropagation();
 });
 
-// Auto-download settings chips
+// Auto-download settings
 const autoDlChips = document.getElementById('auto-dl-chips');
 autoDlChips.addEventListener('click', (e) => {
     if (e.target.classList.contains('chip')) {
-        // Update active state
         autoDlChips.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
         e.target.classList.add('active');
-        // Update threshold (value is in minutes, convert to seconds)
         const minutes = parseInt(e.target.dataset.value);
         autoDownloadThreshold = minutes * 60;
-        // Save to localStorage
         localStorage.setItem('autoDownloadMinutes', minutes);
     }
 });
 
-// Load saved auto-download setting
 const savedMinutes = localStorage.getItem('autoDownloadMinutes');
 if (savedMinutes !== null) {
     autoDownloadThreshold = parseInt(savedMinutes) * 60;
@@ -72,7 +90,7 @@ if (savedMinutes !== null) {
     });
 }
 
-// Max quality setting chips
+// Max quality setting
 const qualityChips = document.getElementById('quality-chips');
 qualityChips.addEventListener('click', (e) => {
     if (e.target.classList.contains('chip')) {
@@ -83,7 +101,6 @@ qualityChips.addEventListener('click', (e) => {
     }
 });
 
-// Load saved quality setting
 const savedQuality = localStorage.getItem('maxDownloadQuality');
 if (savedQuality !== null) {
     maxDownloadQuality = parseInt(savedQuality);
@@ -92,40 +109,264 @@ if (savedQuality !== null) {
     });
 }
 
-// Infinite scroll - load more when sentinel becomes visible
+// ===================
+// ROUTING
+// ===================
+
+function showListView() {
+    listView.classList.remove('hidden');
+    videoView.classList.add('hidden');
+    stopPlayer();
+}
+
+function showVideoView() {
+    listView.classList.add('hidden');
+    videoView.classList.remove('hidden');
+}
+
+function navigateToVideo(videoId, title, channel, duration) {
+    // Cache current list view
+    listViewCache = {
+        mode: listViewMode,
+        query: currentQuery,
+        channelId: currentChannelId,
+        html: videoGrid.innerHTML,
+        loadedIds: new Set(loadedVideoIds),
+        headerVisible: !listHeader.classList.contains('hidden'),
+        headerTitle: listTitle.textContent
+    };
+
+    // Update URL
+    const url = `/watch?v=${videoId}`;
+    history.pushState({ view: 'video', videoId, title, channel, duration }, '', url);
+
+    // Show video page
+    showVideoView();
+    playVideo(videoId, title, channel, duration);
+}
+
+function navigateToChannel(channelId, channelName) {
+    history.pushState({ view: 'channel', channelId, channelName }, '', `/channel/${channelId}`);
+    showListView();
+    loadChannelVideos(channelId, channelName);
+}
+
+function navigateToSearch() {
+    history.pushState({ view: 'search' }, '', '/');
+    showListView();
+    restoreListCache();
+}
+
+function restoreListCache() {
+    if (listViewCache) {
+        listViewMode = listViewCache.mode;
+        currentQuery = listViewCache.query;
+        currentChannelId = listViewCache.channelId;
+        searchInput.value = currentQuery || '';
+        videoGrid.innerHTML = listViewCache.html;
+        loadedVideoIds = listViewCache.loadedIds;
+
+        if (listViewCache.headerVisible) {
+            listHeader.classList.remove('hidden');
+            listTitle.textContent = listViewCache.headerTitle;
+        } else {
+            listHeader.classList.add('hidden');
+        }
+
+        attachCardListeners(videoGrid);
+    }
+}
+
+// Handle browser back/forward
+window.addEventListener('popstate', (e) => {
+    if (e.state?.view === 'video') {
+        showVideoView();
+        playVideo(e.state.videoId, e.state.title, e.state.channel, e.state.duration);
+    } else if (e.state?.view === 'channel') {
+        showListView();
+        loadChannelVideos(e.state.channelId, e.state.channelName);
+    } else {
+        showListView();
+        restoreListCache();
+    }
+});
+
+// Handle initial page load
+function handleInitialRoute() {
+    const path = window.location.pathname;
+    const params = new URLSearchParams(window.location.search);
+
+    if (path === '/watch' && params.get('v')) {
+        showVideoView();
+        playVideo(params.get('v'), '', '', 0);
+    } else if (path.startsWith('/channel/')) {
+        const channelId = path.split('/channel/')[1];
+        showListView();
+        loadChannelVideos(channelId, '');
+    }
+}
+
+// ===================
+// SEARCH
+// ===================
+
 const loadMoreObserver = new IntersectionObserver((entries) => {
-    if (entries[0].isIntersecting && !isLoadingMore && hasMoreResults && currentQuery) {
-        loadMore();
+    if (entries[0].isIntersecting && !isLoadingMore && hasMoreResults) {
+        if (listViewMode === 'search' && currentQuery) {
+            loadMoreSearch();
+        } else if (listViewMode === 'channel' && currentChannelId) {
+            loadMoreChannel();
+        }
     }
 }, { threshold: 0.1 });
 
 async function searchVideos(query) {
     if (!query.trim()) return;
 
+    listViewMode = 'search';
     currentQuery = query;
+    currentChannelId = null;
     currentCount = BATCH_SIZE;
     hasMoreResults = true;
     loadedVideoIds.clear();
 
+    // Update URL if not already on search
+    if (window.location.pathname !== '/') {
+        history.pushState({ view: 'search' }, '', '/');
+    }
+
+    showListView();
+    listHeader.classList.add('hidden');
     videoGrid.innerHTML = '';
     noResults.classList.add('hidden');
     showLoadingCard(true);
 
-    await fetchVideos(true);
-
-    // Start observing for infinite scroll
+    await fetchSearchVideos(true);
     loadMoreObserver.observe(loadMoreContainer);
 }
 
-async function loadMore() {
+async function loadMoreSearch() {
     if (isLoadingMore || !hasMoreResults) return;
 
     isLoadingMore = true;
     currentCount += BATCH_SIZE;
     showLoadingCard(true);
-    await fetchVideos(false);
+    await fetchSearchVideos(false);
     isLoadingMore = false;
 }
+
+async function fetchSearchVideos(isNewSearch) {
+    try {
+        const response = await fetch(`/api/search?q=${encodeURIComponent(currentQuery)}&count=${currentCount}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+            const msg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+            throw new Error(msg || 'Search failed');
+        }
+
+        showLoadingCard(false);
+
+        if (data.results.length === 0) {
+            noResults.classList.remove('hidden');
+            hasMoreResults = false;
+        } else {
+            const newVideos = data.results.filter(v => !loadedVideoIds.has(v.id));
+
+            if (isNewSearch) {
+                renderVideos(data.results);
+                data.results.forEach(v => loadedVideoIds.add(v.id));
+            } else {
+                appendVideos(newVideos);
+                newVideos.forEach(v => loadedVideoIds.add(v.id));
+            }
+
+            hasMoreResults = newVideos.length > 0;
+            loadMoreContainer.classList.toggle('hidden', !hasMoreResults);
+        }
+    } catch (error) {
+        showLoadingCard(false);
+        videoGrid.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+        hasMoreResults = false;
+    }
+}
+
+// ===================
+// CHANNEL
+// ===================
+
+async function loadChannelVideos(channelId, channelName) {
+    listViewMode = 'channel';
+    currentChannelId = channelId;
+    currentQuery = '';
+    currentCount = BATCH_SIZE;
+    hasMoreResults = true;
+    loadedVideoIds.clear();
+
+    showListView();
+    listHeader.classList.remove('hidden');
+    listTitle.textContent = channelName || 'Channel';
+    videoGrid.innerHTML = '';
+    noResults.classList.add('hidden');
+    showLoadingCard(true);
+
+    await fetchChannelVideos(true);
+    loadMoreObserver.observe(loadMoreContainer);
+}
+
+async function loadMoreChannel() {
+    if (isLoadingMore || !hasMoreResults) return;
+
+    isLoadingMore = true;
+    currentCount += BATCH_SIZE;
+    showLoadingCard(true);
+    await fetchChannelVideos(false);
+    isLoadingMore = false;
+}
+
+async function fetchChannelVideos(isNewLoad) {
+    try {
+        const response = await fetch(`/api/channel/${currentChannelId}?count=${currentCount}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.detail || 'Failed to load channel');
+        }
+
+        showLoadingCard(false);
+
+        // Update header with channel name
+        if (data.channel) {
+            listTitle.textContent = data.channel;
+        }
+
+        if (data.results.length === 0) {
+            noResults.classList.remove('hidden');
+            hasMoreResults = false;
+        } else {
+            const newVideos = data.results.filter(v => !loadedVideoIds.has(v.id));
+
+            if (isNewLoad) {
+                renderVideos(data.results);
+                data.results.forEach(v => loadedVideoIds.add(v.id));
+            } else {
+                appendVideos(newVideos);
+                newVideos.forEach(v => loadedVideoIds.add(v.id));
+            }
+
+            hasMoreResults = newVideos.length > 0;
+            loadMoreContainer.classList.toggle('hidden', !hasMoreResults);
+        }
+    } catch (error) {
+        showLoadingCard(false);
+        videoGrid.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+        hasMoreResults = false;
+    }
+}
+
+// ===================
+// VIDEO GRID
+// ===================
 
 function showLoadingCard(show) {
     const existingLoader = document.getElementById('loading-card');
@@ -148,45 +389,6 @@ function showLoadingCard(show) {
     }
 }
 
-async function fetchVideos(isNewSearch) {
-    try {
-        const response = await fetch(`/api/search?q=${encodeURIComponent(currentQuery)}&count=${currentCount}`);
-        const data = await response.json();
-
-        if (!response.ok) {
-            const msg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
-            throw new Error(msg || 'Search failed');
-        }
-
-        showLoadingCard(false);
-
-        if (data.results.length === 0) {
-            noResults.classList.remove('hidden');
-            hasMoreResults = false;
-        } else {
-            // Filter out already loaded videos
-            const newVideos = data.results.filter(v => !loadedVideoIds.has(v.id));
-
-            if (isNewSearch) {
-                renderVideos(data.results);
-                data.results.forEach(v => loadedVideoIds.add(v.id));
-            } else {
-                // Append only new videos
-                appendVideos(newVideos);
-                newVideos.forEach(v => loadedVideoIds.add(v.id));
-            }
-
-            // Check if we got fewer NEW results = no more results
-            hasMoreResults = newVideos.length > 0;
-            loadMoreContainer.classList.toggle('hidden', !hasMoreResults);
-        }
-    } catch (error) {
-        showLoadingCard(false);
-        videoGrid.innerHTML = `<p class="error">Error: ${error.message}</p>`;
-        hasMoreResults = false;
-    }
-}
-
 function createVideoCard(video) {
     return `<div class="video-card" data-id="${video.id}" data-title="${escapeAttr(video.title)}" data-channel="${escapeAttr(video.channel)}" data-duration="${video.duration}">
         <div class="thumbnail-container">
@@ -203,7 +405,7 @@ function createVideoCard(video) {
 function attachCardListeners(container) {
     container.querySelectorAll('.video-card:not([data-attached])').forEach(card => {
         card.dataset.attached = 'true';
-        card.addEventListener('click', () => playVideo(
+        card.addEventListener('click', () => navigateToVideo(
             card.dataset.id,
             card.dataset.title,
             card.dataset.channel,
@@ -223,48 +425,86 @@ function appendVideos(videos) {
     attachCardListeners(videoGrid);
 }
 
-let hlsPlayer = null;
+// ===================
+// VIDEO PLAYER
+// ===================
 
-async function playVideo(videoId, title, channel, duration) {
-    // Stop any previous progress polling
+function stopPlayer() {
     if (progressInterval) {
         clearInterval(progressInterval);
         progressInterval = null;
     }
-
-    // Destroy previous HLS player
     if (hlsPlayer) {
         hlsPlayer.destroy();
         hlsPlayer = null;
     }
-
-    // Reset cancel flag for new video
-    downloadCancelled = false;
-
-    videoTitle.textContent = title || 'Loading...';
-    videoMeta.textContent = channel || '';
+    cancelDownloadBtn.classList.add('hidden');
     downloadPill.classList.add('hidden');
     downloadQualityMenu.classList.add('hidden');
+    currentVideoId = null;
+    currentVideoChannelId = null;
+    videoPlayer.pause();
+    videoPlayer.removeAttribute('src');
+    videoPlayer.load();
+}
 
-    // Fetch extra info in background
+async function playVideo(videoId, title, channel, duration) {
+    // Reset state
+    stopPlayer();
+    downloadCancelled = false;
+    currentVideoId = videoId;
+
+    // Reset UI
+    videoTitle.textContent = title || 'Loading...';
+    videoChannel.textContent = channel || '';
+    videoChannel.href = '#';
+    videoMeta.textContent = '';
+    videoDescription.textContent = '';
+    videoDescription.classList.add('hidden');
+    resolutionBadge.classList.add('hidden');
+    downloadPill.classList.add('hidden');
+    downloadQualityMenu.classList.add('hidden');
+    relatedVideos.innerHTML = '';
+
+    // Store duration
+    videoPlayer.dataset.expectedDuration = duration || 0;
+
+    // Fetch video info
     fetch(`/api/info/${videoId}`)
         .then(r => r.json())
         .then(info => {
-            const parts = [info.channel || channel];
-            if (info.upload_date) parts.push(`📅 ${info.upload_date}`);
-            if (info.views) parts.push(`👁 ${info.views}`);
-            if (info.likes) parts.push(`👍 ${info.likes}`);
-            videoMeta.textContent = parts.join('  •  ');
+            videoTitle.textContent = info.title || title;
+            videoChannel.textContent = info.channel || channel;
+
+            // Make channel clickable
+            if (info.channel_id) {
+                currentVideoChannelId = info.channel_id;
+                videoChannel.href = `/channel/${info.channel_id}`;
+                videoChannel.onclick = (e) => {
+                    e.preventDefault();
+                    navigateToChannel(info.channel_id, info.channel);
+                };
+            }
+
+            const metaParts = [];
+            if (info.upload_date) metaParts.push(`📅 ${info.upload_date}`);
+            if (info.views) metaParts.push(`👁 ${info.views}`);
+            if (info.likes) metaParts.push(`👍 ${info.likes}`);
+            videoMeta.textContent = metaParts.join('  •  ');
+
+            // Description
+            if (info.description) {
+                videoDescription.textContent = info.description;
+                videoDescription.classList.remove('hidden');
+            }
         })
         .catch(() => {});
-    playerContainer.classList.remove('hidden');
 
-    // Store duration to set on video when metadata loads
-    videoPlayer.dataset.expectedDuration = duration || 0;
-    playerContainer.scrollIntoView({ behavior: 'smooth' });
+    // Fetch related videos
+    fetchRelatedVideos(videoId);
 
+    // Start playback
     try {
-        // Check if HD is already cached
         const response = await fetch(`/api/progress/${videoId}`);
         const data = await response.json();
 
@@ -272,11 +512,9 @@ async function playVideo(videoId, title, channel, duration) {
         downloadPill.classList.add('hidden');
 
         if (data.status === 'ready') {
-            // HD already cached - play from file
             videoPlayer.src = `/api/stream/${videoId}`;
             videoPlayer.play();
         } else {
-            // Try HLS first (best quality), fallback to direct stream
             if (Hls.isSupported()) {
                 hlsPlayer = new Hls();
                 hlsPlayer.loadSource(`/api/hls/${videoId}`);
@@ -294,14 +532,9 @@ async function playVideo(videoId, title, channel, duration) {
                     }
                 });
             } else {
-                // Fallback for browsers without HLS support
                 videoPlayer.src = `/api/stream-live/${videoId}`;
                 videoPlayer.play();
             }
-
-            // Store for later quality check
-            currentVideoId = videoId;
-            // Download check happens in loadedmetadata when we know actual quality
         }
     } catch (error) {
         videoTitle.textContent = 'Error: ' + error.message;
@@ -309,26 +542,66 @@ async function playVideo(videoId, title, channel, duration) {
     }
 }
 
-function hidePlayer() {
-    if (progressInterval) {
-        clearInterval(progressInterval);
-        progressInterval = null;
+// ===================
+// RELATED VIDEOS
+// ===================
+
+async function fetchRelatedVideos(videoId) {
+    try {
+        relatedVideos.innerHTML = '<div class="loading-more"><div class="loading-spinner"></div></div>';
+
+        const response = await fetch(`/api/related/${videoId}`);
+        const data = await response.json();
+
+        relatedVideos.innerHTML = '';
+
+        if (data.results && data.results.length > 0) {
+            data.results.forEach(video => {
+                const card = createRelatedCard(video);
+                relatedVideos.insertAdjacentHTML('beforeend', card);
+            });
+            attachRelatedListeners();
+        } else {
+            relatedVideos.innerHTML = '<p style="color: #717171; font-size: 14px;">No related videos found</p>';
+        }
+    } catch (error) {
+        relatedVideos.innerHTML = '<p style="color: #ff4444; font-size: 14px;">Failed to load related videos</p>';
     }
-    if (hlsPlayer) {
-        hlsPlayer.destroy();
-        hlsPlayer = null;
-    }
-    playerContainer.classList.add('hidden');
-    cancelDownloadBtn.classList.add('hidden');
-    downloadPill.classList.add('hidden');
-    downloadQualityMenu.classList.add('hidden');
-    currentVideoId = null;
-    videoPlayer.pause();
-    videoPlayer.removeAttribute('src');
-    videoPlayer.load();
 }
 
-const PROGRESS_CIRCUMFERENCE = 62.83; // 2 * PI * 10
+function createRelatedCard(video) {
+    return `<div class="related-card" data-id="${video.id}" data-title="${escapeAttr(video.title)}" data-channel="${escapeAttr(video.channel || '')}" data-duration="0">
+        <div class="thumbnail-container">
+            <img src="${video.thumbnail}" alt="${escapeHtml(video.title)}" loading="lazy">
+            ${video.duration_str ? `<span class="duration">${video.duration_str}</span>` : ''}
+        </div>
+        <div class="related-info">
+            <div class="related-title">${escapeHtml(video.title)}</div>
+            ${video.channel ? `<div class="related-channel">${escapeHtml(video.channel)}</div>` : ''}
+        </div>
+    </div>`;
+}
+
+function attachRelatedListeners() {
+    relatedVideos.querySelectorAll('.related-card:not([data-attached])').forEach(card => {
+        card.dataset.attached = 'true';
+        card.addEventListener('click', () => {
+            const videoId = card.dataset.id;
+            const title = card.dataset.title;
+            const channel = card.dataset.channel;
+
+            const url = `/watch?v=${videoId}`;
+            history.pushState({ view: 'video', videoId, title, channel, duration: 0 }, '', url);
+            playVideo(videoId, title, channel, 0);
+        });
+    });
+}
+
+// ===================
+// DOWNLOAD
+// ===================
+
+const PROGRESS_CIRCUMFERENCE = 62.83;
 
 function setProgress(percent) {
     const offset = PROGRESS_CIRCUMFERENCE - (percent / 100) * PROGRESS_CIRCUMFERENCE;
@@ -341,11 +614,9 @@ function startHdDownload(videoId, quality = 0) {
     downloadQualityMenu.classList.add('hidden');
     setProgress(0);
 
-    // Start HD download
     const url = quality ? `/api/play/${videoId}?quality=${quality}` : `/api/play/${videoId}`;
     fetch(url);
 
-    // Poll for HD completion
     progressInterval = setInterval(async () => {
         try {
             const prog = await fetch(`/api/progress/${videoId}`);
@@ -358,7 +629,6 @@ function startHdDownload(videoId, quality = 0) {
                 progressInterval = null;
                 setProgress(100);
 
-                // Switch to HD
                 const currentTime = videoPlayer.currentTime;
                 const wasPlaying = !videoPlayer.paused;
 
@@ -367,11 +637,9 @@ function startHdDownload(videoId, quality = 0) {
                     hlsPlayer = null;
                 }
 
-                // Pause first, then switch source
                 videoPlayer.pause();
                 videoPlayer.src = `/api/stream/${videoId}`;
 
-                // Wait for new source to load before seeking
                 videoPlayer.onloadedmetadata = () => {
                     videoPlayer.currentTime = currentTime;
                     if (wasPlaying) videoPlayer.play();
@@ -386,45 +654,35 @@ function startHdDownload(videoId, quality = 0) {
                 setTimeout(() => cancelDownloadBtn.classList.add('hidden'), 500);
             }
         } catch (e) {
-            // Ignore progress errors
+            // Ignore
         }
     }, 500);
 }
-
-let availableQualities = []; // Store for current video
-let selectedDownloadQuality = 0; // Currently selected quality for download
 
 async function checkDownloadOffer(videoId, currentHeight) {
     try {
         const response = await fetch(`/api/formats/${videoId}`);
         const data = await response.json();
 
-        // Filter to qualities BETTER than current streaming
         const betterOptions = data.options.filter(opt => opt.height > currentHeight);
 
         if (betterOptions.length > 0) {
             availableQualities = betterOptions;
 
-            // Find the best quality that matches user's setting (or nearest available >= setting)
             let targetQuality = betterOptions.find(opt => opt.height >= maxDownloadQuality);
             if (!targetQuality) {
-                // If no quality >= setting, use highest available
                 targetQuality = betterOptions[betterOptions.length - 1];
             }
             selectedDownloadQuality = targetQuality.height;
 
-            // Update download button text with size
             const sizeText = targetQuality.size_str ? ` (${targetQuality.size_str})` : '';
             downloadAction.textContent = `Download${sizeText}`;
 
-            // Populate quality menu (highest first for dropdown)
             updateQualityMenu();
-
-            // Show the pill button
             downloadPill.classList.remove('hidden');
         }
     } catch (e) {
-        // Ignore errors
+        // Ignore
     }
 }
 
@@ -438,7 +696,6 @@ function updateQualityMenu() {
         </div>`;
     }).join('');
 
-    // Add click handlers to quality options
     downloadQualityMenu.querySelectorAll('.quality-option').forEach(opt => {
         opt.addEventListener('click', () => {
             const quality = parseInt(opt.dataset.quality);
@@ -446,13 +703,12 @@ function updateQualityMenu() {
             const selected = availableQualities.find(q => q.height === quality);
             const sizeText = selected?.size_str ? ` (${selected.size_str})` : '';
             downloadAction.textContent = `Download${sizeText}`;
-            updateQualityMenu(); // Update selection highlight
+            updateQualityMenu();
             downloadQualityMenu.classList.add('hidden');
         });
     });
 }
 
-// Download pill handlers
 downloadAction.addEventListener('click', () => {
     if (currentVideoId && selectedDownloadQuality > 0) {
         startHdDownload(currentVideoId, selectedDownloadQuality);
@@ -468,8 +724,6 @@ downloadQualityMenu.addEventListener('click', (e) => {
     e.stopPropagation();
 });
 
-let downloadCancelled = false;
-
 cancelDownloadBtn.addEventListener('click', async () => {
     if (currentVideoId) {
         downloadCancelled = true;
@@ -479,12 +733,15 @@ cancelDownloadBtn.addEventListener('click', async () => {
             progressInterval = null;
         }
         cancelDownloadBtn.classList.add('hidden');
-        // Re-show download pill if we have quality options
         if (availableQualities.length > 0) {
             downloadPill.classList.remove('hidden');
         }
     }
 });
+
+// ===================
+// UTILS
+// ===================
 
 function escapeHtml(text) {
     const div = document.createElement('div');
@@ -496,25 +753,31 @@ function escapeAttr(text) {
     return text.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// ===================
+// EVENT LISTENERS
+// ===================
+
 searchBtn.addEventListener('click', () => searchVideos(searchInput.value));
 searchInput.addEventListener('keypress', e => e.key === 'Enter' && searchVideos(searchInput.value));
-closePlayerBtn.addEventListener('click', hidePlayer);
 
 videoPlayer.addEventListener('error', () => {
-    // Don't show errors to user - they're usually transient
-    // Just log for debugging
     console.log('Video error:', videoPlayer.error?.message);
 });
 
-// Smart download check when metadata loads
 videoPlayer.addEventListener('loadedmetadata', () => {
     const h = videoPlayer.videoHeight;
     const duration = parseInt(videoPlayer.dataset.expectedDuration) || 0;
 
-    // Skip if already playing downloaded file or download in progress
+    // Show resolution badge
+    if (h > 0) {
+        resolutionBadge.textContent = `${h}p`;
+        resolutionBadge.classList.remove('hidden');
+        resolutionBadge.classList.toggle('hd', h >= 720);
+    }
+
     if (!currentVideoId || progressInterval) return;
     if (videoPlayer.src && videoPlayer.src.includes('/api/stream/') && !videoPlayer.src.includes('/api/stream-live/')) {
-        return; // Already playing downloaded file
+        return;
     }
 
     const shouldAutoDownload = autoDownloadThreshold > 0 &&
@@ -524,10 +787,11 @@ videoPlayer.addEventListener('loadedmetadata', () => {
                                h < maxDownloadQuality;
 
     if (shouldAutoDownload) {
-        // Auto-download at user's max quality setting
         startHdDownload(currentVideoId, maxDownloadQuality);
     } else {
-        // Show download options if better quality exists
         checkDownloadOffer(currentVideoId, h);
     }
 });
+
+// Handle initial route on page load
+handleInitialRoute();
