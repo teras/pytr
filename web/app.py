@@ -279,6 +279,47 @@ async def stream_video(video_id: str):
     return FileResponse(video_path, media_type='video/mp4')
 
 
+@app.get("/api/stream-live/{video_id}")
+async def stream_live(video_id: str):
+    """Stream video directly from YouTube (no download/cache)"""
+    from fastapi.responses import StreamingResponse
+
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    async def generate():
+        # Use format 22 (720p) or 18 (360p) - progressive formats work better for streaming
+        process = await asyncio.create_subprocess_exec(
+            'yt-dlp',
+            '-f', '22/18/best',
+            '-o', '-',  # Output to stdout
+            '--no-warnings',
+            '-q',
+            url,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+
+        try:
+            while True:
+                chunk = await process.stdout.read(65536)  # 64KB chunks
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
+
+    return StreamingResponse(
+        generate(),
+        media_type='video/mp4',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Accept-Ranges': 'none',  # No seeking support for live stream
+        }
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -153,55 +153,63 @@ async function playVideo(videoId, title, channel, duration) {
 
     // Store duration to set on video when metadata loads
     videoPlayer.dataset.expectedDuration = duration || 0;
-    downloadProgress.classList.remove('hidden');
-    progressFill.style.width = '0%';
-    progressText.textContent = 'Starting...';
     playerContainer.scrollIntoView({ behavior: 'smooth' });
 
     try {
-        // Start download
+        // Check if HD is already cached
         const response = await fetch(`/api/play/${videoId}`);
         const data = await response.json();
 
         if (data.status === 'ready') {
-            // Already downloaded, play immediately
-            progressFill.style.width = '100%';
-            progressText.textContent = 'Ready';
+            // HD already cached - play immediately
             downloadProgress.classList.add('hidden');
             videoPlayer.src = data.url;
             videoPlayer.play();
         } else {
-            // Wait for download to complete, then play
-            const streamUrl = data.url;
+            // Start 720p live stream immediately
+            downloadProgress.classList.remove('hidden');
+            progressFill.style.width = '0%';
+            progressText.textContent = 'Streaming 720p, downloading HD...';
 
-            // Poll for progress
+            videoPlayer.src = `/api/stream-live/${videoId}`;
+            videoPlayer.play();
+
+            // HD download started in background by /api/play call
+            // Poll for HD completion
             progressInterval = setInterval(async () => {
                 try {
                     const prog = await fetch(`/api/progress/${videoId}`);
                     const progData = await prog.json();
 
                     progressFill.style.width = `${progData.progress}%`;
-                    progressText.textContent = progData.message || 'Downloading...';
 
                     if (progData.status === 'finished' || progData.status === 'ready') {
-                        progressFill.style.width = '100%';
-                        progressText.textContent = 'Starting playback...';
                         clearInterval(progressInterval);
                         progressInterval = null;
+                        progressText.textContent = 'HD ready! Switching...';
 
-                        // Now play the video
-                        videoPlayer.src = streamUrl;
-                        videoPlayer.play();
-                        setTimeout(() => downloadProgress.classList.add('hidden'), 1000);
+                        // Switch to HD
+                        const currentTime = videoPlayer.currentTime;
+                        const wasPlaying = !videoPlayer.paused;
+
+                        videoPlayer.src = `/api/stream/${videoId}`;
+                        videoPlayer.currentTime = currentTime;
+                        if (wasPlaying) videoPlayer.play();
+
+                        setTimeout(() => downloadProgress.classList.add('hidden'), 1500);
                     } else if (progData.status === 'error') {
-                        progressText.textContent = 'Download failed: ' + progData.message;
+                        // HD failed, but 720p still playing - just hide progress
+                        progressText.textContent = 'HD unavailable, using 720p';
                         clearInterval(progressInterval);
                         progressInterval = null;
+                        setTimeout(() => downloadProgress.classList.add('hidden'), 2000);
+                    } else {
+                        progressText.textContent = `Streaming 720p | HD: ${progData.message || 'downloading...'}`;
                     }
                 } catch (e) {
                     // Ignore progress errors
                 }
-            }, 300);
+            }, 500);
         }
     } catch (error) {
         videoTitle.textContent = 'Error: ' + error.message;
