@@ -1,12 +1,18 @@
-"""YouTube Web App - FastAPI Backend"""
+"""YTP - FastAPI Backend"""
 import asyncio
+import json as json_module
 import logging
 import os
-import httpx
-import yt_dlp
+import re
 import secrets
+import struct
 import time
 from pathlib import Path
+from urllib.parse import quote
+from xml.sax.saxutils import escape as xml_escape
+
+import httpx
+import yt_dlp
 from dotenv import load_dotenv
 
 # Load .env from current dir or parent dir (for local dev)
@@ -24,13 +30,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-app = FastAPI(title="YouTube Web App")
-
-# Configuration
-CONFIG = {
-    # 'fast' = 720p max (format 22/18), 'best' = best quality (bestvideo+bestaudio)
-    'quality': 'best',
-}
+app = FastAPI(title="YTP")
 
 # Authentication
 AUTH_PASSWORD = os.environ.get('YTP_PASSWORD')
@@ -111,27 +111,26 @@ log.info("Cleared downloads cache")
 # Track active downloads: video_id -> {"status": str, "progress": float, ...}
 active_downloads = {}
 
+# DASH manifest cache: video_id -> {"mpd": str, "created": float, "formats": dict}
+_dash_cache: dict = {}
+_DASH_CACHE_TTL = 5 * 3600  # URLs expire after ~6h, refresh at 5h
+
+# Cache subtitle URLs per video (populated by /api/info, consumed by /api/subtitle)
+_subtitle_cache: dict = {}  # video_id -> {lang: {"auto": bool, "url": str}}
+
+# Cache subtitle download failures to avoid hammering YouTube with 429s
+_subtitle_fail_cache: dict = {}  # (video_id, lang) -> timestamp
+_SUBTITLE_FAIL_TTL = 300  # 5 minutes
+
 # yt-dlp options - set YOUTUBE_COOKIES_BROWSER env var to enable (e.g. "chrome", "firefox")
-import os
 _cookies_browser = os.environ.get('YOUTUBE_COOKIES_BROWSER')
 YDL_OPTS = {
     'quiet': True,
     'no_warnings': True,
     'remote_components': ['ejs:github'],  # Required for YouTube JS challenge solving
 }
-_youtube_cookies = {}
 if _cookies_browser:
     YDL_OPTS['cookiesfrombrowser'] = (_cookies_browser,)
-    # Extract cookies for use in httpx
-    try:
-        from yt_dlp.cookies import extract_cookies_from_browser
-        cookie_jar = extract_cookies_from_browser(_cookies_browser)
-        for cookie in cookie_jar:
-            if 'youtube' in cookie.domain or 'google' in cookie.domain:
-                _youtube_cookies[cookie.name] = cookie.value
-        log.info(f"Extracted {len(_youtube_cookies)} YouTube cookies from {_cookies_browser}")
-    except Exception as e:
-        log.warning(f"Could not extract cookies: {e}")
 
 # yt-dlp instances (reused for speed)
 ydl_search = yt_dlp.YoutubeDL({
@@ -140,6 +139,46 @@ ydl_search = yt_dlp.YoutubeDL({
 })
 
 ydl_info = yt_dlp.YoutubeDL(YDL_OPTS)
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _yt_url(video_id: str) -> str:
+    return f"https://www.youtube.com/watch?v={video_id}"
+
+
+def _format_duration(seconds) -> str:
+    if not seconds:
+        return "?"
+    seconds = int(seconds)
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
+
+
+def format_number(n):
+    """Format large numbers: 1500000 -> 1.5M"""
+    if n is None:
+        return None
+    if n >= 1_000_000_000:
+        return f"{n/1_000_000_000:.1f}B"
+    if n >= 1_000_000:
+        return f"{n/1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n/1_000:.1f}K"
+    return str(n)
+
+
+def format_bytes(b):
+    """Format bytes: 1500000 -> 1.4 MB"""
+    if b >= 1_000_000_000:
+        return f"{b/1_000_000_000:.1f} GB"
+    if b >= 1_000_000:
+        return f"{b/1_000_000:.1f} MB"
+    if b >= 1_000:
+        return f"{b/1_000:.1f} KB"
+    return f"{b} B"
+
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -336,25 +375,15 @@ async def search(q: str = Query(..., min_length=1), count: int = Query(default=1
         for entry in result.get('entries', []):
             if not entry:
                 continue
-
-            video_id = entry.get('id', '')
+            vid = entry.get('id', '')
             duration = entry.get('duration') or 0
-
-            if duration:
-                duration = int(duration)
-                hours, remainder = divmod(duration, 3600)
-                minutes, seconds = divmod(remainder, 60)
-                duration_str = f"{hours}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes}:{seconds:02d}"
-            else:
-                duration_str = "?"
-
             videos.append({
-                'id': video_id,
+                'id': vid,
                 'title': entry.get('title', 'Unknown'),
                 'duration': duration,
-                'duration_str': duration_str,
+                'duration_str': _format_duration(duration),
                 'channel': entry.get('channel') or entry.get('uploader', 'Unknown'),
-                'thumbnail': f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg",
+                'thumbnail': f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg",
             })
 
         return {'results': videos}
@@ -392,7 +421,7 @@ async def play_video(video_id: str, quality: int = Query(default=0), auth: bool 
 
     async def download():
         try:
-            url = f"https://www.youtube.com/watch?v={video_id}"
+            url = _yt_url(video_id)
             log.info(f"Starting download for {video_id} (quality={quality or 'best'})")
 
             active_downloads[video_id]['status'] = 'downloading'
@@ -400,17 +429,19 @@ async def play_video(video_id: str, quality: int = Query(default=0), auth: bool 
 
             # Select format based on requested quality
             if quality > 0:
-                # Specific quality requested
                 fmt = f'bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<={quality}]+bestaudio/best[height<={quality}]'
-            elif CONFIG['quality'] == 'fast':
-                fmt = '22/18/best'  # 720p/360p combined, fast
             else:
-                fmt = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best'  # Best quality
+                fmt = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best'
 
             process = await asyncio.create_subprocess_exec(
                 'yt-dlp',
                 '-f', fmt,
                 '--merge-output-format', 'mp4',
+                '--write-sub',
+                '--write-auto-sub',
+                '--sub-langs', 'all',
+                '--sub-format', 'vtt',
+                '--convert-subs', 'vtt',
                 '-o', str(video_path),
                 '--no-warnings',
                 '--progress',
@@ -451,6 +482,7 @@ async def play_video(video_id: str, quality: int = Query(default=0), auth: bool 
                 active_downloads[video_id]['status'] = 'finished'
                 active_downloads[video_id]['progress'] = 100
                 active_downloads[video_id]['message'] = 'Complete'
+
             else:
                 raise Exception("Download failed")
 
@@ -473,29 +505,45 @@ async def play_video(video_id: str, quality: int = Query(default=0), auth: bool 
     }
 
 
-def format_number(n):
-    """Format large numbers: 1500000 -> 1.5M"""
-    if n is None:
-        return None
-    if n >= 1_000_000_000:
-        return f"{n/1_000_000_000:.1f}B"
-    if n >= 1_000_000:
-        return f"{n/1_000_000:.1f}M"
-    if n >= 1_000:
-        return f"{n/1_000:.1f}K"
-    return str(n)
-
-
 @app.get("/api/info/{video_id}")
 async def get_video_info(video_id: str, auth: bool = Depends(require_auth)):
     """Get video info (views, likes, etc.)"""
     try:
-        url = f"https://www.youtube.com/watch?v={video_id}"
-        info = await asyncio.to_thread(ydl_info.extract_info, url, download=False)
+        url = _yt_url(video_id)
+        # Use a fresh instance to avoid shared-state issues with concurrent HLS/stream calls
+        def _extract():
+            with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
+                return ydl.extract_info(url, download=False)
+        info = await asyncio.to_thread(_extract)
 
         upload_date = info.get('upload_date', '')
         if upload_date and len(upload_date) == 8:
             upload_date = f"{upload_date[6:8]}/{upload_date[4:6]}/{upload_date[0:4]}"
+
+        # Parse subtitle tracks and populate cache
+        _SKIP_LANGS = {'live_chat', 'rechat'}
+        cache_entry: dict = {}
+        subtitle_tracks = []
+
+        for lang, formats in info.get('subtitles', {}).items():
+            if lang in _SKIP_LANGS:
+                continue
+            vtt = next((f for f in formats if f.get('ext') == 'vtt'), None)
+            if vtt:
+                name = next((f.get('name') for f in formats if f.get('name')), lang)
+                cache_entry[lang] = {'auto': False, 'url': vtt['url']}
+                subtitle_tracks.append({'lang': lang, 'label': name, 'auto': False})
+
+        for lang, formats in info.get('automatic_captions', {}).items():
+            if lang in _SKIP_LANGS or lang in cache_entry:
+                continue
+            vtt = next((f for f in formats if f.get('ext') == 'vtt'), None)
+            if vtt:
+                name = next((f.get('name') for f in formats if f.get('name')), lang)
+                cache_entry[lang] = {'auto': True, 'url': vtt['url']}
+                subtitle_tracks.append({'lang': lang, 'label': f"{name} (auto)", 'auto': True})
+
+        _subtitle_cache[video_id] = cache_entry
 
         return {
             'title': info.get('title', 'Unknown'),
@@ -506,16 +554,83 @@ async def get_video_info(video_id: str, auth: bool = Depends(require_auth)):
             'views': format_number(info.get('view_count')),
             'likes': format_number(info.get('like_count')),
             'description': info.get('description', ''),
+            'subtitle_tracks': subtitle_tracks,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/subtitle/{video_id}")
+async def get_subtitle(video_id: str, lang: str, auth: bool = Depends(require_auth)):
+    """Proxy a subtitle VTT file. Tries: local file → cached URL → yt-dlp download."""
+    def _find_local():
+        matches = list(DOWNLOADS_DIR.glob(f"{video_id}*.{lang}.vtt"))
+        return matches[0] if matches else None
+
+    # 1. Local cache (already downloaded)
+    found = _find_local()
+    if found:
+        return FileResponse(found, media_type='text/vtt', headers={'Cache-Control': 'max-age=3600'})
+
+    # 2. Check backend fail cache — avoid hammering YouTube when it 429s
+    fail_key = (video_id, lang)
+    if fail_key in _subtitle_fail_cache:
+        if time.time() - _subtitle_fail_cache[fail_key] < _SUBTITLE_FAIL_TTL:
+            raise HTTPException(status_code=404, detail="Subtitle unavailable (rate-limited)")
+        del _subtitle_fail_cache[fail_key]
+
+    # 3. Try direct URL from info cache (fast, no yt-dlp process)
+    cache = _subtitle_cache.get(video_id, {})
+    sub_info = cache.get(lang) or cache.get(lang.split('-')[0])
+    if sub_info and sub_info.get('url'):
+        try:
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+                resp = await client.get(sub_info['url'])
+            if resp.status_code == 200:
+                out_path = DOWNLOADS_DIR / f"{video_id}.{lang}.vtt"
+                out_path.write_bytes(resp.content)
+                return Response(resp.content, media_type='text/vtt',
+                                headers={'Cache-Control': 'max-age=3600'})
+        except Exception:
+            pass  # fall through to yt-dlp
+
+    # 4. Fall back to yt-dlp (slower, but handles auth/signing)
+    yt_url = _yt_url(video_id)
+    out_tpl = str(DOWNLOADS_DIR / video_id)
+
+    def _download_sub():
+        opts = {
+            **YDL_OPTS,
+            'skip_download': True,
+            'writesubtitles': True,
+            'writeautomaticsub': True,
+            'subtitleslangs': [lang],
+            'subtitlesformat': 'vtt',
+            'convertsubtitles': 'vtt',
+            'outtmpl': out_tpl,
+        }
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([yt_url])
+
+    try:
+        await asyncio.to_thread(_download_sub)
+    except Exception as e:
+        _subtitle_fail_cache[fail_key] = time.time()
+        raise HTTPException(status_code=500, detail=str(e))
+
+    found = _find_local()
+    if not found:
+        _subtitle_fail_cache[fail_key] = time.time()
+        raise HTTPException(status_code=404, detail="Subtitle not found")
+
+    return FileResponse(found, media_type='text/vtt', headers={'Cache-Control': 'max-age=3600'})
 
 
 @app.get("/api/formats/{video_id}")
 async def get_formats(video_id: str, auth: bool = Depends(require_auth)):
     """Get available download qualities"""
     try:
-        url = f"https://www.youtube.com/watch?v={video_id}"
+        url = _yt_url(video_id)
         info = await asyncio.to_thread(ydl_info.extract_info, url, download=False)
 
         # Collect all video-only formats (will be merged with audio when downloading)
@@ -554,17 +669,6 @@ async def get_formats(video_id: str, auth: bool = Depends(require_auth)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def format_bytes(b):
-    """Format bytes: 1500000 -> 1.4 MB"""
-    if b >= 1_000_000_000:
-        return f"{b/1_000_000_000:.1f} GB"
-    if b >= 1_000_000:
-        return f"{b/1_000_000:.1f} MB"
-    if b >= 1_000:
-        return f"{b/1_000:.1f} KB"
-    return f"{b} B"
-
-
 @app.get("/api/progress/{video_id}")
 async def get_progress(video_id: str, auth: bool = Depends(require_auth)):
     """Get download progress"""
@@ -598,30 +702,21 @@ async def cancel_download(video_id: str, auth: bool = Depends(require_auth)):
             log.info(f"Cancelled download for {video_id}")
         dl['status'] = 'cancelled'
         dl['message'] = 'Cancelled'
-        # Clean up partial files
-        video_path = DOWNLOADS_DIR / f"{video_id}.mp4"
-        for f in DOWNLOADS_DIR.glob(f"{video_id}.*"):
-            try:
-                f.unlink()
-            except:
-                pass
-        return {"status": "cancelled"}
-    return {"status": "not_found"}
+
+    # Clean up partial files
+    for f in DOWNLOADS_DIR.glob(f"{video_id}.*"):
+        try:
+            f.unlink()
+        except:
+            pass
+
+    return {"status": "cancelled"}
 
 
 @app.get("/api/stream/{video_id}")
 async def stream_video(video_id: str, auth: bool = Depends(require_auth)):
-    """Serve video file"""
+    """Serve downloaded video file."""
     video_path = DOWNLOADS_DIR / f"{video_id}.mp4"
-
-    # Wait for download to complete
-    for _ in range(600):  # Max 60 seconds
-        if video_path.exists() and video_id not in active_downloads:
-            break
-        if video_path.exists() and active_downloads.get(video_id, {}).get('status') == 'finished':
-            break
-        await asyncio.sleep(0.1)
-
     if not video_path.exists():
         raise HTTPException(status_code=404, detail="Video not found")
 
@@ -630,213 +725,342 @@ async def stream_video(video_id: str, auth: bool = Depends(require_auth)):
 
 @app.get("/api/stream-live/{video_id}")
 async def stream_live(video_id: str, request: Request, auth: bool = Depends(require_auth)):
-    """Stream video with range request support (proxy to YouTube)"""
+    """Fallback: proxy progressive format (22/18) with range requests."""
+    url = _yt_url(video_id)
 
-    url = f"https://www.youtube.com/watch?v={video_id}"
-
-    # Get direct video URL from yt-dlp
     try:
-        info = await asyncio.to_thread(
-            ydl_info.extract_info, url, download=False
-        )
+        info = await asyncio.to_thread(ydl_info.extract_info, url, download=False)
 
-        # Find best format: prefer direct (22/18), fallback to any progressive
         video_url = None
         filesize = None
         selected_format = None
 
-        # First try format 22 (720p direct)
-        for fmt in info.get('formats', []):
-            if fmt.get('format_id') == '22' and fmt.get('url'):
-                video_url = fmt.get('url')
-                filesize = fmt.get('filesize') or fmt.get('filesize_approx')
-                selected_format = '22 (720p)'
+        for fmt_id in ('22', '18'):
+            for fmt in info.get('formats', []):
+                if fmt.get('format_id') == fmt_id and fmt.get('url'):
+                    video_url = fmt['url']
+                    filesize = fmt.get('filesize') or fmt.get('filesize_approx')
+                    selected_format = fmt_id
+                    break
+            if video_url:
                 break
 
-        # Fallback to format 18 (360p direct)
         if not video_url:
             for fmt in info.get('formats', []):
-                if fmt.get('format_id') == '18' and fmt.get('url'):
-                    video_url = fmt.get('url')
-                    filesize = fmt.get('filesize') or fmt.get('filesize_approx')
-                    selected_format = '18 (360p)'
-                    break
-
-        # Try any direct progressive format
-        if not video_url:
-            for fmt in info.get('formats', []):
-                protocol = fmt.get('protocol', '')
+                proto = fmt.get('protocol', '')
                 if (fmt.get('acodec') not in (None, 'none') and
-                    fmt.get('vcodec') not in (None, 'none') and
-                    fmt.get('url') and
-                    protocol in ('https', 'http')):
-                    video_url = fmt.get('url')
+                        fmt.get('vcodec') not in (None, 'none') and
+                        fmt.get('url') and proto in ('https', 'http')):
+                    video_url = fmt['url']
                     filesize = fmt.get('filesize') or fmt.get('filesize_approx')
-                    selected_format = f"{fmt.get('format_id')} ({fmt.get('height', '?')}p)"
+                    selected_format = fmt.get('format_id')
                     break
 
         if not video_url:
             raise HTTPException(status_code=404, detail="No suitable format found")
 
-        log.info(f"stream-live {video_id}: using format {selected_format}")
-
-    except Exception as e:
-        log.error(f"Failed to get video URL: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-    # Handle range requests
-    range_header = request.headers.get('range')
-
-    async def proxy_stream(start: int = 0, end: int = None):
-        headers = {}
-        if start > 0 or end:
-            if end:
-                headers['Range'] = f'bytes={start}-{end}'
-            else:
-                headers['Range'] = f'bytes={start}-'
-
-        try:
-            async with httpx.AsyncClient() as client:
-                async with client.stream('GET', video_url, headers=headers, timeout=30.0) as resp:
-                    if resp.status_code >= 400:
-                        log.warning(f"Upstream error {resp.status_code} for range {start}-{end}")
-                        return
-                    async for chunk in resp.aiter_bytes(65536):
-                        yield chunk
-        except Exception as e:
-            log.warning(f"Stream error: {e}")
-            return
-
-    if range_header:
-        # Parse range header: "bytes=start-end" or "bytes=start-"
-        range_match = range_header.replace('bytes=', '').split('-')
-        start = int(range_match[0]) if range_match[0] else 0
-        end = int(range_match[1]) if range_match[1] else None
-
-        # Don't set Content-Length for proxied streams (upstream may fail)
-        if filesize:
-            end = end or (filesize - 1)
-            content_range = f'bytes {start}-{end}/{filesize}'
-        else:
-            content_range = f'bytes {start}-*/*'
-
-        headers = {
-            'Content-Type': 'video/mp4',
-            'Accept-Ranges': 'bytes',
-            'Content-Range': content_range,
-            'Cache-Control': 'no-cache',
-        }
-
-        return StreamingResponse(
-            proxy_stream(start, end),
-            status_code=206,
-            headers=headers,
-        )
-    else:
-        # No range - stream from beginning
-        headers = {
-            'Content-Type': 'video/mp4',
-            'Accept-Ranges': 'bytes',
-            'Cache-Control': 'no-cache',
-        }
-
-        return StreamingResponse(
-            proxy_stream(),
-            status_code=200,
-            headers=headers,
-        )
-
-
-@app.get("/api/hls/{video_id}")
-async def get_hls_stream(video_id: str, auth: bool = Depends(require_auth)):
-    """Get HLS manifest with proxied segment URLs"""
-    from urllib.parse import quote
-
-    url = f"https://www.youtube.com/watch?v={video_id}"
-
-    try:
-        info = await asyncio.to_thread(ydl_info.extract_info, url, download=False)
-
-        # Find best HLS format (combined video+audio)
-        best_hls = None
-        best_height = 0
-
-        for fmt in info.get('formats', []):
-            if not fmt.get('url'):
-                continue
-            protocol = fmt.get('protocol', '')
-            if 'm3u8' not in protocol:
-                continue
-            has_video = fmt.get('vcodec') not in (None, 'none')
-            has_audio = fmt.get('acodec') not in (None, 'none')
-            height = fmt.get('height') or 0
-
-            if has_video and has_audio and height > best_height:
-                best_hls = fmt
-                best_height = height
-
-        if not best_hls:
-            raise HTTPException(status_code=404, detail="No HLS format found")
-
-        log.info(f"HLS {video_id}: using format {best_hls.get('format_id')} ({best_height}p)")
-
-        # Fetch the m3u8 manifest
-        async with httpx.AsyncClient(cookies=_youtube_cookies) as client:
-            resp = await client.get(best_hls['url'], timeout=30.0)
-            manifest = resp.text
-
-        # Rewrite segment URLs to go through our proxy
-        lines = []
-        for line in manifest.split('\n'):
-            if line.startswith('http'):
-                lines.append(f"/api/hls-segment?url={quote(line, safe='')}")
-            elif line.startswith('#EXT-X-MAP:URI="'):
-                uri = line.split('URI="')[1].split('"')[0]
-                lines.append(f'#EXT-X-MAP:URI="/api/hls-segment?url={quote(uri, safe='')}"')
-            else:
-                lines.append(line)
-
-        proxied_manifest = '\n'.join(lines)
-
-        return StreamingResponse(
-            iter([proxied_manifest.encode()]),
-            media_type='application/vnd.apple.mpegurl',
-            headers={'Cache-Control': 'no-cache'}
-        )
+        log.info(f"stream-live {video_id}: progressive proxy format {selected_format}")
 
     except HTTPException:
         raise
     except Exception as e:
-        log.error(f"HLS error: {e}")
+        log.error(f"Failed to get video URL: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+    return await _proxy_range_request(request, video_url, filesize)
 
-@app.get("/api/hls-segment")
-async def proxy_hls_segment(url: str, auth: bool = Depends(require_auth)):
-    """Proxy HLS segment to avoid CORS"""
+
+# ── DASH Streaming ───────────────────────────────────────────────────────────
+
+
+def _parse_mp4_boxes(data: bytes) -> dict:
+    """Parse MP4 box headers to find initRange and indexRange."""
+    offset = 0
+    boxes = []
+    while offset < len(data) - 8:
+        size = struct.unpack('>I', data[offset:offset + 4])[0]
+        box_type = data[offset + 4:offset + 8].decode('ascii', errors='replace')
+        if size == 1 and offset + 16 <= len(data):
+            size = struct.unpack('>Q', data[offset + 8:offset + 16])[0]
+        elif size == 0:
+            size = len(data) - offset
+        if size < 8:
+            break
+        boxes.append({'type': box_type, 'offset': offset, 'size': size})
+        offset += size
+
+    result = {}
+    for box in boxes:
+        if box['type'] == 'moov':
+            result['init_end'] = box['offset'] + box['size'] - 1
+        elif box['type'] == 'sidx':
+            result['index_start'] = box['offset']
+            result['index_end'] = box['offset'] + box['size'] - 1
+    return result
+
+
+async def _probe_mp4_ranges(url: str) -> dict | None:
+    """Fetch first 4KB of a URL and parse MP4 box structure."""
     try:
-        async with httpx.AsyncClient(cookies=_youtube_cookies) as client:
-            resp = await client.get(url, timeout=30.0)
-            if resp.status_code == 403:
-                log.warning(f"HLS segment 403 - may need fresh cookies")
-            return StreamingResponse(
-                iter([resp.content]),
-                media_type=resp.headers.get('content-type', 'video/mp2t'),
-                headers={'Cache-Control': 'max-age=3600'}
-            )
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.get(url, headers={'Range': 'bytes=0-4095'}, timeout=10.0)
+            if resp.status_code not in (200, 206):
+                return None
+            return _parse_mp4_boxes(resp.content)
+    except Exception:
+        return None
+
+
+@app.get("/api/dash/{video_id}")
+async def get_dash_manifest(video_id: str, quality: int = Query(default=1080), auth: bool = Depends(require_auth)):
+    """Generate DASH MPD manifest with proxied URLs."""
+
+    # Check cache
+    cached = _dash_cache.get(video_id)
+    if cached and time.time() - cached['created'] < _DASH_CACHE_TTL:
+        return Response(cached['mpd'], media_type='application/dash+xml',
+                        headers={'Cache-Control': 'no-cache'})
+
+    url = _yt_url(video_id)
+    try:
+        info = await asyncio.to_thread(ydl_info.extract_info, url, download=False)
     except Exception as e:
-        log.error(f"HLS segment error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+    duration = info.get('duration') or 0
+
+    # Collect HTTPS video-only and audio-only formats
+    video_fmts = []
+    audio_fmts = []
+
+    for fmt in info.get('formats', []):
+        if fmt.get('protocol') != 'https' or not fmt.get('url'):
+            continue
+        has_video = fmt.get('vcodec') not in (None, 'none')
+        has_audio = fmt.get('acodec') not in (None, 'none')
+
+        if has_video and not has_audio:
+            height = fmt.get('height') or 0
+            if height < 360 or height > quality:
+                continue
+            # Only mp4 container (H.264/AVC) for browser compatibility
+            if fmt.get('ext') not in ('mp4', 'mp4a'):
+                continue
+            video_fmts.append(fmt)
+        elif has_audio and not has_video:
+            # Only m4a/mp4 audio
+            if fmt.get('ext') not in ('m4a', 'mp4'):
+                continue
+            audio_fmts.append(fmt)
+
+    if not video_fmts or not audio_fmts:
+        raise HTTPException(status_code=404, detail="No DASH formats available")
+
+    # Deduplicate: keep best format per height (prefer H.264/avc1 > AV1 for compatibility)
+    best_video = {}
+    for fmt in video_fmts:
+        height = fmt.get('height', 0)
+        codec = fmt.get('vcodec', '')
+        existing = best_video.get(height)
+        if not existing:
+            best_video[height] = fmt
+        elif codec.startswith('avc1') and not existing.get('vcodec', '').startswith('avc1'):
+            # Prefer H.264 over AV1 for broader compatibility
+            best_video[height] = fmt
+        elif codec.startswith('avc1') == existing.get('vcodec', '').startswith('avc1'):
+            # Same codec family — pick higher bitrate
+            if (fmt.get('tbr') or 0) > (existing.get('tbr') or 0):
+                best_video[height] = fmt
+    video_fmts = sorted(best_video.values(), key=lambda f: f.get('height', 0))
+
+    # Best audio: prefer m4a
+    best_audio = None
+    for fmt in audio_fmts:
+        if not best_audio:
+            best_audio = fmt
+        elif fmt.get('ext') == 'm4a' and best_audio.get('ext') != 'm4a':
+            best_audio = fmt
+        elif fmt.get('ext') == best_audio.get('ext') and (fmt.get('tbr') or 0) > (best_audio.get('tbr') or 0):
+            best_audio = fmt
+    audio_fmts = [best_audio] if best_audio else []
+
+    # Probe MP4 boxes for initRange/indexRange (parallel)
+    all_fmts = video_fmts + audio_fmts
+    probe_tasks = [_probe_mp4_ranges(fmt['url']) for fmt in all_fmts]
+    probe_results = await asyncio.gather(*probe_tasks)
+
+    # Build MPD XML
+    mpd_lines = [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        '<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" '
+        'profiles="urn:mpeg:dash:profile:isoff-on-demand:2011" '
+        f'minBufferTime="PT1.5S" type="static" '
+        f'mediaPresentationDuration="PT{duration}S">',
+        '<Period>',
+    ]
+
+    # Video AdaptationSet
+    mpd_lines.append(
+        '<AdaptationSet id="0" mimeType="video/mp4" '
+        'startWithSAP="1" subsegmentAlignment="true" scanType="progressive">'
+    )
+    for i, fmt in enumerate(video_fmts):
+        probe = probe_results[i]
+        proxy_url = f'/api/videoplayback?url={quote(fmt["url"], safe="")}'
+        codecs = fmt.get('vcodec', 'avc1.4d401e')
+        height = fmt.get('height', 0)
+        width = fmt.get('width', 0)
+        fps = fmt.get('fps', 30)
+        bandwidth = int((fmt.get('tbr') or fmt.get('vbr') or 0) * 1000) or 1000000
+
+        mpd_lines.append(
+            f'<Representation id="{fmt.get("format_id", i)}" '
+            f'codecs="{codecs}" width="{width}" height="{height}" '
+            f'bandwidth="{bandwidth}" frameRate="{fps}">'
+        )
+        mpd_lines.append(f'<BaseURL>{xml_escape(proxy_url)}</BaseURL>')
+        if probe and 'init_end' in probe and 'index_start' in probe:
+            mpd_lines.append(
+                f'<SegmentBase indexRange="{probe["index_start"]}-{probe["index_end"]}">'
+                f'<Initialization range="0-{probe["init_end"]}"/>'
+                f'</SegmentBase>'
+            )
+        mpd_lines.append('</Representation>')
+
+    mpd_lines.append('</AdaptationSet>')
+
+    # Audio AdaptationSet
+    if audio_fmts:
+        audio_idx_offset = len(video_fmts)
+        mpd_lines.append(
+            '<AdaptationSet id="1" mimeType="audio/mp4" '
+            'startWithSAP="1" subsegmentAlignment="true">'
+        )
+        for j, fmt in enumerate(audio_fmts):
+            probe = probe_results[audio_idx_offset + j]
+            proxy_url = f'/api/videoplayback?url={quote(fmt["url"], safe="")}'
+            codecs = fmt.get('acodec', 'mp4a.40.2')
+            bandwidth = int((fmt.get('tbr') or fmt.get('abr') or 0) * 1000) or 128000
+
+            mpd_lines.append(
+                f'<Representation id="{fmt.get("format_id", "audio")}" '
+                f'codecs="{codecs}" bandwidth="{bandwidth}">'
+            )
+            mpd_lines.append(
+                '<AudioChannelConfiguration '
+                'schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011" '
+                'value="2"/>'
+            )
+            mpd_lines.append(f'<BaseURL>{xml_escape(proxy_url)}</BaseURL>')
+            if probe and 'init_end' in probe and 'index_start' in probe:
+                mpd_lines.append(
+                    f'<SegmentBase indexRange="{probe["index_start"]}-{probe["index_end"]}">'
+                    f'<Initialization range="0-{probe["init_end"]}"/>'
+                    f'</SegmentBase>'
+                )
+            mpd_lines.append('</Representation>')
+
+        mpd_lines.append('</AdaptationSet>')
+
+    mpd_lines.append('</Period>')
+    mpd_lines.append('</MPD>')
+
+    mpd = '\n'.join(mpd_lines)
+
+    log.info(f"DASH {video_id}: {len(video_fmts)} video + {len(audio_fmts)} audio tracks, max {video_fmts[-1].get('height')}p")
+
+    _dash_cache[video_id] = {'mpd': mpd, 'created': time.time()}
+
+    return Response(mpd, media_type='application/dash+xml',
+                    headers={'Cache-Control': 'no-cache'})
+
+
+@app.options("/api/videoplayback")
+async def videoplayback_options():
+    """CORS preflight for dash.js range requests."""
+    return Response(
+        status_code=204,
+        headers={
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Range',
+            'Access-Control-Max-Age': '86400',
+        },
+    )
+
+
+@app.get("/api/videoplayback")
+async def videoplayback_proxy(url: str, request: Request, auth: bool = Depends(require_auth)):
+    """Proxy range requests to YouTube CDN for DASH playback."""
+    return await _proxy_range_request(request, url)
+
+
+async def _proxy_range_request(request: Request, video_url: str, filesize: int = None):
+    """Proxy a YouTube URL with range request support, forwarding upstream headers."""
+    range_header = request.headers.get('range')
+
+    # Build upstream request headers
+    upstream_headers = {}
+    if range_header:
+        upstream_headers['Range'] = range_header
+    elif filesize:
+        # Always send Range to avoid YouTube throttling
+        upstream_headers['Range'] = 'bytes=0-'
+
+    # Open upstream connection to read headers, then stream body
+    client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+    try:
+        upstream = await client.send(
+            client.build_request('GET', video_url, headers=upstream_headers),
+            stream=True,
+        )
+    except Exception as e:
+        await client.aclose()
+        log.warning(f"Upstream connection error: {e}")
+        raise HTTPException(status_code=502, detail="Upstream connection failed")
+
+    if upstream.status_code >= 400:
+        await upstream.aclose()
+        await client.aclose()
+        log.warning(f"Upstream error {upstream.status_code}")
+        raise HTTPException(status_code=upstream.status_code, detail="Upstream error")
+
+    # Build response headers from upstream
+    resp_headers = {
+        'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Expose-Headers': 'Content-Range, Content-Length',
+        'Cache-Control': 'no-cache',
+    }
+
+    # Forward content type
+    ct = upstream.headers.get('content-type', 'video/mp4')
+    resp_headers['Content-Type'] = ct
+
+    # Forward Content-Range and Content-Length from upstream
+    if upstream.headers.get('content-range'):
+        resp_headers['Content-Range'] = upstream.headers['content-range']
+    if upstream.headers.get('content-length'):
+        resp_headers['Content-Length'] = upstream.headers['content-length']
+
+    status = 206 if upstream.status_code == 206 else 200
+
+    async def stream_body():
+        try:
+            async for chunk in upstream.aiter_bytes(65536):
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(stream_body(), status_code=status, headers=resp_headers)
 
 
 @app.get("/api/related/{video_id}")
 async def get_related_videos(video_id: str, auth: bool = Depends(require_auth)):
     """Get related videos for a video"""
-    import re
-    import json as json_module
-
     try:
-        url = f"https://www.youtube.com/watch?v={video_id}"
+        url = _yt_url(video_id)
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -935,25 +1159,15 @@ async def get_channel_videos(
         for entry in entries:
             if not entry:
                 continue
-
-            video_id = entry.get('id', '')
+            vid = entry.get('id', '')
             duration = entry.get('duration') or 0
-
-            if duration:
-                duration = int(duration)
-                hours, remainder = divmod(duration, 3600)
-                minutes, seconds = divmod(remainder, 60)
-                duration_str = f"{hours}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes}:{seconds:02d}"
-            else:
-                duration_str = "?"
-
             videos.append({
-                'id': video_id,
+                'id': vid,
                 'title': entry.get('title', 'Unknown'),
                 'duration': duration,
-                'duration_str': duration_str,
+                'duration_str': _format_duration(duration),
                 'channel': result.get('channel') or result.get('uploader', 'Unknown'),
-                'thumbnail': f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg",
+                'thumbnail': f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg",
             })
 
         return {

@@ -32,6 +32,11 @@ const downloadQualityMenu = document.getElementById('download-quality-menu');
 const relatedVideos = document.getElementById('related-videos');
 const relatedLoadMore = document.getElementById('related-load-more');
 
+// DOM Elements - Subtitles
+const subtitleBtnContainer = document.getElementById('subtitle-btn-container');
+const subtitleBtn = document.getElementById('subtitle-btn');
+const subtitleMenu = document.getElementById('subtitle-menu');
+
 // State
 let maxDownloadQuality = 1080;
 let currentQuery = '';
@@ -43,14 +48,16 @@ let isLoadingMore = false;
 let hasMoreResults = true;
 let currentVideoId = null;
 let currentVideoChannelId = null;
-let autoDownloadThreshold = 15 * 60;
+let autoDownloadThreshold = 0;
 let loadedVideoIds = new Set();
 let listViewCache = null; // Cache list view for back navigation
 let listViewMode = 'search'; // 'search' or 'channel'
-let hlsPlayer = null;
+let dashPlayer = null;
 let downloadCancelled = false;
 let availableQualities = [];
 let selectedDownloadQuality = 0;
+let subtitleTracks = [];  // [{lang, label, auto}]
+let failedSubtitles = new Set(); // "videoId:lang" — avoid re-downloading known failures
 
 // Settings dropdown
 const settingsBtn = document.getElementById('settings-btn');
@@ -426,6 +433,174 @@ function appendVideos(videos) {
 }
 
 // ===================
+// SUBTITLES
+// ===================
+
+function loadSubtitleTracks(videoId, tracks) {
+    [...videoPlayer.querySelectorAll('track')].forEach(t => t.remove());
+    subtitleTracks = tracks || [];
+
+    if (subtitleTracks.length === 0) {
+        subtitleBtnContainer.classList.add('hidden');
+        return;
+    }
+
+    subtitleBtnContainer.classList.remove('hidden');
+    applySubtitlePreference();
+}
+
+function applySubtitlePreference() {
+    const saved = localStorage.getItem('subtitle_lang');
+    if (!saved || saved === 'off') {
+        updateSubtitleBtn(null);
+        return;
+    }
+
+    // Don't retry if we know this download failed
+    if (failedSubtitles.has(`${currentVideoId}:${saved}`)) {
+        updateSubtitleBtn(null);
+        return;
+    }
+
+    // If a <track> for this language is already in the DOM, just re-enable it
+    for (let i = 0; i < videoPlayer.textTracks.length; i++) {
+        const tt = videoPlayer.textTracks[i];
+        if (tt.language === saved) {
+            tt.mode = 'showing';
+            updateSubtitleBtn(saved);
+            return;
+        }
+    }
+
+    // No track in DOM yet — find in available list and download
+    const track = subtitleTracks.find(t => t.lang === saved)
+               || subtitleTracks.find(t => t.lang.startsWith(saved + '-'));
+
+    if (track) {
+        activateTrack(track);
+    } else {
+        updateSubtitleBtn(null);
+    }
+}
+
+function activateTrack(trackInfo) {
+    [...videoPlayer.querySelectorAll('track')].forEach(t => t.remove());
+
+    const el = document.createElement('track');
+    el.kind = 'subtitles';
+    el.srclang = trackInfo.lang;
+    el.label = trackInfo.label;
+    el.src = `/api/subtitle/${currentVideoId}?lang=${encodeURIComponent(trackInfo.lang)}`;
+
+    el.addEventListener('load', () => {
+        updateSubtitleBtn(trackInfo.lang);  // remove loading indicator
+    });
+    el.addEventListener('error', () => {
+        failedSubtitles.add(`${currentVideoId}:${trackInfo.lang}`);
+        if (localStorage.getItem('subtitle_lang') === trackInfo.lang) {
+            localStorage.setItem('subtitle_lang', 'off');
+        }
+        subtitleBtn.textContent = 'CC';
+        subtitleBtn.classList.remove('active', 'loading');
+    });
+
+    videoPlayer.appendChild(el);
+
+    // Show loading state
+    subtitleBtn.textContent = `CC: ${trackInfo.lang.toUpperCase()} …`;
+    subtitleBtn.classList.add('active');
+
+    // Set mode to showing once the track is registered
+    const activate = (e) => {
+        if (e.track.language === trackInfo.lang) {
+            e.track.mode = 'showing';
+            videoPlayer.textTracks.removeEventListener('addtrack', activate);
+        }
+    };
+    videoPlayer.textTracks.addEventListener('addtrack', activate);
+    // Fallback: try immediately in case addtrack already fired
+    for (let i = 0; i < videoPlayer.textTracks.length; i++) {
+        if (videoPlayer.textTracks[i].language === trackInfo.lang) {
+            videoPlayer.textTracks[i].mode = 'showing';
+            videoPlayer.textTracks.removeEventListener('addtrack', activate);
+            break;
+        }
+    }
+}
+
+function updateSubtitleBtn(activeLang) {
+    if (activeLang) {
+        subtitleBtn.textContent = `CC: ${activeLang.toUpperCase()}`;
+        subtitleBtn.classList.add('active');
+    } else {
+        subtitleBtn.textContent = 'CC';
+        subtitleBtn.classList.remove('active');
+    }
+}
+
+function renderSubtitleMenu() {
+    const saved = localStorage.getItem('subtitle_lang');
+    const activeLang = (saved && saved !== 'off') ? saved : null;
+    const allItems = [{ lang: null, label: 'Off', auto: false }, ...subtitleTracks];
+
+    // Put active item at the top (if not already 'Off')
+    let items;
+    if (activeLang) {
+        const activeItem = allItems.find(t => t.lang === activeLang);
+        items = activeItem
+            ? [activeItem, ...allItems.filter(t => t.lang !== activeLang)]
+            : allItems;
+    } else {
+        items = allItems;
+    }
+
+    subtitleMenu.innerHTML = items.map(t => {
+        const isActive = t.lang === activeLang;
+        return `<div class="subtitle-option${isActive ? ' selected' : ''}" data-lang="${t.lang || ''}">
+            ${escapeHtml(t.label || 'Off')}
+        </div>`;
+    }).join('');
+
+    subtitleMenu.querySelectorAll('.subtitle-option').forEach(opt => {
+        opt.addEventListener('click', () => {
+            const lang = opt.dataset.lang || null;
+            selectSubtitle(lang);
+            subtitleMenu.classList.add('hidden');
+        });
+    });
+}
+
+function getActiveSubtitleLang() {
+    for (let i = 0; i < videoPlayer.textTracks.length; i++) {
+        if (videoPlayer.textTracks[i].mode === 'showing') {
+            return videoPlayer.textTracks[i].language;
+        }
+    }
+    return null;
+}
+
+function selectSubtitle(lang) {
+    localStorage.setItem('subtitle_lang', lang || 'off');
+    if (!lang) {
+        [...videoPlayer.querySelectorAll('track')].forEach(t => t.remove());
+        updateSubtitleBtn(null);
+        return;
+    }
+    const track = subtitleTracks.find(t => t.lang === lang);
+    if (track) activateTrack(track);
+}
+
+subtitleBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    renderSubtitleMenu();
+    subtitleMenu.classList.toggle('hidden');
+});
+
+subtitleMenu.addEventListener('click', (e) => e.stopPropagation());
+
+document.addEventListener('click', () => subtitleMenu.classList.add('hidden'));
+
+// ===================
 // VIDEO PLAYER
 // ===================
 
@@ -434,17 +609,22 @@ function stopPlayer() {
         clearInterval(progressInterval);
         progressInterval = null;
     }
-    if (hlsPlayer) {
-        hlsPlayer.destroy();
-        hlsPlayer = null;
+    if (dashPlayer) {
+        dashPlayer.destroy();
+        dashPlayer = null;
     }
     cancelDownloadBtn.classList.add('hidden');
     downloadPill.classList.add('hidden');
     downloadQualityMenu.classList.add('hidden');
+    subtitleBtnContainer.classList.add('hidden');
+    subtitleTracks = [];
+    failedSubtitles.clear();
+    [...videoPlayer.querySelectorAll('track')].forEach(t => t.remove());
     currentVideoId = null;
     currentVideoChannelId = null;
     videoPlayer.pause();
     videoPlayer.removeAttribute('src');
+    videoPlayer.removeAttribute('poster');
     videoPlayer.load();
 }
 
@@ -468,6 +648,9 @@ async function playVideo(videoId, title, channel, duration) {
 
     // Store duration
     videoPlayer.dataset.expectedDuration = duration || 0;
+
+    // Show thumbnail as poster while stream loads
+    videoPlayer.poster = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
 
     // Fetch video info
     fetch(`/api/info/${videoId}`)
@@ -494,9 +677,12 @@ async function playVideo(videoId, title, channel, duration) {
 
             // Description
             if (info.description) {
-                videoDescription.textContent = info.description;
+                videoDescription.innerHTML = linkifyText(info.description);
                 videoDescription.classList.remove('hidden');
             }
+
+            // Subtitles
+            loadSubtitleTracks(videoId, info.subtitle_tracks || []);
         })
         .catch(() => {});
 
@@ -515,26 +701,16 @@ async function playVideo(videoId, title, channel, duration) {
             videoPlayer.src = `/api/stream/${videoId}`;
             videoPlayer.play();
         } else {
-            if (Hls.isSupported()) {
-                hlsPlayer = new Hls();
-                hlsPlayer.loadSource(`/api/hls/${videoId}`);
-                hlsPlayer.attachMedia(videoPlayer);
-                hlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => {
-                    videoPlayer.play();
-                });
-                hlsPlayer.on(Hls.Events.ERROR, (event, data) => {
-                    if (data.fatal) {
-                        console.log('HLS failed, falling back to direct stream');
-                        hlsPlayer.destroy();
-                        hlsPlayer = null;
-                        videoPlayer.src = `/api/stream-live/${videoId}`;
-                        videoPlayer.play();
-                    }
-                });
-            } else {
-                videoPlayer.src = `/api/stream-live/${videoId}`;
-                videoPlayer.play();
-            }
+            // Use dash.js for DASH adaptive streaming (up to 4K, full seeking)
+            dashPlayer = dashjs.MediaPlayer().create();
+            dashPlayer.updateSettings({
+                streaming: {
+                    abr: {
+                        maxBitrate: { video: -1 },  // Let quality be controlled by manifest
+                    },
+                },
+            });
+            dashPlayer.initialize(videoPlayer, `/api/dash/${videoId}?quality=${maxDownloadQuality || 1080}`, true);
         }
     } catch (error) {
         videoTitle.textContent = 'Error: ' + error.message;
@@ -632,9 +808,9 @@ function startHdDownload(videoId, quality = 0) {
                 const currentTime = videoPlayer.currentTime;
                 const wasPlaying = !videoPlayer.paused;
 
-                if (hlsPlayer) {
-                    hlsPlayer.destroy();
-                    hlsPlayer = null;
+                if (dashPlayer) {
+                    dashPlayer.destroy();
+                    dashPlayer = null;
                 }
 
                 videoPlayer.pause();
@@ -644,6 +820,8 @@ function startHdDownload(videoId, quality = 0) {
                     videoPlayer.currentTime = currentTime;
                     if (wasPlaying) videoPlayer.play();
                     videoPlayer.onloadedmetadata = null;
+                    // Re-apply subtitle preference after src change
+                    applySubtitlePreference();
                 };
                 videoPlayer.load();
 
@@ -753,6 +931,14 @@ function escapeAttr(text) {
     return text.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+function linkifyText(text) {
+    // Escape HTML first
+    const escaped = escapeHtml(text);
+    // Convert URLs to links
+    const urlRegex = /(https?:\/\/[^\s<]+)/g;
+    return escaped.replace(urlRegex, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+}
+
 // ===================
 // EVENT LISTENERS
 // ===================
@@ -772,7 +958,6 @@ videoPlayer.addEventListener('loadedmetadata', () => {
     if (h > 0) {
         resolutionBadge.textContent = `${h}p`;
         resolutionBadge.classList.remove('hidden');
-        resolutionBadge.classList.toggle('hd', h >= 720);
     }
 
     if (!currentVideoId || progressInterval) return;
