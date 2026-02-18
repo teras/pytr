@@ -1,10 +1,15 @@
 FROM python:3.12-slim
 
-# Install ffmpeg
+# Install ffmpeg and dependencies for deno
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg && \
+    apt-get install -y --no-install-recommends ffmpeg curl unzip && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+# Install deno (required by yt-dlp for YouTube extraction)
+RUN curl -fsSL https://deno.land/install.sh | sh
+ENV DENO_INSTALL="/root/.deno"
+ENV PATH="${DENO_INSTALL}/bin:${PATH}"
 
 # Set working directory
 WORKDIR /app

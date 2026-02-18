@@ -117,6 +117,7 @@ _cookies_browser = os.environ.get('YOUTUBE_COOKIES_BROWSER')
 YDL_OPTS = {
     'quiet': True,
     'no_warnings': True,
+    'remote_components': ['ejs:github'],  # Required for YouTube JS challenge solving
 }
 _youtube_cookies = {}
 if _cookies_browser:
@@ -147,7 +148,7 @@ LOGIN_PAGE = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - YouTube Player</title>
+    <title>Login</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -167,7 +168,6 @@ LOGIN_PAGE = """<!DOCTYPE html>
             max-width: 400px;
             margin: 20px;
         }
-        h1 { color: #ff0000; margin-bottom: 30px; text-align: center; font-size: 1.5rem; }
         .error { color: #ff4444; margin-bottom: 20px; text-align: center; font-size: 14px; }
         .blocked { color: #ff8800; }
         input[type="password"] {
@@ -206,7 +206,6 @@ LOGIN_PAGE = """<!DOCTYPE html>
 </head>
 <body>
     <form class="login-box" method="POST" action="/login">
-        <h1>YouTube Player</h1>
         {{ERROR_PLACEHOLDER}}
         <input type="password" name="password" placeholder="Password" autofocus autocomplete="current-password">
         <label class="remember-row">
