@@ -21,8 +21,7 @@ logging.basicConfig(
 app = FastAPI(title="YTP")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Import helpers to trigger downloads dir cleanup on startup
-import helpers  # noqa: F401
+import helpers  # noqa: F401 — ensure cache dir created on startup
 
 # Register routers
 from auth import router as auth_router

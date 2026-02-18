@@ -5,6 +5,4 @@ services:
       - "8000:8000"
     environment:
       - YTP_PASSWORD=${YTP_PASSWORD}
-    volumes:
-      - ./downloads:/app/downloads
     restart: unless-stopped

@@ -43,39 +43,55 @@ let currentVideoId = null;
 let currentVideoChannelId = null;
 let dashPlayer = null;
 let preferredQuality = parseInt(localStorage.getItem('preferredQuality')) || 1080;
+let currentActiveHeight = 0;
+// Quality list: [{height, bandwidth, qualityIndex}]
+let videoQualities = [];
 
 // ── Quality Selector ────────────────────────────────────────────────────────
 
 function getTargetQuality(heights, preferred) {
-    // Find exact match or largest available below preference
     if (heights.includes(preferred)) return preferred;
     const below = heights.filter(h => h <= preferred);
     return below.length > 0 ? Math.max(...below) : Math.min(...heights);
 }
 
-function populateQualityMenu(bitrateList) {
-    // bitrateList from dash.js: [{bitrate, width, height, qualityIndex}, ...]
-    qualityMenu.innerHTML = [...bitrateList].reverse().map(info => {
-        const active = info.height === currentActiveHeight ? ' selected' : '';
-        return `<div class="quality-option${active}" data-index="${info.qualityIndex}" data-height="${info.height}">
-            <span>${info.height}p</span>
+function buildQualities() {
+    // Single video AdaptationSet — use getBitrateInfoListFor which has qualityIndex
+    const bitrateList = dashPlayer.getBitrateInfoListFor('video');
+    return (bitrateList || []).map(br => ({
+        height: br.height,
+        bandwidth: br.bandwidth,
+        qualityIndex: br.qualityIndex,
+    })).sort((a, b) => a.height - b.height);
+}
+
+function populateQualityMenu() {
+    qualityMenu.innerHTML = [...videoQualities].reverse().map(q => {
+        const active = q.height === currentActiveHeight ? ' selected' : '';
+        return `<div class="quality-option${active}" data-height="${q.height}">
+            <span>${q.height}p</span>
         </div>`;
     }).join('');
 
     qualityMenu.querySelectorAll('.quality-option').forEach(opt => {
         opt.addEventListener('click', (e) => {
             e.stopPropagation();
-            const idx = parseInt(opt.dataset.index);
             const height = parseInt(opt.dataset.height);
-            dashPlayer.setQualityFor('video', idx);
+            const entry = videoQualities.find(q => q.height === height);
+            if (!entry || qualityBtn.disabled) return;
+            switchToQuality(entry);
             preferredQuality = height;
             localStorage.setItem('preferredQuality', height);
             qualityMenu.classList.add('hidden');
+            qualityBtn.disabled = true;
+            qualityBtn.textContent = `${height}p\u2026`;
         });
     });
 }
 
-let currentActiveHeight = 0;
+function switchToQuality(entry) {
+    dashPlayer.setQualityFor('video', entry.qualityIndex);
+}
 
 qualityBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -157,6 +173,7 @@ function stopPlayer() {
     qualitySelector.classList.add('hidden');
     qualityMenu.classList.add('hidden');
     currentActiveHeight = 0;
+    videoQualities = [];
     subtitleBtnContainer.classList.add('hidden');
     subtitleTracks = [];
     failedSubtitles.clear();
@@ -218,56 +235,49 @@ async function playVideo(videoId, title, channel, duration) {
 
     fetchRelatedVideos(videoId);
 
-    // Start playback
-    try {
-        const response = await fetch(`/api/progress/${videoId}`);
-        const data = await response.json();
+    // Start DASH playback
+    dashPlayer = dashjs.MediaPlayer().create();
+    dashPlayer.updateSettings({
+        streaming: {
+            buffer: {
+                fastSwitchEnabled: true,
+                flushBufferAtTrackSwitch: true,
+            },
+            abr: { autoSwitchBitrate: { video: false } },
+        },
+    });
+    dashPlayer.initialize(videoPlayer, `/api/dash/${videoId}`, true);
 
-        if (data.status === 'ready') {
-            videoPlayer.src = `/api/stream/${videoId}`;
-            videoPlayer.play();
-        } else {
-            dashPlayer = dashjs.MediaPlayer().create();
-            dashPlayer.updateSettings({
-                streaming: { abr: { autoSwitchBitrate: { video: false } } },
-            });
-            dashPlayer.initialize(videoPlayer, `/api/dash/${videoId}?quality=4320`, true);
+    dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
+        videoQualities = buildQualities();
+        if (videoQualities.length === 0) return;
 
-            dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
-                const bitrateList = dashPlayer.getBitrateInfoListFor('video');
-                if (!bitrateList || bitrateList.length === 0) return;
+        const heights = videoQualities.map(q => q.height);
+        const targetHeight = getTargetQuality(heights, preferredQuality);
+        const targetEntry = videoQualities.find(q => q.height === targetHeight);
 
-                const heights = bitrateList.map(b => b.height);
-                const targetHeight = getTargetQuality(heights, preferredQuality);
-                const targetEntry = bitrateList.find(b => b.height === targetHeight);
+        if (targetEntry) {
+            switchToQuality(targetEntry);
+            currentActiveHeight = targetHeight;
+            qualityBtn.textContent = `${targetHeight}p`;
+        }
 
-                if (targetEntry) {
-                    dashPlayer.setQualityFor('video', targetEntry.qualityIndex);
-                    currentActiveHeight = targetHeight;
-                    qualityBtn.textContent = `${targetHeight}p`;
-                }
+        populateQualityMenu();
+        qualitySelector.classList.remove('hidden');
+    });
 
-                populateQualityMenu(bitrateList);
-                qualitySelector.classList.remove('hidden');
-            });
-
-            dashPlayer.on(dashjs.MediaPlayer.events.QUALITY_CHANGE_RENDERED, (e) => {
-                if (e.mediaType !== 'video') return;
-                const bitrateList = dashPlayer.getBitrateInfoListFor('video');
-                const current = bitrateList.find(b => b.qualityIndex === e.newQuality);
-                if (current) {
-                    currentActiveHeight = current.height;
-                    qualityBtn.textContent = `${current.height}p`;
-                    // Update menu selection
-                    qualityMenu.querySelectorAll('.quality-option').forEach(opt => {
-                        opt.classList.toggle('selected', parseInt(opt.dataset.height) === current.height);
-                    });
-                }
+    dashPlayer.on(dashjs.MediaPlayer.events.QUALITY_CHANGE_RENDERED, (e) => {
+        if (e.mediaType !== 'video') return;
+        const entry = videoQualities.find(q => q.qualityIndex === e.newQuality);
+        if (entry) {
+            currentActiveHeight = entry.height;
+            qualityBtn.textContent = `${entry.height}p`;
+            qualityBtn.disabled = false;
+            qualityMenu.querySelectorAll('.quality-option').forEach(opt => {
+                opt.classList.toggle('selected', parseInt(opt.dataset.height) === entry.height);
             });
         }
-    } catch (error) {
-        videoTitle.textContent = 'Error: ' + error.message;
-    }
+    });
 }
 
 // ── Utils ───────────────────────────────────────────────────────────────────
@@ -298,12 +308,11 @@ videoPlayer.addEventListener('error', () => {
 
 // For non-DASH fallback: show resolution from video element
 videoPlayer.addEventListener('loadedmetadata', () => {
-    if (dashPlayer) return; // DASH handles its own quality display
+    if (dashPlayer) return;
     const h = videoPlayer.videoHeight;
     if (h > 0) {
         qualityBtn.textContent = `${h}p`;
         qualitySelector.classList.remove('hidden');
-        // No menu items for non-DASH (single quality)
         qualityMenu.innerHTML = '';
     }
 });

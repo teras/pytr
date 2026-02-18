@@ -89,9 +89,11 @@ async def get_related_videos(video_id: str, auth: bool = Depends(require_auth)):
                             break
 
                 duration_str = ''
-                content_image = vm.get('contentImage', {}).get('collectionThumbnailViewModel', {})
-                primary_thumb = content_image.get('primaryThumbnail', {}).get('thumbnailViewModel', {})
-                overlays = primary_thumb.get('overlays', [])
+                content_image = vm.get('contentImage', {})
+                thumb_vm = (content_image.get('thumbnailViewModel')
+                            or content_image.get('collectionThumbnailViewModel', {}).get('primaryThumbnail', {}).get('thumbnailViewModel')
+                            or {})
+                overlays = thumb_vm.get('overlays', [])
                 for overlay in overlays:
                     badge = overlay.get('thumbnailOverlayBadgeViewModel', {})
                     for b in badge.get('thumbnailBadges', []):

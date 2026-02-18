@@ -258,8 +258,13 @@ h1 {
     white-space: nowrap;
 }
 
-.quality-btn:hover {
+.quality-btn:hover:not(:disabled) {
     background-color: #303030;
+}
+
+.quality-btn:disabled {
+    opacity: 0.5;
+    cursor: wait;
 }
 
 .quality-menu {

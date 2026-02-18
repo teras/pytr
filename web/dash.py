@@ -1,16 +1,16 @@
-"""DASH streaming: MPD manifest generation, MP4 box probing, YouTube CDN proxy."""
+"""DASH streaming: MPD manifest generation, YouTube CDN proxy."""
 import asyncio
 import logging
-import struct
 import time
 from urllib.parse import quote
 from xml.sax.saxutils import escape as xml_escape
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request, Response, Depends
+from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from fastapi.responses import StreamingResponse
 
 from auth import require_auth
+from container import probe_ranges
 from helpers import _yt_url, ydl_info
 
 log = logging.getLogger(__name__)
@@ -21,45 +21,9 @@ router = APIRouter()
 _dash_cache: dict = {}
 _DASH_CACHE_TTL = 5 * 3600  # URLs expire after ~6h, refresh at 5h
 
-
-# ── MP4 box probing ──────────────────────────────────────────────────────────
-
-def _parse_mp4_boxes(data: bytes) -> dict:
-    """Parse MP4 box headers to find initRange and indexRange."""
-    offset = 0
-    boxes = []
-    while offset < len(data) - 8:
-        size = struct.unpack('>I', data[offset:offset + 4])[0]
-        box_type = data[offset + 4:offset + 8].decode('ascii', errors='replace')
-        if size == 1 and offset + 16 <= len(data):
-            size = struct.unpack('>Q', data[offset + 8:offset + 16])[0]
-        elif size == 0:
-            size = len(data) - offset
-        if size < 8:
-            break
-        boxes.append({'type': box_type, 'offset': offset, 'size': size})
-        offset += size
-
-    result = {}
-    for box in boxes:
-        if box['type'] == 'moov':
-            result['init_end'] = box['offset'] + box['size'] - 1
-        elif box['type'] == 'sidx':
-            result['index_start'] = box['offset']
-            result['index_end'] = box['offset'] + box['size'] - 1
-    return result
-
-
-async def _probe_mp4_ranges(url: str) -> dict | None:
-    """Fetch first 4KB of a URL and parse MP4 box structure."""
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.get(url, headers={'Range': 'bytes=0-4095'}, timeout=10.0)
-            if resp.status_code not in (200, 206):
-                return None
-            return _parse_mp4_boxes(resp.content)
-    except Exception:
-        return None
+# Allowed extensions
+_VIDEO_EXTS = {'mp4', 'mp4a', 'webm'}
+_AUDIO_EXTS = {'m4a', 'mp4', 'webm'}
 
 
 # ── Proxy helper (shared with stream-live) ───────────────────────────────────
@@ -119,11 +83,36 @@ async def proxy_range_request(request: Request, video_url: str, filesize: int = 
     return StreamingResponse(stream_body(), status_code=status, headers=resp_headers)
 
 
+# ── Format helpers ────────────────────────────────────────────────────────────
+
+def _container_of(fmt: dict) -> str:
+    return 'webm' if fmt.get('ext') == 'webm' else 'mp4'
+
+
+def _mime_for(container: str, media: str) -> str:
+    return f'{media}/webm' if container == 'webm' else f'{media}/mp4'
+
+
+def _dedup_by_height(fmts: list) -> list:
+    """Keep best format per height (highest bitrate wins)."""
+    best = {}
+    for fmt in fmts:
+        h = fmt.get('height', 0)
+        existing = best.get(h)
+        if not existing or (fmt.get('tbr') or 0) > (existing.get('tbr') or 0):
+            best[h] = fmt
+    return sorted(best.values(), key=lambda f: f.get('height', 0))
+
+
 # ── DASH manifest endpoint ───────────────────────────────────────────────────
 
 @router.get("/api/dash/{video_id}")
-async def get_dash_manifest(video_id: str, quality: int = Query(default=4320), auth: bool = Depends(require_auth)):
-    """Generate DASH MPD manifest with proxied URLs."""
+async def get_dash_manifest(video_id: str, auth: bool = Depends(require_auth)):
+    """Generate DASH MPD manifest with proxied URLs.
+
+    Uses a single container type for video to avoid track-switching issues.
+    Prefers webm/VP9 (available 360p-4K), falls back to mp4/avc1.
+    """
 
     cached = _dash_cache.get(video_id)
     if cached and time.time() - cached['created'] < _DASH_CACHE_TTL:
@@ -138,9 +127,9 @@ async def get_dash_manifest(video_id: str, quality: int = Query(default=4320), a
 
     duration = info.get('duration') or 0
 
-    # Collect HTTPS video-only and audio-only formats
-    video_fmts = []
-    audio_fmts = []
+    # Collect HTTPS video-only and audio-only formats, grouped by container
+    video_by_container: dict[str, list] = {}  # container -> [fmt, ...]
+    audio_by_container: dict[str, list] = {}
 
     for fmt in info.get('formats', []):
         if fmt.get('protocol') != 'https' or not fmt.get('url'):
@@ -150,50 +139,81 @@ async def get_dash_manifest(video_id: str, quality: int = Query(default=4320), a
 
         if has_video and not has_audio:
             height = fmt.get('height') or 0
-            if height < 360 or height > quality:
+            if height < 360 or fmt.get('ext') not in _VIDEO_EXTS:
                 continue
-            if fmt.get('ext') not in ('mp4', 'mp4a'):
-                continue
-            video_fmts.append(fmt)
+            c = _container_of(fmt)
+            video_by_container.setdefault(c, []).append(fmt)
         elif has_audio and not has_video:
-            if fmt.get('ext') not in ('m4a', 'mp4'):
+            if fmt.get('ext') not in _AUDIO_EXTS:
                 continue
-            audio_fmts.append(fmt)
+            c = _container_of(fmt)
+            audio_by_container.setdefault(c, []).append(fmt)
 
-    if not video_fmts or not audio_fmts:
-        raise HTTPException(status_code=404, detail="No DASH formats available")
+    if not video_by_container:
+        raise HTTPException(status_code=404, detail="No DASH video formats available")
 
-    # Deduplicate: keep best format per height (prefer H.264/avc1 > AV1)
-    best_video = {}
-    for fmt in video_fmts:
-        height = fmt.get('height', 0)
-        codec = fmt.get('vcodec', '')
-        existing = best_video.get(height)
-        if not existing:
-            best_video[height] = fmt
-        elif codec.startswith('avc1') and not existing.get('vcodec', '').startswith('avc1'):
-            best_video[height] = fmt
-        elif codec.startswith('avc1') == existing.get('vcodec', '').startswith('avc1'):
-            if (fmt.get('tbr') or 0) > (existing.get('tbr') or 0):
-                best_video[height] = fmt
-    video_fmts = sorted(best_video.values(), key=lambda f: f.get('height', 0))
+    # Pick one container for video: prefer webm (VP9, up to 4K), fall back to mp4
+    video_container = 'webm' if 'webm' in video_by_container else 'mp4'
+    video_fmts = _dedup_by_height(video_by_container[video_container])
 
-    # Best audio: prefer m4a
-    best_audio = None
-    for fmt in audio_fmts:
-        if not best_audio:
-            best_audio = fmt
-        elif fmt.get('ext') == 'm4a' and best_audio.get('ext') != 'm4a':
-            best_audio = fmt
-        elif fmt.get('ext') == best_audio.get('ext') and (fmt.get('tbr') or 0) > (best_audio.get('tbr') or 0):
-            best_audio = fmt
+    # Pick best audio: prefer mp4/m4a (widest browser support), fall back to webm
+    audio_container = 'mp4' if 'mp4' in audio_by_container else 'webm'
+    audio_fmts_raw = audio_by_container.get(audio_container, [])
+    # Keep single best audio
+    best_audio = max(audio_fmts_raw, key=lambda f: f.get('tbr') or 0) if audio_fmts_raw else None
     audio_fmts = [best_audio] if best_audio else []
 
-    # Probe MP4 boxes for initRange/indexRange (parallel)
-    all_fmts = video_fmts + audio_fmts
-    probe_results = await asyncio.gather(*[_probe_mp4_ranges(f['url']) for f in all_fmts])
+    if not audio_fmts:
+        raise HTTPException(status_code=404, detail="No DASH audio formats available")
 
-    # Build MPD XML
+    # Probe all formats for initRange/indexRange (parallel)
+    all_fmts = video_fmts + audio_fmts
+    probe_results = await asyncio.gather(*[probe_ranges(f['url']) for f in all_fmts])
+
+    # Filter out formats where probing failed
+    valid_video = []
+    valid_video_probes = []
+    for i, fmt in enumerate(video_fmts):
+        probe = probe_results[i]
+        if probe and 'init_end' in probe and 'index_start' in probe:
+            valid_video.append(fmt)
+            valid_video_probes.append(probe)
+        else:
+            log.warning(f"Skipping {video_container} {fmt.get('height')}p: probe failed")
+
+    # If preferred container failed entirely, try the other one
+    if not valid_video and len(video_by_container) > 1:
+        fallback = 'mp4' if video_container == 'webm' else 'webm'
+        video_container = fallback
+        video_fmts = _dedup_by_height(video_by_container[fallback])
+        probe_results_fb = await asyncio.gather(*[probe_ranges(f['url']) for f in video_fmts])
+        for i, fmt in enumerate(video_fmts):
+            probe = probe_results_fb[i]
+            if probe and 'init_end' in probe and 'index_start' in probe:
+                valid_video.append(fmt)
+                valid_video_probes.append(probe)
+
+    audio_probe = probe_results[len(video_fmts)] if len(probe_results) > len(video_fmts) else None
+    if not audio_probe or 'init_end' not in audio_probe or 'index_start' not in audio_probe:
+        # Try other audio container
+        other_audio = 'webm' if audio_container == 'mp4' else 'mp4'
+        other_audio_fmts = audio_by_container.get(other_audio, [])
+        if other_audio_fmts:
+            best_other = max(other_audio_fmts, key=lambda f: f.get('tbr') or 0)
+            audio_probe = await probe_ranges(best_other['url'])
+            if audio_probe and 'init_end' in audio_probe:
+                audio_fmts = [best_other]
+                audio_container = other_audio
+
+    if not valid_video:
+        raise HTTPException(status_code=404, detail="No DASH formats with valid ranges")
+    if not audio_probe or 'init_end' not in audio_probe:
+        raise HTTPException(status_code=404, detail="No DASH audio with valid ranges")
+
+    v_mime = _mime_for(video_container, 'video')
+    a_mime = _mime_for(audio_container, 'audio')
+
+    # Build MPD XML — single video AdaptationSet, single audio AdaptationSet
     mpd_lines = [
         '<?xml version="1.0" encoding="utf-8"?>',
         '<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" '
@@ -205,11 +225,11 @@ async def get_dash_manifest(video_id: str, quality: int = Query(default=4320), a
 
     # Video AdaptationSet
     mpd_lines.append(
-        '<AdaptationSet id="0" mimeType="video/mp4" '
-        'startWithSAP="1" subsegmentAlignment="true" scanType="progressive">'
+        f'<AdaptationSet id="0" mimeType="{v_mime}" '
+        f'startWithSAP="1" subsegmentAlignment="true" scanType="progressive">'
     )
-    for i, fmt in enumerate(video_fmts):
-        probe = probe_results[i]
+    for i, fmt in enumerate(valid_video):
+        probe = valid_video_probes[i]
         proxy_url = f'/api/videoplayback?url={quote(fmt["url"], safe="")}'
         codecs = fmt.get('vcodec', 'avc1.4d401e')
         height = fmt.get('height', 0)
@@ -223,55 +243,50 @@ async def get_dash_manifest(video_id: str, quality: int = Query(default=4320), a
             f'bandwidth="{bandwidth}" frameRate="{fps}">'
         )
         mpd_lines.append(f'<BaseURL>{xml_escape(proxy_url)}</BaseURL>')
-        if probe and 'init_end' in probe and 'index_start' in probe:
-            mpd_lines.append(
-                f'<SegmentBase indexRange="{probe["index_start"]}-{probe["index_end"]}">'
-                f'<Initialization range="0-{probe["init_end"]}"/>'
-                f'</SegmentBase>'
-            )
+        mpd_lines.append(
+            f'<SegmentBase indexRange="{probe["index_start"]}-{probe["index_end"]}">'
+            f'<Initialization range="0-{probe["init_end"]}"/>'
+            f'</SegmentBase>'
+        )
         mpd_lines.append('</Representation>')
-
     mpd_lines.append('</AdaptationSet>')
 
     # Audio AdaptationSet
-    if audio_fmts:
-        audio_idx_offset = len(video_fmts)
-        mpd_lines.append(
-            '<AdaptationSet id="1" mimeType="audio/mp4" '
-            'startWithSAP="1" subsegmentAlignment="true">'
-        )
-        for j, fmt in enumerate(audio_fmts):
-            probe = probe_results[audio_idx_offset + j]
-            proxy_url = f'/api/videoplayback?url={quote(fmt["url"], safe="")}'
-            codecs = fmt.get('acodec', 'mp4a.40.2')
-            bandwidth = int((fmt.get('tbr') or fmt.get('abr') or 0) * 1000) or 128000
+    afmt = audio_fmts[0]
+    proxy_url = f'/api/videoplayback?url={quote(afmt["url"], safe="")}'
+    codecs = afmt.get('acodec', 'mp4a.40.2')
+    bandwidth = int((afmt.get('tbr') or afmt.get('abr') or 0) * 1000) or 128000
 
-            mpd_lines.append(
-                f'<Representation id="{fmt.get("format_id", "audio")}" '
-                f'codecs="{codecs}" bandwidth="{bandwidth}">'
-            )
-            mpd_lines.append(
-                '<AudioChannelConfiguration '
-                'schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011" '
-                'value="2"/>'
-            )
-            mpd_lines.append(f'<BaseURL>{xml_escape(proxy_url)}</BaseURL>')
-            if probe and 'init_end' in probe and 'index_start' in probe:
-                mpd_lines.append(
-                    f'<SegmentBase indexRange="{probe["index_start"]}-{probe["index_end"]}">'
-                    f'<Initialization range="0-{probe["init_end"]}"/>'
-                    f'</SegmentBase>'
-                )
-            mpd_lines.append('</Representation>')
-
-        mpd_lines.append('</AdaptationSet>')
+    mpd_lines.append(
+        f'<AdaptationSet id="1" mimeType="{a_mime}" '
+        f'startWithSAP="1" subsegmentAlignment="true">'
+    )
+    mpd_lines.append(
+        f'<Representation id="{afmt.get("format_id", "audio")}" '
+        f'codecs="{codecs}" bandwidth="{bandwidth}">'
+    )
+    mpd_lines.append(
+        '<AudioChannelConfiguration '
+        'schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011" '
+        'value="2"/>'
+    )
+    mpd_lines.append(f'<BaseURL>{xml_escape(proxy_url)}</BaseURL>')
+    mpd_lines.append(
+        f'<SegmentBase indexRange="{audio_probe["index_start"]}-{audio_probe["index_end"]}">'
+        f'<Initialization range="0-{audio_probe["init_end"]}"/>'
+        f'</SegmentBase>'
+    )
+    mpd_lines.append('</Representation>')
+    mpd_lines.append('</AdaptationSet>')
 
     mpd_lines.append('</Period>')
     mpd_lines.append('</MPD>')
 
     mpd = '\n'.join(mpd_lines)
 
-    log.info(f"DASH {video_id}: {len(video_fmts)} video + {len(audio_fmts)} audio tracks, max {video_fmts[-1].get('height')}p")
+    heights = [f.get('height', 0) for f in valid_video]
+    log.info(f"DASH {video_id}: {len(valid_video)} video ({video_container}) "
+             f"+ 1 audio ({audio_container}), max {max(heights)}p")
 
     _dash_cache[video_id] = {'mpd': mpd, 'created': time.time()}
 
@@ -296,6 +311,10 @@ async def videoplayback_options():
 
 
 @router.get("/api/videoplayback")
-async def videoplayback_proxy(url: str, request: Request, auth: bool = Depends(require_auth)):
-    """Proxy range requests to YouTube CDN for DASH playback."""
+async def videoplayback_proxy(url: str, request: Request):
+    """Proxy range requests to YouTube CDN for DASH playback.
+
+    No auth required — the manifest endpoint already checks auth,
+    and the YouTube URLs are opaque/temporary.
+    """
     return await proxy_range_request(request, url)

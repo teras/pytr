@@ -6,9 +6,9 @@ __pycache__/
 # Environment
 .env
 
-# Downloads cache
-downloads/*
-web/downloads/*
+# Subtitle cache
+cache/*
+web/cache/*
 
 # IDE
 .vscode/

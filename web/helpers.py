@@ -1,28 +1,15 @@
 """Shared configuration, yt-dlp instances, and helper functions."""
 import logging
 import os
-import shutil
 from pathlib import Path
 
 import yt_dlp
 
 log = logging.getLogger(__name__)
 
-# Downloads directory - clear contents on startup
-DOWNLOADS_DIR = Path("downloads")
-DOWNLOADS_DIR.mkdir(exist_ok=True)
-for f in DOWNLOADS_DIR.iterdir():
-    try:
-        if f.is_file():
-            f.unlink()
-        elif f.is_dir():
-            shutil.rmtree(f)
-    except Exception as e:
-        log.warning(f"Could not delete {f}: {e}")
-log.info("Cleared downloads cache")
-
-# Track active downloads: video_id -> {"status": str, "progress": float, ...}
-active_downloads: dict = {}
+# Cache directory for subtitle VTT files
+CACHE_DIR = Path("cache")
+CACHE_DIR.mkdir(exist_ok=True)
 
 # yt-dlp options
 _cookies_browser = os.environ.get('YOUTUBE_COOKIES_BROWSER')
@@ -62,13 +49,3 @@ def format_number(n):
     if n >= 1_000:
         return f"{n/1_000:.1f}K"
     return str(n)
-
-
-def format_bytes(b):
-    if b >= 1_000_000_000:
-        return f"{b/1_000_000_000:.1f} GB"
-    if b >= 1_000_000:
-        return f"{b/1_000_000:.1f} MB"
-    if b >= 1_000:
-        return f"{b/1_000:.1f} KB"
-    return f"{b} B"

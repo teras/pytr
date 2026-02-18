@@ -21,8 +21,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY web/ .
 
-# Create downloads directory
-RUN mkdir -p downloads
+# Create cache directory (subtitle VTTs)
+RUN mkdir -p cache
 
 # Expose port
 EXPOSE 8000
