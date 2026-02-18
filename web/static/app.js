@@ -8,11 +8,8 @@ const videoPlayer = document.getElementById('video-player');
 const videoTitle = document.getElementById('video-title');
 const videoMeta = document.getElementById('video-meta');
 const closePlayerBtn = document.getElementById('close-player');
-const loading = document.getElementById('loading');
-const loadingMessage = document.getElementById('loading-message');
 const noResults = document.getElementById('no-results');
 const loadMoreContainer = document.getElementById('load-more-container');
-const loadMoreBtn = document.getElementById('load-more-btn');
 const downloadProgress = document.getElementById('download-progress');
 const progressFill = document.getElementById('progress-fill');
 const progressText = document.getElementById('progress-text');
@@ -21,25 +18,62 @@ let currentQuery = '';
 let currentCount = 10;
 const BATCH_SIZE = 10;
 let progressInterval = null;
+let isLoadingMore = false;
+let hasMoreResults = true;
+
+// Infinite scroll - load more when sentinel becomes visible
+const loadMoreObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && !isLoadingMore && hasMoreResults && currentQuery) {
+        loadMore();
+    }
+}, { threshold: 0.1 });
 
 async function searchVideos(query) {
     if (!query.trim()) return;
 
     currentQuery = query;
     currentCount = BATCH_SIZE;
+    hasMoreResults = true;
 
-    showLoading(true, 'Searching...');
     videoGrid.innerHTML = '';
     noResults.classList.add('hidden');
-    loadMoreContainer.classList.add('hidden');
+    showLoadingCard(true);
 
     await fetchVideos();
+
+    // Start observing for infinite scroll
+    loadMoreObserver.observe(loadMoreContainer);
 }
 
 async function loadMore() {
+    if (isLoadingMore || !hasMoreResults) return;
+
+    isLoadingMore = true;
     currentCount += BATCH_SIZE;
-    showLoading(true, 'Loading more...');
+    showLoadingCard(true);
     await fetchVideos();
+    isLoadingMore = false;
+}
+
+function showLoadingCard(show) {
+    const existingLoader = document.getElementById('loading-card');
+    if (existingLoader) existingLoader.remove();
+
+    if (show) {
+        const loadingCard = document.createElement('div');
+        loadingCard.id = 'loading-card';
+        loadingCard.className = 'video-card loading-card';
+        loadingCard.innerHTML = `
+            <div class="thumbnail-container">
+                <div class="loading-spinner"></div>
+            </div>
+            <div class="video-info">
+                <div class="skeleton-text"></div>
+                <div class="skeleton-text short"></div>
+            </div>
+        `;
+        videoGrid.appendChild(loadingCard);
+    }
 }
 
 async function fetchVideos() {
@@ -47,18 +81,26 @@ async function fetchVideos() {
         const response = await fetch(`/api/search?q=${encodeURIComponent(currentQuery)}&count=${currentCount}`);
         const data = await response.json();
 
-        if (!response.ok) throw new Error(data.detail || 'Search failed');
+        if (!response.ok) {
+            const msg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+            throw new Error(msg || 'Search failed');
+        }
+
+        showLoadingCard(false);
 
         if (data.results.length === 0) {
             noResults.classList.remove('hidden');
+            hasMoreResults = false;
         } else {
             renderVideos(data.results);
-            loadMoreContainer.classList.toggle('hidden', data.results.length < currentCount);
+            // Check if we got fewer results than requested = no more results
+            hasMoreResults = data.results.length >= currentCount;
+            loadMoreContainer.classList.toggle('hidden', !hasMoreResults);
         }
     } catch (error) {
+        showLoadingCard(false);
         videoGrid.innerHTML = `<p class="error">Error: ${error.message}</p>`;
-    } finally {
-        showLoading(false);
+        hasMoreResults = false;
     }
 }
 
@@ -127,9 +169,10 @@ async function playVideo(videoId, title, channel, duration) {
             progressText.textContent = 'Ready';
             downloadProgress.classList.add('hidden');
             videoPlayer.src = data.url;
+            videoPlayer.play();
         } else {
-            // Start playing while downloading
-            videoPlayer.src = data.url;
+            // Wait for download to complete, then play
+            const streamUrl = data.url;
 
             // Poll for progress
             progressInterval = setInterval(async () => {
@@ -138,25 +181,27 @@ async function playVideo(videoId, title, channel, duration) {
                     const progData = await prog.json();
 
                     progressFill.style.width = `${progData.progress}%`;
+                    progressText.textContent = progData.message || 'Downloading...';
 
-                    if (progData.status === 'audio') {
-                        progressText.textContent = 'Downloading audio...';
-                        progressFill.style.width = '5%';
-                    } else if (progData.status === 'video') {
-                        progressText.textContent = progData.message || 'Downloading video...';
-                        progressFill.style.width = `${5 + progData.progress * 0.95}%`;
-                    } else if (progData.status === 'finished' || progData.status === 'ready') {
+                    if (progData.status === 'finished' || progData.status === 'ready') {
                         progressFill.style.width = '100%';
-                        progressText.textContent = 'Download complete';
+                        progressText.textContent = 'Starting playback...';
                         clearInterval(progressInterval);
                         progressInterval = null;
-                        // Hide progress after a moment
-                        setTimeout(() => downloadProgress.classList.add('hidden'), 2000);
+
+                        // Now play the video
+                        videoPlayer.src = streamUrl;
+                        videoPlayer.play();
+                        setTimeout(() => downloadProgress.classList.add('hidden'), 1000);
+                    } else if (progData.status === 'error') {
+                        progressText.textContent = 'Download failed: ' + progData.message;
+                        clearInterval(progressInterval);
+                        progressInterval = null;
                     }
                 } catch (e) {
                     // Ignore progress errors
                 }
-            }, 500);
+            }, 300);
         }
     } catch (error) {
         videoTitle.textContent = 'Error: ' + error.message;
@@ -176,10 +221,6 @@ function hidePlayer() {
     videoPlayer.load();
 }
 
-function showLoading(show, message = 'Loading...') {
-    loading.classList.toggle('hidden', !show);
-    loadingMessage.textContent = message;
-}
 
 function escapeHtml(text) {
     const div = document.createElement('div');
@@ -194,7 +235,6 @@ function escapeAttr(text) {
 searchBtn.addEventListener('click', () => searchVideos(searchInput.value));
 searchInput.addEventListener('keypress', e => e.key === 'Enter' && searchVideos(searchInput.value));
 closePlayerBtn.addEventListener('click', hidePlayer);
-loadMoreBtn.addEventListener('click', loadMore);
 
 videoPlayer.addEventListener('error', () => {
     if (videoPlayer.src && !playerContainer.classList.contains('hidden')) {

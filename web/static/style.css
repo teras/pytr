@@ -223,15 +223,27 @@ h1 {
     text-align: right;
 }
 
-#loading {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 60px 20px;
+@keyframes spin {
+    to { transform: rotate(360deg); }
 }
 
-.spinner {
+#load-more-container {
+    height: 1px;
+}
+
+/* Loading card - looks like a video card with spinner */
+.loading-card {
+    pointer-events: none;
+}
+
+.loading-card .thumbnail-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #252525;
+}
+
+.loading-card .loading-spinner {
     width: 40px;
     height: 40px;
     border: 3px solid #303030;
@@ -240,34 +252,23 @@ h1 {
     animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-    to { transform: rotate(360deg); }
+.skeleton-text {
+    height: 14px;
+    background: linear-gradient(90deg, #252525 25%, #303030 50%, #252525 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 4px;
+    margin-bottom: 8px;
 }
 
-#loading p {
-    margin-top: 15px;
-    color: #aaa;
+.skeleton-text.short {
+    width: 60%;
+    height: 12px;
 }
 
-#load-more-container {
-    display: flex;
-    justify-content: center;
-    padding: 30px 0;
-}
-
-#load-more-btn {
-    padding: 12px 32px;
-    font-size: 16px;
-    background-color: #303030;
-    color: #f1f1f1;
-    border: none;
-    border-radius: 20px;
-    cursor: pointer;
-    transition: background-color 0.2s;
-}
-
-#load-more-btn:hover {
-    background-color: #3f3f3f;
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
 }
 
 #no-results {
