@@ -93,13 +93,26 @@ def _mime_for(container: str, media: str) -> str:
     return f'{media}/webm' if container == 'webm' else f'{media}/mp4'
 
 
+def _is_hdr(fmt: dict) -> bool:
+    """Check if format uses HDR codec (vp9 profile 2+, av01 high profile)."""
+    codec = (fmt.get('vcodec') or '').lower()
+    return 'vp9.2' in codec or 'vp09.02' in codec
+
+
 def _dedup_by_height(fmts: list) -> list:
-    """Keep best format per height (highest bitrate wins)."""
+    """Keep best format per height. Prefer SDR over HDR at same height."""
     best = {}
     for fmt in fmts:
         h = fmt.get('height', 0)
         existing = best.get(h)
-        if not existing or (fmt.get('tbr') or 0) > (existing.get('tbr') or 0):
+        if not existing:
+            best[h] = fmt
+        elif _is_hdr(existing) and not _is_hdr(fmt):
+            # Replace HDR with SDR — HDR often unsupported by browser
+            best[h] = fmt
+        elif not _is_hdr(existing) and _is_hdr(fmt):
+            pass  # Keep existing SDR
+        elif (fmt.get('tbr') or 0) > (existing.get('tbr') or 0):
             best[h] = fmt
     return sorted(best.values(), key=lambda f: f.get('height', 0))
 
