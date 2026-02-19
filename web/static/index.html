@@ -7,6 +7,7 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23cc0000'/><polygon points='40,30 40,70 75,50' fill='white'/></svg>">
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://cdn.jsdelivr.net/npm/dashjs@latest/dist/dash.all.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -50,13 +51,17 @@
                                     <p id="video-meta"></p>
                                 </div>
                                 <div class="video-info-right">
-                                    <div id="quality-selector" class="quality-selector hidden">
-                                        <button id="quality-btn" class="quality-btn">1080p</button>
-                                        <div id="quality-menu" class="quality-menu hidden"></div>
-                                    </div>
                                     <div id="subtitle-btn-container" class="hidden">
-                                        <button id="subtitle-btn" class="cc-btn">CC</button>
+                                        <button id="subtitle-btn" class="player-btn">💬 Off</button>
                                         <div id="subtitle-menu" class="subtitle-menu hidden"></div>
+                                    </div>
+                                    <div id="audio-btn-container" class="hidden">
+                                        <button id="audio-btn" class="player-btn">🔊 Original</button>
+                                        <div id="audio-menu" class="audio-menu hidden"></div>
+                                    </div>
+                                    <div id="quality-selector" class="quality-selector hidden">
+                                        <button id="quality-btn" class="player-btn">🎬 1080p</button>
+                                        <div id="quality-menu" class="quality-menu hidden"></div>
                                     </div>
                                 </div>
                             </div>

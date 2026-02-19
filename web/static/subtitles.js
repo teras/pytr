@@ -28,12 +28,18 @@ function applySubtitlePreference() {
         return;
     }
 
-    for (let i = 0; i < videoPlayer.textTracks.length; i++) {
-        const tt = videoPlayer.textTracks[i];
-        if (tt.language === saved) {
-            tt.mode = 'showing';
-            updateSubtitleBtn(saved);
-            return;
+    // Only reuse a track if it has a corresponding <track> element we created
+    // (dash.js creates phantom TextTracks from manifests that have no cues)
+    const trackEls = videoPlayer.querySelectorAll('track');
+    for (const el of trackEls) {
+        if (el.srclang === saved) {
+            for (let i = 0; i < videoPlayer.textTracks.length; i++) {
+                if (videoPlayer.textTracks[i].language === saved) {
+                    videoPlayer.textTracks[i].mode = 'showing';
+                    updateSubtitleBtn(saved);
+                    return;
+                }
+            }
         }
     }
 
@@ -64,14 +70,12 @@ function activateTrack(trackInfo) {
         if (localStorage.getItem('subtitle_lang') === trackInfo.lang) {
             localStorage.setItem('subtitle_lang', 'off');
         }
-        subtitleBtn.textContent = 'CC';
-        subtitleBtn.classList.remove('active', 'loading');
+        subtitleBtn.textContent = '\ud83d\udcac Off';
     });
 
     videoPlayer.appendChild(el);
 
-    subtitleBtn.textContent = `CC: ${trackInfo.lang.toUpperCase()} \u2026`;
-    subtitleBtn.classList.add('active');
+    subtitleBtn.textContent = `\ud83d\udcac ${langName(trackInfo.lang)} \u2026`;
 
     const activate = (e) => {
         if (e.track.language === trackInfo.lang) {
@@ -91,11 +95,9 @@ function activateTrack(trackInfo) {
 
 function updateSubtitleBtn(activeLang) {
     if (activeLang) {
-        subtitleBtn.textContent = `CC: ${activeLang.toUpperCase()}`;
-        subtitleBtn.classList.add('active');
+        subtitleBtn.textContent = `\ud83d\udcac ${langName(activeLang)}`;
     } else {
-        subtitleBtn.textContent = 'CC';
-        subtitleBtn.classList.remove('active');
+        subtitleBtn.textContent = '\ud83d\udcac Off';
     }
 }
 

@@ -245,7 +245,7 @@ h1 {
     position: relative;
 }
 
-.quality-btn {
+.player-btn {
     padding: 4px 10px;
     font-size: 12px;
     font-weight: 500;
@@ -258,11 +258,11 @@ h1 {
     white-space: nowrap;
 }
 
-.quality-btn:hover:not(:disabled) {
+.player-btn:hover:not(:disabled) {
     background-color: #303030;
 }
 
-.quality-btn:disabled {
+.player-btn:disabled {
     opacity: 0.5;
     cursor: wait;
 }
@@ -388,33 +388,48 @@ h1 {
     color: #717171;
 }
 
-/* Subtitle CC button */
-#subtitle-btn-container {
+/* Audio Language Selector */
+#audio-btn-container {
     position: relative;
 }
 
-.cc-btn {
-    padding: 4px 10px;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    background-color: #272727;
-    color: #aaa;
-    border: none;
-    border-radius: 4px;
+
+.audio-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background-color: #212121;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    padding: 6px 0;
+    min-width: 160px;
+    max-height: 320px;
+    overflow-y: auto;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.audio-option {
+    padding: 8px 14px;
+    font-size: 13px;
+    color: #f1f1f1;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background-color 0.15s;
     white-space: nowrap;
 }
 
-.cc-btn:hover {
+.audio-option:hover {
     background-color: #303030;
+}
+
+.audio-option.selected {
+    background-color: #065fd4;
     color: #fff;
 }
 
-.cc-btn.active {
-    background-color: #f1f1f1;
-    color: #0f0f0f;
+#subtitle-btn-container {
+    position: relative;
 }
 
 .subtitle-menu {

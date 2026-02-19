@@ -64,6 +64,13 @@ async def get_video_info(video_id: str, auth: bool = Depends(require_auth)):
 
         _subtitle_cache[video_id] = cache_entry
 
+        # Detect multi-audio: count distinct languages among audio formats
+        audio_langs = set()
+        for fmt in info.get('formats', []):
+            if fmt.get('acodec') not in (None, 'none') and fmt.get('language'):
+                audio_langs.add(fmt['language'])
+        has_multi_audio = len(audio_langs) > 1
+
         return {
             'title': info.get('title', 'Unknown'),
             'channel': info.get('channel') or info.get('uploader', 'Unknown'),
@@ -74,6 +81,8 @@ async def get_video_info(video_id: str, auth: bool = Depends(require_auth)):
             'likes': format_number(info.get('like_count')),
             'description': info.get('description', ''),
             'subtitle_tracks': subtitle_tracks,
+            'has_multi_audio': has_multi_audio,
+            'hls_manifest_url': f'/api/hls/master/{video_id}' if has_multi_audio else None,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

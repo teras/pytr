@@ -26,11 +26,13 @@ import helpers  # noqa: F401 — ensure cache dir created on startup
 # Register routers
 from auth import router as auth_router
 from dash import router as dash_router
+from hls import router as hls_router
 from routes.video import router as video_router
 from routes.browse import router as browse_router
 
 app.include_router(auth_router)
 app.include_router(dash_router)
+app.include_router(hls_router)
 app.include_router(video_router)
 app.include_router(browse_router)
 

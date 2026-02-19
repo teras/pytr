@@ -28,6 +28,11 @@ const qualitySelector = document.getElementById('quality-selector');
 const qualityBtn = document.getElementById('quality-btn');
 const qualityMenu = document.getElementById('quality-menu');
 
+// Audio selector
+const audioBtnContainer = document.getElementById('audio-btn-container');
+const audioBtn = document.getElementById('audio-btn');
+const audioMenu = document.getElementById('audio-menu');
+
 // Related
 const relatedVideos = document.getElementById('related-videos');
 const relatedLoadMore = document.getElementById('related-load-more');
@@ -41,11 +46,17 @@ const subtitleMenu = document.getElementById('subtitle-menu');
 
 let currentVideoId = null;
 let currentVideoChannelId = null;
-let dashPlayer = null;
+var dashPlayer = null;
+var hlsPlayer = null;
+var currentPlayerType = null; // 'dash' | 'hls'
+let currentAudioLang = null; // current HLS audio language
+let hlsAudioTracks = []; // [{lang, default}]
 let preferredQuality = parseInt(localStorage.getItem('preferredQuality')) || 1080;
 let currentActiveHeight = 0;
 // Quality list: [{height, bandwidth, qualityIndex}]
 let videoQualities = [];
+let pendingSeek = null; // {time, play} — set during audio language switch
+let currentHlsManifestUrl = null; // base HLS manifest URL for multi-audio videos
 
 // ── Quality Selector ────────────────────────────────────────────────────────
 
@@ -55,13 +66,20 @@ function getTargetQuality(heights, preferred) {
     return below.length > 0 ? Math.max(...below) : Math.min(...heights);
 }
 
-function buildQualities() {
-    // Single video AdaptationSet — use getBitrateInfoListFor which has qualityIndex
+function buildQualitiesDash() {
     const bitrateList = dashPlayer.getBitrateInfoListFor('video');
     return (bitrateList || []).map(br => ({
         height: br.height,
         bandwidth: br.bandwidth,
         qualityIndex: br.qualityIndex,
+    })).sort((a, b) => a.height - b.height);
+}
+
+function buildQualitiesHls() {
+    return (hlsPlayer.levels || []).map((level, idx) => ({
+        height: level.height,
+        bandwidth: level.bitrate || level.bandwidth || 0,
+        qualityIndex: idx,
     })).sort((a, b) => a.height - b.height);
 }
 
@@ -83,25 +101,104 @@ function populateQualityMenu() {
             preferredQuality = height;
             localStorage.setItem('preferredQuality', height);
             qualityMenu.classList.add('hidden');
-            qualityBtn.disabled = true;
-            qualityBtn.textContent = `${height}p\u2026`;
+            if (currentPlayerType === 'dash') {
+                qualityBtn.disabled = true;
+                qualityBtn.textContent = `\ud83c\udfac ${height}p\u2026`;
+            } else {
+                currentActiveHeight = height;
+                qualityBtn.textContent = `\ud83c\udfac ${height}p`;
+                qualityMenu.querySelectorAll('.quality-option').forEach(o => {
+                    o.classList.toggle('selected', parseInt(o.dataset.height) === height);
+                });
+            }
         });
     });
 }
 
 function switchToQuality(entry) {
-    dashPlayer.setQualityFor('video', entry.qualityIndex);
+    if (currentPlayerType === 'dash') {
+        dashPlayer.setQualityFor('video', entry.qualityIndex);
+    } else if (currentPlayerType === 'hls') {
+        hlsPlayer.currentLevel = entry.qualityIndex;
+    }
 }
 
 qualityBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     qualityMenu.classList.toggle('hidden');
+    audioMenu.classList.add('hidden');
 });
 
 qualityMenu.addEventListener('click', (e) => e.stopPropagation());
 
+// ── Audio Selector ──────────────────────────────────────────────────────────
+
+audioBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    audioMenu.classList.toggle('hidden');
+    qualityMenu.classList.add('hidden');
+});
+
+audioMenu.addEventListener('click', (e) => e.stopPropagation());
+
+function populateAudioMenu(tracks, currentLang) {
+    audioMenu.innerHTML = tracks.map(track => {
+        const selected = track.lang === currentLang ? ' selected' : '';
+        const label = track.lang === 'original' ? 'Original' : langName(track.lang);
+        const isDefault = track.default ? ' (original)' : '';
+        return `<div class="audio-option${selected}" data-lang="${escapeAttr(track.lang)}">
+            <span>${label}${isDefault}</span>
+        </div>`;
+    }).join('');
+
+    audioMenu.querySelectorAll('.audio-option').forEach(opt => {
+        opt.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const lang = opt.dataset.lang;
+            if (lang === currentAudioLang) {
+                audioMenu.classList.add('hidden');
+                return;
+            }
+            switchAudioLanguage(lang);
+            audioMenu.classList.add('hidden');
+        });
+    });
+}
+
+function switchAudioLanguage(lang) {
+    if (!currentVideoId) return;
+
+    // Save current position and play state
+    const currentTime = videoPlayer.currentTime;
+    const wasPlaying = !videoPlayer.paused;
+    pendingSeek = { time: currentTime, play: wasPlaying };
+
+    // Remove existing subtitle tracks so they get recreated fresh after player switch
+    [...videoPlayer.querySelectorAll('track')].forEach(t => t.remove());
+
+    // Update state and UI
+    currentAudioLang = lang;
+    audioBtn.textContent = lang === 'original' ? '\ud83d\udd0a Original' : `\ud83d\udd0a ${langName(lang)}`;
+    audioMenu.querySelectorAll('.audio-option').forEach(o => {
+        o.classList.toggle('selected', o.dataset.lang === lang);
+    });
+
+    if (lang === 'original') {
+        // Switch back to DASH (restores full quality, up to 4K)
+        if (hlsPlayer) { hlsPlayer.destroy(); hlsPlayer = null; }
+        startDashPlayer(currentVideoId);
+    } else {
+        // Switch to HLS with selected audio (max 1080p)
+        if (dashPlayer) { dashPlayer.destroy(); dashPlayer = null; }
+        if (hlsPlayer) { hlsPlayer.destroy(); hlsPlayer = null; }
+        const manifestUrl = `/api/hls/master/${currentVideoId}?audio=${encodeURIComponent(lang)}`;
+        startHlsPlayer(currentVideoId, manifestUrl);
+    }
+}
+
 document.addEventListener('click', () => {
     qualityMenu.classList.add('hidden');
+    audioMenu.classList.add('hidden');
 });
 
 // ── Routing ─────────────────────────────────────────────────────────────────
@@ -175,8 +272,19 @@ function stopPlayer() {
         dashPlayer.destroy();
         dashPlayer = null;
     }
+    if (hlsPlayer) {
+        hlsPlayer.destroy();
+        hlsPlayer = null;
+    }
+    currentPlayerType = null;
+    currentAudioLang = null;
+    hlsAudioTracks = [];
+    pendingSeek = null;
+    currentHlsManifestUrl = null;
     qualitySelector.classList.add('hidden');
     qualityMenu.classList.add('hidden');
+    audioBtnContainer.classList.add('hidden');
+    audioMenu.classList.add('hidden');
     currentActiveHeight = 0;
     videoQualities = [];
     subtitleBtnContainer.classList.add('hidden');
@@ -201,13 +309,16 @@ async function playVideo(videoId, title, channel, duration) {
     videoMeta.textContent = '';
     videoDescription.textContent = '';
     videoDescription.classList.add('hidden');
-    qualitySelector.classList.add('hidden');
+    qualitySelector.classList.remove('hidden');
+    qualityBtn.textContent = '\ud83c\udfac \u2014';
+    qualityBtn.disabled = true;
+    audioBtnContainer.classList.add('hidden');
     relatedVideos.innerHTML = '';
 
     videoPlayer.dataset.expectedDuration = duration || 0;
     videoPlayer.poster = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
 
-    // Fetch video info
+    // Fetch video info — determines player type
     fetch(`/api/info/${videoId}`)
         .then(r => r.json())
         .then(info => {
@@ -235,12 +346,37 @@ async function playVideo(videoId, title, channel, duration) {
             }
 
             loadSubtitleTracks(videoId, info.subtitle_tracks || []);
+
+            // Always start with DASH (full quality, up to 4K)
+            startDashPlayer(videoId);
+
+            // If multi-audio available, show audio selector (HLS used only on language switch)
+            if (info.has_multi_audio && info.hls_manifest_url && Hls.isSupported()) {
+                currentHlsManifestUrl = info.hls_manifest_url;
+                fetch(`/api/hls/audio-tracks/${videoId}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        hlsAudioTracks = data.audio_tracks || [];
+                        if (hlsAudioTracks.length > 1) {
+                            audioBtnContainer.classList.remove('hidden');
+                            audioBtn.textContent = '\ud83d\udd0a Original';
+                            currentAudioLang = 'original';
+                            populateAudioMenu(hlsAudioTracks, 'original');
+                        }
+                    })
+                    .catch(() => {});
+            }
         })
-        .catch(() => {});
+        .catch((err) => {
+            console.error('Info fetch failed, falling back to DASH:', err);
+            startDashPlayer(videoId);
+        });
 
     fetchRelatedVideos(videoId);
+}
 
-    // Start DASH playback
+function startDashPlayer(videoId) {
+    currentPlayerType = 'dash';
     dashPlayer = dashjs.MediaPlayer().create();
     dashPlayer.updateSettings({
         streaming: {
@@ -254,7 +390,7 @@ async function playVideo(videoId, title, channel, duration) {
     dashPlayer.initialize(videoPlayer, `/api/dash/${videoId}`, true);
 
     dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
-        videoQualities = buildQualities();
+        videoQualities = buildQualitiesDash();
         if (videoQualities.length === 0) return;
 
         const heights = videoQualities.map(q => q.height);
@@ -264,12 +400,21 @@ async function playVideo(videoId, title, channel, duration) {
         if (targetEntry) {
             switchToQuality(targetEntry);
             currentActiveHeight = targetHeight;
-            qualityBtn.textContent = `${targetHeight}p`;
+            qualityBtn.textContent = `\ud83c\udfac ${targetHeight}p`;
+            qualityBtn.disabled = false;
         }
 
         populateQualityMenu();
-        qualitySelector.classList.remove('hidden');
-        restorePosition(videoId);
+
+        // Restore position: pendingSeek (from audio switch) takes priority
+        if (pendingSeek) {
+            videoPlayer.currentTime = pendingSeek.time;
+            if (pendingSeek.play) videoPlayer.play();
+            applySubtitlePreference();
+            pendingSeek = null;
+        } else {
+            restorePosition(videoId);
+        }
     });
 
     dashPlayer.on(dashjs.MediaPlayer.events.QUALITY_CHANGE_RENDERED, (e) => {
@@ -277,7 +422,7 @@ async function playVideo(videoId, title, channel, duration) {
         const entry = videoQualities.find(q => q.qualityIndex === e.newQuality);
         if (entry) {
             currentActiveHeight = entry.height;
-            qualityBtn.textContent = `${entry.height}p`;
+            qualityBtn.textContent = `\ud83c\udfac ${entry.height}p`;
             qualityBtn.disabled = false;
             qualityMenu.querySelectorAll('.quality-option').forEach(opt => {
                 opt.classList.toggle('selected', parseInt(opt.dataset.height) === entry.height);
@@ -286,7 +431,74 @@ async function playVideo(videoId, title, channel, duration) {
     });
 }
 
+function startHlsPlayer(videoId, manifestUrl) {
+    currentPlayerType = 'hls';
+
+    hlsPlayer = new Hls({ maxBufferLength: 30, maxMaxBufferLength: 60 });
+    hlsPlayer.attachMedia(videoPlayer);
+    hlsPlayer.loadSource(manifestUrl);
+
+    hlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => {
+        videoQualities = buildQualitiesHls();
+        if (videoQualities.length === 0) return;
+
+        const heights = videoQualities.map(q => q.height);
+        const targetHeight = getTargetQuality(heights, preferredQuality);
+        const targetEntry = videoQualities.find(q => q.height === targetHeight);
+
+        if (targetEntry) {
+            hlsPlayer.currentLevel = targetEntry.qualityIndex;
+            currentActiveHeight = targetHeight;
+            qualityBtn.textContent = `\ud83c\udfac ${targetHeight}p`;
+            qualityBtn.disabled = false;
+        }
+
+        populateQualityMenu();
+
+        // Restore position: pendingSeek (from audio switch) takes priority
+        if (pendingSeek) {
+            videoPlayer.currentTime = pendingSeek.time;
+            if (pendingSeek.play) videoPlayer.play();
+            applySubtitlePreference();
+            pendingSeek = null;
+        } else {
+            videoPlayer.play();
+            restorePosition(videoId);
+        }
+    });
+
+    hlsPlayer.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
+        const level = hlsPlayer.levels[data.level];
+        if (level) {
+            const entry = videoQualities.find(q => q.height === level.height);
+            if (entry) {
+                currentActiveHeight = entry.height;
+                qualityBtn.textContent = `\ud83c\udfac ${entry.height}p`;
+                qualityBtn.disabled = false;
+                qualityMenu.querySelectorAll('.quality-option').forEach(opt => {
+                    opt.classList.toggle('selected', parseInt(opt.dataset.height) === entry.height);
+                });
+            }
+        }
+    });
+
+    hlsPlayer.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) {
+            console.error('HLS fatal error, falling back to DASH:', data);
+            hlsPlayer.destroy();
+            hlsPlayer = null;
+            startDashPlayer(videoId);
+        }
+    });
+}
+
 // ── Utils ───────────────────────────────────────────────────────────────────
+
+const _langNames = new Intl.DisplayNames(['en'], { type: 'language' });
+function langName(code) {
+    try { return _langNames.of(code); }
+    catch { return code.toUpperCase(); }
+}
 
 function escapeHtml(text) {
     const div = document.createElement('div');
@@ -355,13 +567,13 @@ videoPlayer.addEventListener('error', () => {
     console.log('Video error:', videoPlayer.error?.message);
 });
 
-// For non-DASH fallback: show resolution from video element
+// For non-DASH/HLS fallback: show resolution from video element
 videoPlayer.addEventListener('loadedmetadata', () => {
-    if (dashPlayer) return;
+    if (dashPlayer || hlsPlayer) return;
     const h = videoPlayer.videoHeight;
     if (h > 0) {
-        qualityBtn.textContent = `${h}p`;
-        qualitySelector.classList.remove('hidden');
+        qualityBtn.textContent = `\ud83c\udfac ${h}p`;
+        qualityBtn.disabled = false;
         qualityMenu.innerHTML = '';
     }
 });
