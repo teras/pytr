@@ -58,7 +58,7 @@ async function searchVideos(query) {
         }
     } catch (error) {
         showLoadingCard(false);
-        videoGrid.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+        videoGrid.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
         hasMoreResults = false;
     }
 
@@ -108,7 +108,7 @@ async function loadChannelVideos(channelId, channelName) {
         }
     } catch (error) {
         showLoadingCard(false);
-        videoGrid.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+        videoGrid.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
         hasMoreResults = false;
     }
 
@@ -203,8 +203,20 @@ function renderVideos(videos) {
 
 function appendVideos(videos) {
     if (videos.length === 0) return;
-    videoGrid.insertAdjacentHTML('beforeend', videos.map(createVideoCard).join(''));
-    attachCardListeners(videoGrid);
+    const fragment = document.createElement('div');
+    fragment.innerHTML = videos.map(createVideoCard).join('');
+    const newCards = [...fragment.children];
+    newCards.forEach(card => videoGrid.appendChild(card));
+    // Only attach listeners to the newly added cards (not the entire grid)
+    newCards.forEach(card => {
+        card.dataset.attached = 'true';
+        card.addEventListener('click', () => navigateToVideo(
+            card.dataset.id,
+            card.dataset.title,
+            card.dataset.channel,
+            parseInt(card.dataset.duration) || 0
+        ));
+    });
 }
 
 

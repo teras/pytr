@@ -1,27 +1,29 @@
 """Authentication: sessions, brute-force protection, login/logout routes."""
 import logging
-import os
 import secrets
 import time
 
+from html import escape as html_escape
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request, Response, Depends, Form
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from helpers import register_cleanup
+import profiles_db
 
 log = logging.getLogger(__name__)
 
 router = APIRouter()
 
 # State
-AUTH_PASSWORD = os.environ.get('YTP_PASSWORD')
 AUTH_SESSIONS: dict = {}   # token -> {"expiry": float, "searches": {}}
 AUTH_FAILURES: dict = {}   # ip -> {"count": int, "blocked_until": float}
 
-# Session TTL for anonymous (no-auth) sessions
-_ANON_SESSION_TTL = 24 * 3600  # 24h
+
+def _get_password() -> str | None:
+    """Get the app password from DB (None = open access)."""
+    return profiles_db.get_app_password()
 
 
 def _cleanup_sessions():
@@ -79,16 +81,13 @@ def clear_failures(ip: str):
 def _create_session(expiry: float) -> tuple[str, dict]:
     """Create a new session and return (token, session_dict)."""
     token = secrets.token_urlsafe(32)
-    session = {"expiry": expiry, "searches": {}}
+    session = {"expiry": expiry, "searches": {}, "profile_id": None}
     AUTH_SESSIONS[token] = session
     return token, session
 
 
-def get_session(request: Request, response: Response = None) -> tuple[str, dict]:
-    """Get or create a session. Returns (token, session_dict).
-
-    If response is provided and a new session is created, sets the cookie.
-    """
+def get_session(request: Request) -> tuple[str, dict]:
+    """Get existing session or create a new one. Returns (token, session_dict)."""
     token = request.cookies.get("ytp_session")
     if token and token in AUTH_SESSIONS:
         session = AUTH_SESSIONS[token]
@@ -96,13 +95,13 @@ def get_session(request: Request, response: Response = None) -> tuple[str, dict]
             return token, session
         del AUTH_SESSIONS[token]
 
-    # Create anonymous session
-    token, session = _create_session(time.time() + _ANON_SESSION_TTL)
+    # Create session (profile selection will persist profile_id into it)
+    token, session = _create_session(time.time() + 24 * 3600)
     return token, session
 
 
 def verify_session(request: Request) -> bool:
-    if not AUTH_PASSWORD:
+    if not _get_password():
         return True
     token = request.cookies.get("ytp_session")
     if token and token in AUTH_SESSIONS:
@@ -114,11 +113,30 @@ def verify_session(request: Request) -> bool:
 
 async def require_auth(request: Request):
     """FastAPI dependency that requires authentication."""
-    if not AUTH_PASSWORD:
+    if not _get_password():
         return True
     if not verify_session(request):
         raise HTTPException(status_code=401, detail="Unauthorized")
     return True
+
+
+def get_profile_id(request: Request) -> int | None:
+    """Get the profile_id from the current session, or None."""
+    token = request.cookies.get("ytp_session")
+    if token and token in AUTH_SESSIONS:
+        session = AUTH_SESSIONS[token]
+        if session["expiry"] > time.time():
+            return session.get("profile_id")
+    return None
+
+
+async def require_profile(request: Request) -> int:
+    """FastAPI dependency that requires an active profile selection."""
+    await require_auth(request)
+    pid = get_profile_id(request)
+    if pid is None:
+        raise HTTPException(status_code=403, detail="No profile selected")
+    return pid
 
 
 # ── Login page HTML ──────────────────────────────────────────────────────────
@@ -203,7 +221,7 @@ LOGIN_PAGE = """<!DOCTYPE html>
 
 def _serve_spa(request: Request):
     """Serve index.html or redirect to login, preserving the original URL."""
-    if AUTH_PASSWORD and not verify_session(request):
+    if _get_password() and not verify_session(request):
         next_url = str(request.url.path)
         if request.url.query:
             next_url += f"?{request.url.query}"
@@ -226,9 +244,19 @@ async def channel_page(request: Request, channel_id: str):
     return _serve_spa(request)
 
 
+@router.get("/history")
+async def history_page(request: Request):
+    return _serve_spa(request)
+
+
+@router.get("/favorites")
+async def favorites_page(request: Request):
+    return _serve_spa(request)
+
+
 @router.get("/login")
 async def login_page(request: Request, error: str = "", next: str = "/"):
-    if not AUTH_PASSWORD:
+    if not _get_password():
         return RedirectResponse(url="/", status_code=302)
     if verify_session(request):
         return RedirectResponse(url=next or "/", status_code=302)
@@ -245,20 +273,21 @@ async def login_page(request: Request, error: str = "", next: str = "/"):
             time_str = f"{minutes}m {remaining % 60}s"
         error_html = f'<p class="error blocked">Too many attempts. Try again in {time_str}</p>'
     elif error:
-        error_html = f'<p class="error">{error}</p>'
+        error_html = f'<p class="error">{html_escape(error)}</p>'
     else:
         error_html = ""
 
     # Only allow relative URLs to prevent open redirect
     safe_next = next if next.startswith("/") else "/"
     html = LOGIN_PAGE.replace("{{ERROR_PLACEHOLDER}}", error_html)
-    html = html.replace("{{NEXT_URL}}", safe_next)
+    html = html.replace("{{NEXT_URL}}", html_escape(safe_next))
     return HTMLResponse(html)
 
 
 @router.post("/login")
 async def do_login(request: Request, response: Response, password: str = Form(...), remember: str = Form(default=""), next: str = Form(default="/")):
-    if not AUTH_PASSWORD:
+    app_password = _get_password()
+    if not app_password:
         return RedirectResponse(url="/", status_code=302)
 
     # Only allow relative URLs to prevent open redirect
@@ -269,7 +298,7 @@ async def do_login(request: Request, response: Response, password: str = Form(..
     if blocked:
         return RedirectResponse(url=f"/login?next={quote(redirect_to, safe='')}", status_code=302)
 
-    if password == AUTH_PASSWORD:
+    if secrets.compare_digest(password, app_password):
         clear_failures(ip)
         expiry = time.time() + (30 * 86400 if remember else 86400)
         token, session = _create_session(expiry)

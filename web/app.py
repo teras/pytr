@@ -1,12 +1,5 @@
 """YTP - YouTube Proxy. FastAPI entry point."""
 import logging
-from pathlib import Path
-
-from dotenv import load_dotenv
-
-# Load .env from current dir or parent dir (for local dev)
-load_dotenv()
-load_dotenv(Path(__file__).parent.parent / ".env")
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -21,7 +14,18 @@ logging.basicConfig(
 app = FastAPI(title="YTP")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-import helpers  # noqa: F401 — ensure cache dir created on startup
+
+@app.middleware("http")
+async def cleanup_middleware(request, call_next):
+    from helpers import maybe_cleanup
+    maybe_cleanup()
+    return await call_next(request)
+
+# Init DB before helpers (helpers reads cookies_browser setting from DB)
+import profiles_db
+profiles_db.init_db()
+
+import helpers  # noqa: F401 — ensure cache dir + yt-dlp instance created on startup
 
 # Register routers
 from auth import router as auth_router
@@ -29,12 +33,14 @@ from dash import router as dash_router
 from hls import router as hls_router
 from routes.video import router as video_router
 from routes.browse import router as browse_router
+from routes.profiles import router as profiles_router
 
 app.include_router(auth_router)
 app.include_router(dash_router)
 app.include_router(hls_router)
 app.include_router(video_router)
 app.include_router(browse_router)
+app.include_router(profiles_router)
 
 if __name__ == "__main__":
     import uvicorn

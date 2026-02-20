@@ -10,6 +10,9 @@
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
 </head>
 <body>
+    <!-- Profile selector overlay -->
+    <div id="profile-overlay" class="hidden"></div>
+
     <div class="container">
         <header>
             <h1>YTP</h1>
@@ -17,6 +20,7 @@
                 <input type="text" id="search-input" placeholder="Search videos..." autofocus>
                 <button id="search-btn">Search</button>
             </div>
+            <button id="profile-switcher-btn" class="profile-switcher-btn hidden"></button>
             <a href="/logout" class="header-logout">Logout</a>
         </header>
 
@@ -49,6 +53,7 @@
                                     <p id="video-meta"></p>
                                 </div>
                                 <div class="video-info-right">
+                                    <button id="favorite-btn" class="player-btn hidden" onclick="toggleFavorite()">☆ Save</button>
                                     <div id="subtitle-btn-container" class="hidden">
                                         <button id="subtitle-btn" class="player-btn">💬 Off</button>
                                         <div id="subtitle-menu" class="subtitle-menu hidden"></div>
@@ -80,6 +85,7 @@
     <script src="/static/app.js"></script>
     <script src="/static/search.js"></script>
     <script src="/static/subtitles.js"></script>
-    <script>handleInitialRoute();</script>
+    <script src="/static/profiles.js"></script>
+    <script>checkProfile();</script>
 </body>
 </html>

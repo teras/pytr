@@ -3,6 +3,6 @@ services:
     build: .
     ports:
       - "8000:8000"
-    environment:
-      - YTP_PASSWORD=${YTP_PASSWORD}
+    volumes:
+      - ./data:/app/data
     restart: unless-stopped

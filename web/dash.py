@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from auth import require_auth
 from container import probe_ranges
-from helpers import _yt_url, ydl_info, register_cleanup
+from helpers import register_cleanup, get_video_info
 
 log = logging.getLogger(__name__)
 
@@ -34,11 +34,14 @@ def _cleanup_dash_cache():
 register_cleanup(_cleanup_dash_cache)
 
 # Allowed extensions
-_VIDEO_EXTS = {'mp4', 'mp4a', 'webm'}
+_VIDEO_EXTS = {'mp4', 'webm'}
 _AUDIO_EXTS = {'m4a', 'mp4', 'webm'}
 
 
 # ── Proxy helper (shared with stream-live) ───────────────────────────────────
+
+_proxy_client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+
 
 async def proxy_range_request(request: Request, video_url: str, filesize: int = None):
     """Proxy a YouTube URL with range request support, forwarding upstream headers."""
@@ -50,20 +53,17 @@ async def proxy_range_request(request: Request, video_url: str, filesize: int = 
     elif filesize:
         upstream_headers['Range'] = 'bytes=0-'
 
-    client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
     try:
-        upstream = await client.send(
-            client.build_request('GET', video_url, headers=upstream_headers),
+        upstream = await _proxy_client.send(
+            _proxy_client.build_request('GET', video_url, headers=upstream_headers),
             stream=True,
         )
     except Exception as e:
-        await client.aclose()
         log.warning(f"Upstream connection error: {e}")
         raise HTTPException(status_code=502, detail="Upstream connection failed")
 
     if upstream.status_code >= 400:
         await upstream.aclose()
-        await client.aclose()
         log.warning(f"Upstream error {upstream.status_code}")
         raise HTTPException(status_code=upstream.status_code, detail="Upstream error")
 
@@ -90,7 +90,6 @@ async def proxy_range_request(request: Request, video_url: str, filesize: int = 
                 yield chunk
         finally:
             await upstream.aclose()
-            await client.aclose()
 
     return StreamingResponse(stream_body(), status_code=status, headers=resp_headers)
 
@@ -144,9 +143,8 @@ async def get_dash_manifest(video_id: str, auth: bool = Depends(require_auth)):
         return Response(cached['mpd'], media_type='application/dash+xml',
                         headers={'Cache-Control': 'no-cache'})
 
-    url = _yt_url(video_id)
     try:
-        info = await asyncio.to_thread(ydl_info.extract_info, url, download=False)
+        info = await asyncio.to_thread(get_video_info, video_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -193,6 +191,7 @@ async def get_dash_manifest(video_id: str, auth: bool = Depends(require_auth)):
 
     # Probe all formats for initRange/indexRange (parallel)
     all_fmts = video_fmts + audio_fmts
+    orig_video_count = len(video_fmts)
     probe_results = await asyncio.gather(*[probe_ranges(f['url']) for f in all_fmts])
 
     # Filter out formats where probing failed
@@ -218,7 +217,7 @@ async def get_dash_manifest(video_id: str, auth: bool = Depends(require_auth)):
                 valid_video.append(fmt)
                 valid_video_probes.append(probe)
 
-    audio_probe = probe_results[len(video_fmts)] if len(probe_results) > len(video_fmts) else None
+    audio_probe = probe_results[orig_video_count] if len(probe_results) > orig_video_count else None
     if not audio_probe or 'init_end' not in audio_probe or 'index_start' not in audio_probe:
         # Try other audio container
         other_audio = 'webm' if audio_container == 'mp4' else 'mp4'

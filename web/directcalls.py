@@ -45,6 +45,13 @@ _HEADERS = {
     "X-YouTube-Client-Version": "2.20250219.01.00",
 }
 
+# Reuse a single httpx client for all InnerTube API calls.
+# Protected by a lock since httpx.Client is not thread-safe and we call
+# from asyncio.to_thread() which may run concurrent requests.
+import threading
+_innertube_client = httpx.Client(timeout=30.0, headers=_HEADERS)
+_innertube_lock = threading.Lock()
+
 
 # ── Response parsers ─────────────────────────────────────────────────────────
 
@@ -122,15 +129,14 @@ def search_first(query: str) -> tuple[list[dict], str | None]:
         "context": _CLIENT_CONTEXT,
     }
 
-    with httpx.Client(timeout=30.0) as client:
-        resp = client.post(
+    with _innertube_lock:
+        resp = _innertube_client.post(
             f"{_API_BASE}/search",
             params={"prettyPrint": "false"},
-            headers=_HEADERS,
             json=body,
         )
-        resp.raise_for_status()
-        data = resp.json()
+    resp.raise_for_status()
+    data = resp.json()
 
     results = []
     token = None
@@ -181,15 +187,14 @@ def search_next(continuation_token: str) -> tuple[list[dict], str | None]:
         "context": _CLIENT_CONTEXT,
     }
 
-    with httpx.Client(timeout=30.0) as client:
-        resp = client.post(
+    with _innertube_lock:
+        resp = _innertube_client.post(
             f"{_API_BASE}/search",
             params={"prettyPrint": "false"},
-            headers=_HEADERS,
             json=body,
         )
-        resp.raise_for_status()
-        data = resp.json()
+    resp.raise_for_status()
+    data = resp.json()
 
     results = []
     token = None
@@ -236,15 +241,14 @@ def channel_first(channel_id: str) -> tuple[str, list[dict], str | None]:
         "context": _CLIENT_CONTEXT,
     }
 
-    with httpx.Client(timeout=30.0) as client:
-        resp = client.post(
+    with _innertube_lock:
+        resp = _innertube_client.post(
             f"{_API_BASE}/browse",
             params={"prettyPrint": "false"},
-            headers=_HEADERS,
             json=body,
         )
-        resp.raise_for_status()
-        data = resp.json()
+    resp.raise_for_status()
+    data = resp.json()
 
     # Channel name from metadata or header
     channel_name = (data.get("metadata", {})
@@ -324,15 +328,14 @@ def channel_next(continuation_token: str) -> tuple[list[dict], str | None]:
         "context": _CLIENT_CONTEXT,
     }
 
-    with httpx.Client(timeout=30.0) as client:
-        resp = client.post(
+    with _innertube_lock:
+        resp = _innertube_client.post(
             f"{_API_BASE}/browse",
             params={"prettyPrint": "false"},
-            headers=_HEADERS,
             json=body,
         )
-        resp.raise_for_status()
-        data = resp.json()
+    resp.raise_for_status()
+    data = resp.json()
 
     results = []
     token = None
@@ -367,6 +370,16 @@ def channel_next(continuation_token: str) -> tuple[list[dict], str | None]:
 
 # ── Related Videos ───────────────────────────────────────────────────────────
 
+_async_client = httpx.AsyncClient(
+    timeout=30.0,
+    follow_redirects=True,
+    headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    },
+)
+
+
 async def fetch_related(video_id: str) -> list[dict]:
     """Fetch related videos for a given video ID.
 
@@ -377,15 +390,10 @@ async def fetch_related(video_id: str) -> list[dict]:
     Returns list of video dicts (may be empty on error).
     """
     url = f"https://www.youtube.com/watch?v={video_id}"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
 
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, headers=headers, follow_redirects=True, timeout=30.0)
-            html = resp.text
+        resp = await _async_client.get(url)
+        html = resp.text
 
         match = re.search(r"var ytInitialData = ({.*?});", html)
         if not match:

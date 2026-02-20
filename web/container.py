@@ -145,51 +145,54 @@ def parse_webm_ranges(data: bytes) -> dict:
 
 # ── Unified async prober ────────────────────────────────────────────────────
 
+_probe_client = httpx.AsyncClient(follow_redirects=True, timeout=30.0)
+
+
 async def probe_ranges(url: str) -> dict | None:
     """Probe a URL to find init/index ranges. Auto-detects MP4 vs WebM.
 
     For MP4: fetches first 4KB (boxes are at the start).
-    For WebM: fetches up to 2MB, then 10MB if Cues not found in first pass.
+    For WebM: fetches 2MB (then 10MB if Cues not found in first pass).
 
     Returns dict with 'init_end', 'index_start', 'index_end' or None on failure.
     """
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
-            # First fetch: 4KB is enough for MP4, and enough to detect WebM
-            resp = await client.get(url, headers={'Range': 'bytes=0-4095'})
+        # First fetch: 4KB — enough for MP4, enough to detect WebM
+        resp = await _probe_client.get(url, headers={'Range': 'bytes=0-4095'})
+        if resp.status_code not in (200, 206):
+            return None
+
+        content_type = resp.headers.get('content-type', '')
+        data = resp.content
+
+        # Detect container type
+        is_webm = ('webm' in content_type
+                   or data[:4] == b'\x1a\x45\xdf\xa3')  # EBML magic
+
+        if not is_webm:
+            # MP4: 4KB is sufficient
+            result = parse_mp4_ranges(data)
+            return result if result.get('init_end') else None
+
+        # WebM: need more data for Cues — start at 2MB (4KB already fetched is too small)
+        result = None
+        for fetch_size in [2 * 1024 * 1024, 10 * 1024 * 1024]:
+            resp = await _probe_client.get(
+                url, headers={'Range': f'bytes=0-{fetch_size - 1}'}
+            )
             if resp.status_code not in (200, 206):
                 return None
-
-            content_type = resp.headers.get('content-type', '')
-            data = resp.content
-
-            # Detect container type
-            is_webm = ('webm' in content_type
-                       or data[:4] == b'\x1a\x45\xdf\xa3')  # EBML magic
-
-            if not is_webm:
-                # MP4: 4KB is sufficient
-                result = parse_mp4_ranges(data)
-                return result if result.get('init_end') else None
-
-            # WebM: need more data for Cues
-            for fetch_size in [2 * 1024 * 1024, 10 * 1024 * 1024]:
-                resp = await client.get(
-                    url, headers={'Range': f'bytes=0-{fetch_size - 1}'}
-                )
-                if resp.status_code not in (200, 206):
-                    return None
-                result = parse_webm_ranges(resp.content)
-                if result.get('index_start'):
-                    log.info(f"WebM probed OK: init=0-{result['init_end']}, "
-                             f"cues={result['index_start']}-{result['index_end']}")
-                    return result
-
-            # Cues not found even in 10MB — use init only (no seeking)
-            if result.get('init_end'):
-                log.warning("WebM Cues not found, seeking will not work")
+            result = parse_webm_ranges(resp.content)
+            if result.get('index_start'):
+                log.info(f"WebM probed OK: init=0-{result['init_end']}, "
+                         f"cues={result['index_start']}-{result['index_end']}")
                 return result
-            return None
+
+        # Cues not found even in 10MB — use init only (no seeking)
+        if result and result.get('init_end'):
+            log.warning("WebM Cues not found, seeking will not work")
+            return result
+        return None
 
     except Exception as e:
         log.warning(f"Probe failed: {e}")

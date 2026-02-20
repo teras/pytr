@@ -3,12 +3,13 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Environment
-.env
-
 # Subtitle cache
 cache/*
 web/cache/*
+
+# Profile database
+data/
+web/data/
 
 # IDE
 .vscode/

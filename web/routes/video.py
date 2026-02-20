@@ -1,19 +1,21 @@
 """Video routes: info, subtitle, stream-live."""
 import asyncio
 import logging
+import time
 
 import httpx
-import yt_dlp
 from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import FileResponse, Response
 
 from auth import require_auth
 from dash import proxy_range_request
-from helpers import CACHE_DIR, YDL_OPTS, ydl_info, _yt_url, format_number, register_cleanup
+from helpers import CACHE_DIR, format_number, register_cleanup, get_video_info as _cached_info
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
+
+_video_client = httpx.AsyncClient(timeout=15, follow_redirects=True)
 
 # Cache subtitle URLs per video (populated by /api/info, consumed by /api/subtitle)
 # Each entry: {lang: {auto, url}, ..., "_created": float}
@@ -22,7 +24,6 @@ _SUBTITLE_CACHE_TTL = 5 * 3600
 
 
 def _cleanup_subtitle_cache():
-    import time
     now = time.time()
     expired = [k for k, v in _subtitle_cache.items()
                if now - v.get('_created', 0) > _SUBTITLE_CACHE_TTL]
@@ -39,11 +40,7 @@ register_cleanup(_cleanup_subtitle_cache)
 async def get_video_info(video_id: str, auth: bool = Depends(require_auth)):
     """Get video info (views, likes, etc.)"""
     try:
-        url = _yt_url(video_id)
-        def _extract():
-            with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
-                return ydl.extract_info(url, download=False)
-        info = await asyncio.to_thread(_extract)
+        info = await asyncio.to_thread(_cached_info, video_id)
 
         upload_date = info.get('upload_date', '')
         if upload_date and len(upload_date) == 8:
@@ -63,7 +60,6 @@ async def get_video_info(video_id: str, auth: bool = Depends(require_auth)):
                 subtitle_tracks.append({'lang': lang, 'label': name, 'auto': False})
 
         # Only include the original-language auto-caption (translations get 429'd by YouTube)
-        video_lang = info.get('language', '')
         for lang, formats in info.get('automatic_captions', {}).items():
             if lang in _SKIP_LANGS or lang in cache_entry:
                 continue
@@ -71,15 +67,14 @@ async def get_video_info(video_id: str, auth: bool = Depends(require_auth)):
             vtt = next((f for f in formats if f.get('ext') == 'vtt'), None)
             if not vtt:
                 continue
-            url = vtt.get('url', '')
-            if '&tlang=' in url or '?tlang=' in url:
+            vtt_url = vtt.get('url', '')
+            if '&tlang=' in vtt_url or '?tlang=' in vtt_url:
                 continue  # translated auto-caption, will 429
             name = next((f.get('name') for f in formats if f.get('name')), lang)
-            cache_entry[lang] = {'auto': True, 'url': url}
+            cache_entry[lang] = {'auto': True, 'url': vtt_url}
             subtitle_tracks.append({'lang': lang, 'label': name, 'auto': True})
 
-        import time as _time
-        cache_entry['_created'] = _time.time()
+        cache_entry['_created'] = time.time()
         _subtitle_cache[video_id] = cache_entry
 
         # Detect multi-audio: count distinct languages among audio formats
@@ -111,7 +106,7 @@ async def get_subtitle(video_id: str, lang: str, auth: bool = Depends(require_au
     """Proxy a subtitle VTT file (original language or manual subs only)."""
     # Check local cache first
     def _find_local():
-        matches = list(CACHE_DIR.glob(f"{video_id}*.{lang}.vtt"))
+        matches = list(CACHE_DIR.glob(f"{video_id}.{lang}.vtt"))
         return matches[0] if matches else None
 
     found = _find_local()
@@ -123,8 +118,7 @@ async def get_subtitle(video_id: str, lang: str, auth: bool = Depends(require_au
     sub_info = cache.get(lang) or cache.get(lang.split('-')[0])
     if sub_info and sub_info.get('url'):
         try:
-            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-                resp = await client.get(sub_info['url'])
+            resp = await _video_client.get(sub_info['url'])
             if resp.status_code == 200:
                 out_path = CACHE_DIR / f"{video_id}.{lang}.vtt"
                 out_path.write_bytes(resp.content)
@@ -140,10 +134,8 @@ async def get_subtitle(video_id: str, lang: str, auth: bool = Depends(require_au
 @router.get("/stream-live/{video_id}")
 async def stream_live(video_id: str, request: Request, auth: bool = Depends(require_auth)):
     """Fallback: proxy progressive format (22/18) with range requests."""
-    url = _yt_url(video_id)
-
     try:
-        info = await asyncio.to_thread(ydl_info.extract_info, url, download=False)
+        info = await asyncio.to_thread(_cached_info, video_id)
 
         video_url = None
         filesize = None

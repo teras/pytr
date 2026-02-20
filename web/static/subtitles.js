@@ -147,6 +147,7 @@ function renderSubtitleMenu() {
 
 function selectSubtitle(lang) {
     localStorage.setItem('subtitle_lang', lang || 'off');
+    if (typeof savePreference === 'function') savePreference('subtitle_lang', lang || 'off');
     if (!lang) {
         [...videoPlayer.querySelectorAll('track')].forEach(t => t.remove());
         updateSubtitleBtn(null);

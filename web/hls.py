@@ -9,7 +9,6 @@ import asyncio
 import logging
 import re
 import time
-from typing import Optional
 from urllib.parse import quote, urljoin
 
 import httpx
@@ -17,7 +16,7 @@ from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import Response, StreamingResponse
 
 from auth import require_auth
-from helpers import ydl_info, _yt_url, register_cleanup
+from helpers import register_cleanup, get_video_info
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +37,8 @@ def _cleanup_hls_cache():
 
 
 register_cleanup(_cleanup_hls_cache)
+
+_hls_client = httpx.AsyncClient(timeout=30, follow_redirects=True)
 
 _RE_AUDIO_ID = re.compile(r'YT-EXT-AUDIO-CONTENT-ID="([^"]+)"')
 _RE_URI = re.compile(r'URI="([^"]+)"')
@@ -109,7 +110,7 @@ def _extract_audio_langs(manifest: str) -> list[dict]:
     return result
 
 
-def _filter_manifest_by_audio(manifest: str, audio_lang: Optional[str]) -> str:
+def _filter_manifest_by_audio(manifest: str, audio_lang: str | None) -> str:
     """Filter manifest variants to only those matching the given audio language.
 
     audio_lang=None or 'original': keep only variants WITHOUT YT-EXT-AUDIO-CONTENT-ID
@@ -159,7 +160,7 @@ def _filter_manifest_by_audio(manifest: str, audio_lang: Optional[str]) -> str:
 @router.get("/master/{video_id}")
 async def get_hls_master(
     video_id: str,
-    audio: Optional[str] = None,
+    audio: str | None = None,
     auth: bool = Depends(require_auth),
 ):
     """Fetch YouTube's HLS master manifest, filter by audio language, rewrite URIs.
@@ -170,9 +171,8 @@ async def get_hls_master(
     # Get or fetch the full rewritten manifest
     cached = _hls_cache.get(video_id)
     if not cached or time.time() - cached['created'] >= _HLS_CACHE_TTL:
-        url = _yt_url(video_id)
         try:
-            info = await asyncio.to_thread(ydl_info.extract_info, url, download=False)
+            info = await asyncio.to_thread(get_video_info, video_id)
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
@@ -185,8 +185,7 @@ async def get_hls_master(
         if not manifest_url:
             raise HTTPException(status_code=404, detail="No HLS manifest available")
 
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            resp = await client.get(manifest_url)
+        resp = await _hls_client.get(manifest_url)
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"Failed to fetch HLS manifest: {resp.status_code}")
 
@@ -221,8 +220,7 @@ async def get_audio_tracks(video_id: str, auth: bool = Depends(require_auth)):
 @router.get("/playlist")
 async def get_hls_playlist(url: str, request: Request):
     """Fetch an HLS media playlist and rewrite segment URIs to proxy."""
-    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-        resp = await client.get(url)
+    resp = await _hls_client.get(url)
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail=f"Failed to fetch playlist: {resp.status_code}")
 
@@ -234,24 +232,21 @@ async def get_hls_playlist(url: str, request: Request):
 @router.get("/segment")
 async def get_hls_segment(url: str, request: Request):
     """Stream an HLS segment from YouTube CDN (passthrough)."""
-    client = httpx.AsyncClient(timeout=30, follow_redirects=True)
     try:
         upstream_headers = {}
         range_header = request.headers.get('range')
         if range_header:
             upstream_headers['Range'] = range_header
 
-        upstream = await client.send(
-            client.build_request('GET', url, headers=upstream_headers),
+        upstream = await _hls_client.send(
+            _hls_client.build_request('GET', url, headers=upstream_headers),
             stream=True,
         )
     except Exception as e:
-        await client.aclose()
         raise HTTPException(status_code=502, detail=f"Segment fetch failed: {e}")
 
     if upstream.status_code >= 400:
         await upstream.aclose()
-        await client.aclose()
         raise HTTPException(status_code=upstream.status_code, detail="Segment upstream error")
 
     resp_headers = {
@@ -271,6 +266,5 @@ async def get_hls_segment(url: str, request: Request):
                 yield chunk
         finally:
             await upstream.aclose()
-            await client.aclose()
 
     return StreamingResponse(stream_body(), status_code=status, headers=resp_headers)

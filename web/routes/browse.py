@@ -6,7 +6,6 @@ import logging
 from fastapi import APIRouter, HTTPException, Query, Request, Response, Depends
 
 from auth import require_auth, get_session
-from helpers import maybe_cleanup
 from iterators import create_search, create_channel, fetch_more
 from directcalls import fetch_related
 
@@ -30,8 +29,6 @@ def _set_session_cookie(response: Response, token: str, request: Request):
 @router.get("/search")
 async def search(request: Request, q: str = Query(..., min_length=1), auth: bool = Depends(require_auth)):
     """Search YouTube. Returns first batch + cursor for pagination."""
-    maybe_cleanup()
-
     token, session = get_session(request)
 
     try:
@@ -50,8 +47,6 @@ async def search(request: Request, q: str = Query(..., min_length=1), auth: bool
 @router.get("/more")
 async def more(request: Request, cursor: str = Query(..., min_length=1), auth: bool = Depends(require_auth)):
     """Fetch next batch using cursor. Expired/invalid cursor returns empty results."""
-    maybe_cleanup()
-
     token, session = get_session(request)
 
     try:
@@ -81,8 +76,6 @@ async def get_channel_videos(
     auth: bool = Depends(require_auth)
 ):
     """Get videos from a channel. Returns first batch + cursor for pagination."""
-    maybe_cleanup()
-
     token, session = get_session(request)
 
     try:
