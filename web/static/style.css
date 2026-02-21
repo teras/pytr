@@ -190,6 +190,9 @@ h1 {
     overflow: hidden;
     cursor: pointer;
     transition: transform 0.2s, background-color 0.2s;
+    text-decoration: none;
+    color: inherit;
+    display: block;
 }
 
 .video-card:hover {
@@ -467,6 +470,8 @@ h1 {
     padding: 8px;
     border-radius: 8px;
     transition: background-color 0.2s;
+    text-decoration: none;
+    color: inherit;
 }
 
 .related-card:hover {

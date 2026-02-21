@@ -356,7 +356,8 @@ function createVideoCard(item) {
         const badgeClass = item.type === 'playlist' ? 'badge-playlist' : 'badge-mix';
         const badgeLabel = item.type === 'playlist' ? 'Playlist' : 'Mix';
         const countBadge = item.video_count ? `<span class="video-count">${escapeHtml(item.video_count)}</span>` : '';
-        return `<div class="video-card" data-id="${escapeAttr(item.first_video_id || item.id)}" data-title="${escapeAttr(item.title)}" data-channel="${escapeAttr(item.channel || '')}" data-duration="0" data-playlist-id="${escapeAttr(item.playlist_id || item.id)}" data-item-type="${escapeAttr(item.type)}">
+        const firstVid = item.first_video_id || item.id;
+        return `<a class="video-card" href="/watch?v=${escapeAttr(firstVid)}" data-id="${escapeAttr(firstVid)}" data-title="${escapeAttr(item.title)}" data-channel="${escapeAttr(item.channel || '')}" data-duration="0" data-playlist-id="${escapeAttr(item.playlist_id || item.id)}" data-item-type="${escapeAttr(item.type)}">
             <div class="thumbnail-container">
                 <img src="${escapeAttr(item.thumbnail)}" alt="${escapeHtml(item.title)}" loading="lazy">
                 ${countBadge}
@@ -366,7 +367,7 @@ function createVideoCard(item) {
                 <h3 class="video-title">${escapeHtml(item.title)}</h3>
                 <p class="channel">${escapeHtml(item.channel || '')}</p>
             </div>
-        </div>`;
+        </a>`;
     }
 
     // Regular video card
@@ -375,7 +376,7 @@ function createVideoCard(item) {
                : '';
     const durationBadge = item.is_live ? '<span class="duration live">LIVE</span>'
                         : item.duration_str ? `<span class="duration">${escapeHtml(item.duration_str)}</span>` : '';
-    return `<div class="video-card" data-id="${escapeAttr(item.id)}" data-title="${escapeAttr(item.title)}" data-channel="${escapeAttr(item.channel || '')}" data-duration="${item.duration || 0}">
+    return `<a class="video-card" href="/watch?v=${escapeAttr(item.id)}" data-id="${escapeAttr(item.id)}" data-title="${escapeAttr(item.title)}" data-channel="${escapeAttr(item.channel || '')}" data-duration="${item.duration || 0}">
         <div class="thumbnail-container">
             <img src="${escapeAttr(item.thumbnail)}" alt="${escapeHtml(item.title)}" loading="lazy">
             ${durationBadge}
@@ -384,7 +385,7 @@ function createVideoCard(item) {
             <h3 class="video-title">${escapeHtml(item.title)}</h3>
             <p class="channel">${escapeHtml(item.channel)}${meta ? ' \u00b7 ' : ''}${meta}</p>
         </div>
-    </div>`;
+    </a>`;
 }
 
 function attachCardListeners(container) {
@@ -393,19 +394,25 @@ function attachCardListeners(container) {
         const playlistId = card.dataset.playlistId;
         const itemType = card.dataset.itemType;
         if (playlistId && (itemType === 'playlist' || itemType === 'mix')) {
-            card.addEventListener('click', () => {
+            card.addEventListener('click', (e) => {
+                if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
+                e.preventDefault();
                 const videoId = card.dataset.id;
                 const title = card.dataset.title;
                 const channel = card.dataset.channel;
                 _startQueue(videoId, title, channel, playlistId);
             });
         } else {
-            card.addEventListener('click', () => navigateToVideo(
-                card.dataset.id,
-                card.dataset.title,
-                card.dataset.channel,
-                parseInt(card.dataset.duration) || 0
-            ));
+            card.addEventListener('click', (e) => {
+                if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
+                e.preventDefault();
+                navigateToVideo(
+                    card.dataset.id,
+                    card.dataset.title,
+                    card.dataset.channel,
+                    parseInt(card.dataset.duration) || 0
+                );
+            });
         }
     });
 }
@@ -470,7 +477,8 @@ function createRelatedCard(video) {
         ? `data-id="${escapeAttr(video.first_video_id || video.id)}" data-playlist-id="${escapeAttr(video.playlist_id || video.id)}" data-item-type="${escapeAttr(video.type)}"`
         : `data-id="${escapeAttr(video.id)}"`;
 
-    return `<div class="related-card" ${dataAttrs} data-title="${escapeAttr(video.title)}" data-channel="${escapeAttr(video.channel || '')}" data-duration="0">
+    const vid = isMixOrPlaylist ? (video.first_video_id || video.id) : video.id;
+    return `<a class="related-card" href="/watch?v=${escapeAttr(vid)}" ${dataAttrs} data-title="${escapeAttr(video.title)}" data-channel="${escapeAttr(video.channel || '')}" data-duration="0">
         <div class="thumbnail-container">
             <img src="${escapeAttr(video.thumbnail)}" alt="${escapeHtml(video.title)}" loading="lazy">
             ${badge}
@@ -479,7 +487,7 @@ function createRelatedCard(video) {
             <div class="related-title">${escapeHtml(video.title)}</div>
             ${video.channel ? `<div class="related-channel">${escapeHtml(video.channel)}</div>` : ''}
         </div>
-    </div>`;
+    </a>`;
 }
 
 function attachRelatedListeners() {
@@ -488,14 +496,18 @@ function attachRelatedListeners() {
         const playlistId = card.dataset.playlistId;
         const itemType = card.dataset.itemType;
         if (playlistId && (itemType === 'playlist' || itemType === 'mix')) {
-            card.addEventListener('click', () => {
+            card.addEventListener('click', (e) => {
+                if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
+                e.preventDefault();
                 const videoId = card.dataset.id;
                 const title = card.dataset.title;
                 const channel = card.dataset.channel;
                 _startQueue(videoId, title, channel, playlistId);
             });
         } else {
-            card.addEventListener('click', () => {
+            card.addEventListener('click', (e) => {
+                if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
+                e.preventDefault();
                 const videoId = card.dataset.id;
                 const title = card.dataset.title;
                 const channel = card.dataset.channel;
