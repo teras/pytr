@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Panayotis Katsaloulis
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Shared configuration, yt-dlp instances, helper functions, and cleanup registry."""
 import logging
 import re

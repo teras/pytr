@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Panayotis Katsaloulis
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """DASH streaming: MPD manifest generation, YouTube CDN proxy."""
 import asyncio
 import logging

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Panayotis Katsaloulis
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // YTP - Core: DOM refs, state, routing, player, quality selector, utils
 
 // ── DOM Elements ────────────────────────────────────────────────────────────
@@ -56,6 +58,8 @@ let currentActiveHeight = 0;
 // Quality list: [{height, bandwidth, qualityIndex}]
 let videoQualities = [];
 let pendingSeek = null; // {time, play} — set during audio language switch
+let isLiveStream = false; // true when playing a live stream
+let liveRetried = false; // true after one recovery attempt
 
 // ── Quality Selector ────────────────────────────────────────────────────────
 
@@ -369,7 +373,7 @@ clearListBtn.addEventListener('click', async () => {
 // ── Player ──────────────────────────────────────────────────────────────────
 
 function stopPlayer() {
-    savePosition();
+    if (!isLiveStream) savePosition();
     if (positionSaveTimer) {
         clearTimeout(positionSaveTimer);
         positionSaveTimer = null;
@@ -392,6 +396,10 @@ function stopPlayer() {
     audioMenu.classList.add('hidden');
     currentActiveHeight = 0;
     videoQualities = [];
+    isLiveStream = false;
+    liveRetried = false;
+    const liveBadge = document.getElementById('live-badge');
+    if (liveBadge) liveBadge.remove();
     subtitleBtnContainer.classList.add('hidden');
     subtitleTracks = [];
     failedSubtitles.clear();
@@ -467,22 +475,35 @@ async function playVideo(videoId, title, channel, duration) {
 
         loadSubtitleTracks(videoId, info.subtitle_tracks || []);
 
-        // Always start with DASH (full quality, up to 4K)
-        startDashPlayer(videoId);
+        if (info.is_live && Hls.isSupported()) {
+            // Live stream: use HLS (DASH requires fixed duration)
+            isLiveStream = true;
+            const badge = document.createElement('span');
+            badge.id = 'live-badge';
+            badge.className = 'live-edge';
+            badge.textContent = 'LIVE';
+            badge.title = 'Click to jump to live';
+            badge.addEventListener('click', seekToLiveEdge);
+            document.querySelector('.video-title-row').appendChild(badge);
+            startHlsPlayer(videoId, `/api/hls/master/${videoId}?live=1`, true);
+        } else {
+            // Regular video: start with DASH (full quality, up to 4K)
+            startDashPlayer(videoId);
 
-        // If multi-audio available, show audio selector (HLS used only on language switch)
-        if (info.has_multi_audio && info.hls_manifest_url && Hls.isSupported()) {
-            try {
-                const audioResp = await fetch(`/api/hls/audio-tracks/${videoId}`);
-                const data = await audioResp.json();
-                hlsAudioTracks = data.audio_tracks || [];
-                if (hlsAudioTracks.length > 1) {
-                    audioBtnContainer.classList.remove('hidden');
-                    audioBtn.textContent = '\ud83d\udd0a Original';
-                    currentAudioLang = 'original';
-                    populateAudioMenu(hlsAudioTracks, 'original');
-                }
-            } catch {}
+            // If multi-audio available, show audio selector (HLS used only on language switch)
+            if (info.has_multi_audio && info.hls_manifest_url && Hls.isSupported()) {
+                try {
+                    const audioResp = await fetch(`/api/hls/audio-tracks/${videoId}`);
+                    const data = await audioResp.json();
+                    hlsAudioTracks = data.audio_tracks || [];
+                    if (hlsAudioTracks.length > 1) {
+                        audioBtnContainer.classList.remove('hidden');
+                        audioBtn.textContent = '\ud83d\udd0a Original';
+                        currentAudioLang = 'original';
+                        populateAudioMenu(hlsAudioTracks, 'original');
+                    }
+                } catch {}
+            }
         }
     } catch (err) {
         console.error('Info fetch failed, falling back to DASH:', err);
@@ -541,10 +562,13 @@ function startDashPlayer(videoId) {
     });
 }
 
-function startHlsPlayer(videoId, manifestUrl) {
+function startHlsPlayer(videoId, manifestUrl, live = false) {
     currentPlayerType = 'hls';
 
-    hlsPlayer = new Hls({ maxBufferLength: 30, maxMaxBufferLength: 60 });
+    const hlsConfig = live
+        ? { liveSyncDurationCount: 3 }
+        : { maxBufferLength: 30, maxMaxBufferLength: 60 };
+    hlsPlayer = new Hls(hlsConfig);
     hlsPlayer.attachMedia(videoPlayer);
     hlsPlayer.loadSource(manifestUrl);
 
@@ -563,8 +587,12 @@ function startHlsPlayer(videoId, manifestUrl) {
 
         populateQualityMenu();
 
-        // Restore position: pendingSeek (from audio switch) takes priority
-        if (pendingSeek) {
+        if (live) {
+            // Live: just start playing at live edge, no position restore
+            liveRetried = false; // successful load, allow future recovery
+            videoPlayer.play();
+        } else if (pendingSeek) {
+            // Restore position: pendingSeek (from audio switch) takes priority
             videoPlayer.currentTime = pendingSeek.time;
             if (pendingSeek.play) videoPlayer.play();
             applySubtitlePreference();
@@ -587,12 +615,35 @@ function startHlsPlayer(videoId, manifestUrl) {
 
     hlsPlayer.on(Hls.Events.ERROR, (event, data) => {
         if (data.fatal) {
-            console.error('HLS fatal error, falling back to DASH:', data);
             hlsPlayer.destroy();
             hlsPlayer = null;
-            startDashPlayer(videoId);
+            if (live && !liveRetried) {
+                // Live stream: likely expired URLs — reload with fresh manifest
+                console.warn('HLS live error, reloading manifest:', data.type);
+                liveRetried = true;
+                startHlsPlayer(videoId, manifestUrl, true);
+            } else if (!live) {
+                console.error('HLS fatal error, falling back to DASH:', data);
+                startDashPlayer(videoId);
+            }
         }
     });
+}
+
+function seekToLiveEdge() {
+    if (!hlsPlayer || !isLiveStream) return;
+    videoPlayer.currentTime = hlsPlayer.liveSyncPosition || videoPlayer.duration;
+    videoPlayer.play();
+}
+
+function updateLiveBadge() {
+    const badge = document.getElementById('live-badge');
+    if (!badge || !hlsPlayer || !isLiveStream) return;
+    const livePos = hlsPlayer.liveSyncPosition || videoPlayer.duration;
+    const behind = livePos - videoPlayer.currentTime;
+    const atEdge = behind < 15; // within ~15s of live edge
+    badge.classList.toggle('live-edge', atEdge);
+    badge.classList.toggle('live-behind', !atEdge);
 }
 
 // ── Utils ───────────────────────────────────────────────────────────────────
@@ -667,6 +718,7 @@ function restorePosition(videoId) {
 }
 
 videoPlayer.addEventListener('timeupdate', () => {
+    if (isLiveStream) { updateLiveBadge(); return; }
     if (!positionSaveTimer) {
         positionSaveTimer = setTimeout(() => {
             savePosition();

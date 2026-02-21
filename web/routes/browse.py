@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Panayotis Katsaloulis
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Browse routes: search, channel, related videos, cursor pagination."""
 import json
 import logging

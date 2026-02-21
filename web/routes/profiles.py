@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Panayotis Katsaloulis
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Profile management routes."""
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from pydantic import BaseModel, Field

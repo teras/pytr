@@ -33,7 +33,3 @@ Data is persisted in `./data/` (SQLite database with profiles, history, favorite
 - Password-protected access with optional per-profile PIN lock
 - Browser cookie support for age-restricted content (local mode only, not available in Docker)
 - Mobile-friendly responsive interface
-
-## License
-
-MIT

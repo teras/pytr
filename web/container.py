@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Panayotis Katsaloulis
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Container probing: parse MP4 (ISO BMFF) and WebM (EBML) to find init/index ranges."""
 import logging
 import struct

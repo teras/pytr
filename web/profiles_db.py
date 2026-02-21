@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Panayotis Katsaloulis
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """SQLite-backed profiles: preferences, watch history, favorites."""
 import logging
 import secrets

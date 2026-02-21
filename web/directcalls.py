@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Panayotis Katsaloulis
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Direct YouTube InnerTube API calls.
 
 Consolidates all direct YouTube API calls in one module. Each function is

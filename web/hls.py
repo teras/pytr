@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Panayotis Katsaloulis
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """HLS streaming: proxy YouTube HLS manifests and segments to avoid CORS.
 
 YouTube multi-audio videos use muxed variants (audio+video per stream) with
@@ -150,17 +152,19 @@ def _filter_manifest_by_audio(manifest: str, audio_lang: str | None) -> str:
 async def get_hls_master(
     video_id: str,
     audio: str | None = None,
+    live: bool = False,
     auth: bool = Depends(require_auth),
 ):
     """Fetch YouTube's HLS master manifest, filter by audio language, rewrite URIs.
 
     ?audio=fr  -> only French audio variants
     ?audio=original or omitted -> only default audio variants
+    ?live=1    -> skip cache (live streams need fresh URLs)
     """
     if not VIDEO_ID_RE.match(video_id):
         raise HTTPException(status_code=400, detail="Invalid video ID")
     # Get or fetch the full rewritten manifest
-    cached = _hls_cache.get(video_id)
+    cached = _hls_cache.get(video_id) if not live else None
     if not cached or time.time() - cached['created'] >= _HLS_CACHE_TTL:
         try:
             info = await asyncio.to_thread(get_video_info, video_id)

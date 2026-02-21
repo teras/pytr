@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Panayotis Katsaloulis
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Video routes: info, subtitle, stream-live."""
 import asyncio
 import logging
@@ -91,6 +93,7 @@ async def get_video_info(video_id: str, auth: bool = Depends(require_auth)):
             'likes': format_number(info.get('like_count')),
             'description': info.get('description', ''),
             'subtitle_tracks': subtitle_tracks,
+            'is_live': bool(info.get('is_live')),
             'has_multi_audio': has_multi_audio,
             'hls_manifest_url': f'/api/hls/master/{video_id}' if has_multi_audio else None,
         }

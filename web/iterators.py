@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Panayotis Katsaloulis
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Cursor-based pagination for search and channel browsing.
 
 Uses InnerTube continuation tokens (~200 bytes each) instead of holding
