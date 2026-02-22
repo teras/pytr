@@ -8,7 +8,17 @@ const AVATAR_COLORS = [
     '#cc0000', '#e67e22', '#f1c40f', '#27ae60', '#2980b9', '#8e44ad',
     '#ffffff', '#b0b0b0', '#555555', '#222222', 'transparent', 'custom',
 ];
-const DEFAULT_EMOJI = '\ud83d\ude0a';
+const AVATAR_EMOJIS = [
+    '😊', '😎', '🤓', '🦊', '🐱', '🐶', '🐼', '🦁', '🐸', '🦉',
+    '🌟', '🎵', '🎮', '🚀', '🌈', '🍕', '⚡', '🎨', '🏀', '🎸',
+];
+const _pickableColors = AVATAR_COLORS.filter(c => c !== 'transparent' && c !== 'custom');
+function randomAvatar() {
+    return {
+        color: _pickableColors[Math.floor(Math.random() * _pickableColors.length)],
+        emoji: AVATAR_EMOJIS[Math.floor(Math.random() * AVATAR_EMOJIS.length)],
+    };
+}
 const isTouchDevice = () => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 const _graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
@@ -175,8 +185,9 @@ async function selectProfile(id, pin) {
 // ── Create Profile Forms ───────────────────────────────────────────────────
 
 function buildAvatarPickerHtml(currentColor = null, currentEmoji = null) {
-    const color = currentColor || AVATAR_COLORS[0];
-    const emoji = currentEmoji || DEFAULT_EMOJI;
+    const defaults = (!currentColor && !currentEmoji) ? randomAvatar() : null;
+    const color = currentColor || (defaults ? defaults.color : AVATAR_COLORS[0]);
+    const emoji = currentEmoji || (defaults ? defaults.emoji : AVATAR_EMOJIS[0]);
     const isCustomColor = color !== 'transparent' && color !== 'custom' && !AVATAR_COLORS.includes(color);
     const customValue = isCustomColor ? color : '#8e44ad';
     return `
@@ -325,7 +336,7 @@ function attachAvatarPickerListeners(formId) {
     const pickerWrap = form.querySelector('#emoji-picker-wrap');
 
     function updatePreview() {
-        const emoji = emojiHidden.value || DEFAULT_EMOJI;
+        const emoji = emojiHidden.value || AVATAR_EMOJIS[0];
         const color = form.querySelector('input[name="avatar_color"]:checked').value;
         if (preview) {
             preview.textContent = emoji;
