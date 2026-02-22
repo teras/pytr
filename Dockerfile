@@ -7,8 +7,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Install deno (required by yt-dlp for YouTube extraction)
-RUN curl -fsSL https://deno.land/install.sh | sh
-ENV DENO_INSTALL="/root/.deno"
+ENV DENO_INSTALL="/usr/local/deno"
+RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL="$DENO_INSTALL" sh
 ENV PATH="${DENO_INSTALL}/bin:${PATH}"
 
 # Set working directory

@@ -20,37 +20,28 @@ VIDEO_ID_RE = re.compile(r'^[a-zA-Z0-9_-]{11}$')
 CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
-# yt-dlp base options (cookies added dynamically from DB setting)
+# yt-dlp base options
 _BASE_YDL_OPTS = {
     'quiet': True,
     'no_warnings': True,
     'remote_components': ['ejs:github'],
 }
 
-# yt-dlp instance — recreated when cookies_browser setting changes
+# yt-dlp instance
 ydl_info: yt_dlp.YoutubeDL | None = None
 
 
-def _build_ydl_opts() -> dict:
-    """Build yt-dlp options, reading cookies_browser from DB."""
-    opts = dict(_BASE_YDL_OPTS)
-    try:
-        import profiles_db
-        cookies_browser = profiles_db.get_setting("cookies_browser")
-        if cookies_browser:
-            opts['cookiesfrombrowser'] = (cookies_browser,)
-    except Exception:
-        pass
-    return opts
+COOKIES_FILE = Path("data/cookies.txt")
 
 
 def init_ydl():
     """(Re)create the global yt-dlp instance."""
     global ydl_info
-    opts = _build_ydl_opts()
+    opts = dict(_BASE_YDL_OPTS)
+    if COOKIES_FILE.is_file():
+        opts['cookiefile'] = str(COOKIES_FILE)
     ydl_info = yt_dlp.YoutubeDL(opts)
-    log.info("yt-dlp instance created (cookies_browser=%s)",
-             opts.get('cookiesfrombrowser', (None,))[0])
+    log.info("yt-dlp instance created (cookies=%s)", COOKIES_FILE.name if COOKIES_FILE.is_file() else "none")
 
 
 # Initialize on import

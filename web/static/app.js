@@ -410,6 +410,7 @@ async function loadListPage(endpoint, title, {showClear = false, removable = fal
                     btn.title = 'Remove';
                     btn.textContent = '\u00d7';
                     btn.addEventListener('click', async (e) => {
+                        e.preventDefault();
                         e.stopPropagation();
                         const resp = await fetch(`${removeEndpoint}/${card.dataset.id}`, {method: 'DELETE'});
                         if (resp.ok) {

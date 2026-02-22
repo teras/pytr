@@ -102,7 +102,7 @@ async def get_video_info(video_id: str, auth: bool = Depends(require_auth_or_emb
         if 'Sign in' in err_msg or 'bot' in err_msg:
             return JSONResponse(status_code=503, content={
                 'error': 'rate_limited',
-                'message': 'YouTube is temporarily blocking requests. Try setting up browser cookies in Settings, or try again later.',
+                'message': 'YouTube is temporarily blocking requests. Try again later.',
             })
         raise HTTPException(status_code=500, detail=err_msg)
 

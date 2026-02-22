@@ -577,10 +577,10 @@ if (profileSwitcherBtn) {
         profileMenu.innerHTML = `
             <div class="profile-menu-item" data-action="history">Watch History</div>
             <div class="profile-menu-item" data-action="favorites">Favorites</div>
+            ${isAdmin ? '<div class="profile-menu-divider"></div>' : ''}
+            ${isAdmin ? '<div class="profile-menu-item" data-action="settings">Options</div>' : ''}
             <div class="profile-menu-divider"></div>
             <div class="profile-menu-item" data-action="edit-profile">Edit Profile</div>
-            ${isAdmin ? '<div class="profile-menu-item" data-action="settings">Settings</div>' : ''}
-            <div class="profile-menu-divider"></div>
             <div class="profile-menu-item" data-action="switch">Switch Profile</div>
             <div class="profile-menu-item profile-menu-logout" data-action="logout">Logout ${escapeHtml(currentProfile.name)}</div>
         `;
@@ -636,14 +636,12 @@ function navigateToFavorites() {
 async function showSettingsModal() {
     // Fetch current settings
     let hasPassword = false;
-    let cookiesBrowser = '';
     let allowEmbed = false;
     try {
         const resp = await fetch('/api/profiles/settings');
         if (resp.ok) {
             const data = await resp.json();
             hasPassword = data.has_password;
-            cookiesBrowser = data.cookies_browser || '';
             allowEmbed = !!data.allow_embed;
         }
     } catch {}
@@ -652,7 +650,7 @@ async function showSettingsModal() {
     overlay.className = 'pin-modal';
     overlay.innerHTML = `
         <div class="pin-modal-content" style="max-width:400px">
-            <h3>Settings</h3>
+            <h3>Options</h3>
             <form id="settings-form" class="profile-form">
                 <label class="settings-label">App Password <span class="settings-hint">${hasPassword ? '(currently set)' : '(none)'}</span></label>
                 <input type="password" id="settings-password" placeholder="${hasPassword ? 'New password (leave empty to keep)' : 'Set a password'}" autocomplete="new-password">
@@ -662,19 +660,6 @@ async function showSettingsModal() {
                     Allow embed access
                     <span class="settings-hint">(no auth required, for LibRedirect)</span>
                 </label>
-
-                <label class="settings-label" style="margin-top:16px">
-                    Browser Cookies
-                    <span class="settings-hint">for age-restricted videos</span>
-                </label>
-                <select id="settings-cookies-browser" class="settings-select">
-                    <option value="">Disabled</option>
-                    <option value="chrome" ${cookiesBrowser === 'chrome' ? 'selected' : ''}>Chrome</option>
-                    <option value="firefox" ${cookiesBrowser === 'firefox' ? 'selected' : ''}>Firefox</option>
-                    <option value="chromium" ${cookiesBrowser === 'chromium' ? 'selected' : ''}>Chromium</option>
-                    <option value="brave" ${cookiesBrowser === 'brave' ? 'selected' : ''}>Brave</option>
-                    <option value="edge" ${cookiesBrowser === 'edge' ? 'selected' : ''}>Edge</option>
-                </select>
 
                 <div class="pin-actions">
                     <button type="button" class="pin-cancel">Cancel</button>
@@ -687,7 +672,6 @@ async function showSettingsModal() {
 
     const form = overlay.querySelector('#settings-form');
     const pwInput = overlay.querySelector('#settings-password');
-    const cookiesSelect = overlay.querySelector('#settings-cookies-browser');
     const embedToggle = overlay.querySelector('#settings-allow-embed');
 
     overlay.querySelector('.pin-cancel').addEventListener('click', () => overlay.remove());
@@ -698,7 +682,6 @@ async function showSettingsModal() {
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const newPw = pwInput.value;
-        const newCookies = cookiesSelect.value;
 
         // Save password if changed
         if (newPw) {
@@ -716,15 +699,6 @@ async function showSettingsModal() {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ allow_embed: newEmbed }),
-            });
-        }
-
-        // Save cookies browser if changed
-        if (newCookies !== cookiesBrowser) {
-            await fetch('/api/profiles/settings/cookies-browser', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cookies_browser: newCookies || null }),
             });
         }
 

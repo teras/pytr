@@ -54,9 +54,6 @@ class FavoriteReq(BaseModel):
 class UpdatePasswordReq(BaseModel):
     password: str | None = None  # None or empty = remove password
 
-class UpdateCookiesBrowserReq(BaseModel):
-    cookies_browser: str | None = None  # None or empty = disable
-
 class UpdateAllowEmbedReq(BaseModel):
     allow_embed: bool = False
 
@@ -242,7 +239,6 @@ async def get_settings(request: Request, auth: bool = Depends(require_auth)):
     _require_admin(request)
     return {
         "has_password": db.get_app_password() is not None,
-        "cookies_browser": db.get_setting("cookies_browser") or "",
         "allow_embed": db.get_setting("allow_embed") == "1",
     }
 
@@ -260,18 +256,6 @@ async def update_password(req: UpdatePasswordReq, request: Request, response: Re
         token, _ = get_session(request)
         response.set_cookie(key="ytp_session", value=token, max_age=10 * 365 * 86400, httponly=True, samesite="lax")
     return {"ok": True, "has_password": req.password is not None and len(req.password) > 0}
-
-
-@router.put("/settings/cookies-browser")
-async def update_cookies_browser(req: UpdateCookiesBrowserReq, request: Request,
-                                 auth: bool = Depends(require_auth)):
-    _require_admin(request)
-    value = req.cookies_browser.strip() if req.cookies_browser else None
-    db.set_setting("cookies_browser", value)
-    # Recreate yt-dlp instance with new cookies setting
-    from helpers import init_ydl
-    init_ydl()
-    return {"ok": True, "cookies_browser": value or ""}
 
 
 @router.put("/settings/allow-embed")

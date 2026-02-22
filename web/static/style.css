@@ -1337,7 +1337,7 @@ h1 {
     margin: 4px 0;
 }
 
-/* Settings */
+/* Options modal */
 .settings-label {
     font-size: 14px;
     color: #aaa;
@@ -1347,22 +1347,6 @@ h1 {
 .settings-hint {
     color: #717171;
     font-size: 12px;
-}
-
-.settings-select {
-    width: 100%;
-    padding: 12px 14px;
-    font-size: 14px;
-    border: 1px solid #303030;
-    border-radius: 10px;
-    background-color: #121212;
-    color: #f1f1f1;
-    appearance: auto;
-}
-
-.settings-select:focus {
-    border-color: #3ea6ff;
-    outline: none;
 }
 
 .wizard-subtitle {
