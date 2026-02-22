@@ -301,6 +301,7 @@ h1 {
     border-radius: 12px;
     overflow: hidden;
     aspect-ratio: 16 / 9;
+    max-height: 75vh;
 }
 
 #video-player {

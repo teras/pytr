@@ -180,23 +180,46 @@ def create_profile(name: str, pin: str | None = None, avatar_color: str = "#cc00
     }
 
 
-def update_profile_avatar(profile_id: int, avatar_color: str, avatar_emoji: str):
+def update_profile(profile_id: int, name: str | None = None,
+                   avatar_color: str | None = None, avatar_emoji: str | None = None,
+                   pin: str | None = None, pin_provided: bool = False) -> dict | None:
+    """Update profile fields. Only non-None values are changed.
+    For PIN: pin_provided=True means set/remove, False means don't touch."""
     with _connect() as conn:
-        conn.execute(
-            "UPDATE profiles SET avatar_color = ?, avatar_emoji = ? WHERE id = ?",
-            (avatar_color, avatar_emoji, profile_id),
-        )
+        row = conn.execute("SELECT * FROM profiles WHERE id = ?", (profile_id,)).fetchone()
+        if not row:
+            return None
 
+        new_name = row["name"]
+        if name is not None:
+            new_name = name.strip()
+            if not new_name or len(new_name) > 30:
+                raise ValueError("Name must be between 1 and 30 characters")
 
-def update_profile_name(profile_id: int, name: str):
-    clean = name.strip()
-    if not clean or len(clean) > 30:
-        raise ValueError("Name must be between 1 and 30 characters")
-    with _connect() as conn:
+        new_pin = row["pin"]
+        if pin_provided:
+            new_pin = pin if pin else None
+
         conn.execute(
-            "UPDATE profiles SET name = ? WHERE id = ?",
-            (clean, profile_id),
+            "UPDATE profiles SET name=?, avatar_color=?, avatar_emoji=?, pin=? WHERE id=?",
+            (new_name,
+             avatar_color if avatar_color is not None else row["avatar_color"],
+             avatar_emoji if avatar_emoji is not None else row["avatar_emoji"],
+             new_pin, profile_id),
         )
+        r = conn.execute("SELECT * FROM profiles WHERE id = ?", (profile_id,)).fetchone()
+
+    return {
+        "id": r["id"],
+        "name": r["name"],
+        "avatar_color": r["avatar_color"],
+        "avatar_emoji": r["avatar_emoji"],
+        "has_pin": r["pin"] is not None,
+        "is_admin": bool(r["is_admin"]),
+        "preferred_quality": r["preferred_quality"],
+        "subtitle_lang": r["subtitle_lang"],
+    }
+
 
 
 def delete_profile(profile_id: int) -> bool:
@@ -214,13 +237,6 @@ def verify_pin(profile_id: int, pin: str) -> bool:
         return True  # no PIN set
     return secrets.compare_digest(r["pin"], pin)
 
-
-def update_pin(profile_id: int, pin: str | None):
-    # PIN stored as plaintext: design choice — 4-digit PINs provide only casual
-    # profile separation (like Netflix), not real security.  Hashing wouldn't
-    # meaningfully improve security given the tiny keyspace (10k combinations).
-    with _connect() as conn:
-        conn.execute("UPDATE profiles SET pin = ? WHERE id = ?", (pin if pin else None, profile_id))
 
 
 def update_preferences(profile_id: int, quality: int | None = None, subtitle_lang: str | None = None):

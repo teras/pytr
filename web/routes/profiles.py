@@ -38,17 +38,11 @@ class SavePositionReq(BaseModel):
     duration: int = 0
     duration_str: str = Field(default="", pattern=r'^(\d{1,2}:\d{2}(:\d{2})?)?$')
 
-class UpdatePinReq(BaseModel):
-    pin: str | None = None  # None or empty = remove PIN
-
-
-class UpdateAvatarReq(BaseModel):
-    avatar_color: str = Field(..., pattern=r'^#[0-9a-fA-F]{6}$|^transparent$')
-    avatar_emoji: str = ""
-
-
-class UpdateNameReq(BaseModel):
-    name: str = Field(..., min_length=1, max_length=30)
+class EditProfileReq(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=30)
+    avatar_color: str | None = Field(default=None, pattern=r'^#[0-9a-fA-F]{6}$|^transparent$')
+    avatar_emoji: str | None = None
+    pin: str | None = None  # absent from JSON = no change, null = remove, string = set
 
 
 class FavoriteReq(BaseModel):
@@ -173,30 +167,31 @@ async def select_profile(profile_id: int, req: SelectProfileReq,
     return {"ok": True, "profile": profile}
 
 
-@router.put("/avatar")
-async def update_avatar(req: UpdateAvatarReq, profile_id: int = Depends(require_profile)):
-    db.update_profile_avatar(profile_id, req.avatar_color, req.avatar_emoji)
-    return db.get_profile(profile_id)
-
-
-@router.put("/name")
-async def update_name(req: UpdateNameReq, profile_id: int = Depends(require_profile)):
+@router.put("/edit")
+async def edit_profile(req: EditProfileReq, profile_id: int = Depends(require_profile)):
+    # PIN intent: absent from JSON = no change, null = remove, string = set
+    pin_provided = "pin" in req.model_fields_set
+    pin = None
+    if pin_provided:
+        pin = req.pin.strip() if req.pin else None
+        if pin and (len(pin) != 4 or not pin.isdigit()):
+            raise HTTPException(status_code=400, detail="PIN must be exactly 4 digits")
     try:
-        db.update_profile_name(profile_id, req.name)
+        profile = db.update_profile(
+            profile_id,
+            name=req.name,
+            avatar_color=req.avatar_color,
+            avatar_emoji=req.avatar_emoji,
+            pin=pin,
+            pin_provided=pin_provided,
+        )
     except Exception as e:
         if "UNIQUE" in str(e):
             raise HTTPException(status_code=409, detail="Name already taken")
         raise HTTPException(status_code=400, detail=str(e))
-    return db.get_profile(profile_id)
-
-
-@router.put("/pin")
-async def update_pin(req: UpdatePinReq, profile_id: int = Depends(require_profile)):
-    pin = req.pin.strip() if req.pin else None
-    if pin and (len(pin) != 4 or not pin.isdigit()):
-        raise HTTPException(status_code=400, detail="PIN must be exactly 4 digits")
-    db.update_pin(profile_id, pin)
-    return {"ok": True, "has_pin": pin is not None}
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return profile
 
 
 @router.put("/preferences")

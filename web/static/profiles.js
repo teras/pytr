@@ -33,6 +33,7 @@ async function checkProfile() {
             currentProfile = data.profile;
             applyProfilePrefs();
             updateProfileButton();
+            profileOverlay.innerHTML = '';
             profileOverlay.classList.add('hidden');
             handleInitialRoute();
         } else if (data.state === 'profile-select') {
@@ -158,6 +159,7 @@ async function selectProfile(id, pin) {
         currentProfile = data.profile;
         applyProfilePrefs();
         updateProfileButton();
+        profileOverlay.innerHTML = '';
         profileOverlay.classList.add('hidden');
         // Always go to home (watch history) on profile select/switch
         stopPlayer();
@@ -222,36 +224,7 @@ function showCreateFirstProfile() {
         </div>
     `;
     profileOverlay.classList.remove('hidden');
-    attachCreateFormListeners('create-first-profile-form', true);
-}
-
-function showCreateProfileForm() {
-    const existing = profileOverlay.querySelector('.pin-modal');
-    if (existing) existing.remove();
-
-    const modal = document.createElement('div');
-    modal.className = 'pin-modal';
-    modal.innerHTML = `
-        <div class="pin-modal-content" style="max-width:380px">
-            <h3>New Profile</h3>
-            <form id="create-profile-form" class="profile-form">
-                <input type="text" id="new-profile-name" placeholder="Name" maxlength="30" required autofocus>
-                ${buildAvatarPickerHtml()}
-                <input type="password" id="new-profile-pin" placeholder="4-digit PIN (optional)" maxlength="4" pattern="[0-9]*" inputmode="numeric">
-                <div class="pin-actions">
-                    <button type="button" class="pin-cancel">Cancel</button>
-                    <button type="submit">Create</button>
-                </div>
-            </form>
-        </div>
-    `;
-    profileOverlay.querySelector('.profile-selector').appendChild(modal);
-    attachCreateFormListeners('create-profile-form');
-    modal.querySelector('.pin-cancel').addEventListener('click', () => {
-        const form = document.getElementById('create-profile-form');
-        if (form && form._cleanupEmojiListener) form._cleanupEmojiListener();
-        modal.remove();
-    });
+    attachFirstRunFormListeners('create-first-profile-form');
 }
 
 function showEditProfileForm() {
@@ -291,13 +264,14 @@ function showEditProfileForm() {
         if (!pinToggle.checked) pinInput.value = '';
     });
 
+    const editForm = modal.querySelector('#edit-profile-form');
+
     modal.querySelector('.pin-cancel').addEventListener('click', () => {
-        const form = document.getElementById('edit-profile-form');
-        if (form && form._cleanupEmojiListener) form._cleanupEmojiListener();
+        if (editForm._cleanupEmojiListener) editForm._cleanupEmojiListener();
         modal.remove();
     });
 
-    document.getElementById('edit-profile-form').addEventListener('submit', async (e) => {
+    editForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const form = e.target;
         const errorEl = modal.querySelector('#edit-profile-error');
@@ -306,46 +280,36 @@ function showEditProfileForm() {
         const color = form.querySelector('input[name="avatar_color"]:checked').value;
         const emoji = form.querySelector('input[name="avatar_emoji"]').value;
 
-        // Save name if changed
-        if (newName && newName !== currentProfile.name) {
-            const resp = await fetch('/api/profiles/name', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newName }),
-            });
-            if (!resp.ok) {
-                const err = await resp.json();
-                errorEl.textContent = err.detail || 'Failed to update name';
-                errorEl.classList.remove('hidden');
-                return;
-            }
-            currentProfile = await resp.json();
-            updateProfileButton();
-        }
+        const body = { avatar_color: color, avatar_emoji: emoji };
+        if (newName && newName !== currentProfile.name) body.name = newName;
 
-        // Save avatar
-        const resp = await fetch('/api/profiles/avatar', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ avatar_color: color, avatar_emoji: emoji }),
-        });
-        if (resp.ok) {
-            currentProfile = await resp.json();
-            updateProfileButton();
-        }
-
-        // Save PIN changes
+        // PIN logic: absent = no change, null = remove, string = set
         const wantsPin = pinToggle.checked;
         const newPin = pinInput.value.trim();
         if (!wantsPin && hasPin) {
-            const resp = await fetch('/api/profiles/pin', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: null }) });
-            if (resp.ok) currentProfile.has_pin = false;
+            body.pin = null;
         } else if (wantsPin && newPin) {
-            if (newPin.length === 4 && /^\d+$/.test(newPin)) {
-                const resp = await fetch('/api/profiles/pin', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: newPin }) });
-                if (resp.ok) currentProfile.has_pin = true;
+            if (newPin.length !== 4 || !/^\d+$/.test(newPin)) {
+                errorEl.textContent = 'PIN must be exactly 4 digits';
+                errorEl.classList.remove('hidden');
+                return;
             }
+            body.pin = newPin;
         }
+
+        const resp = await fetch('/api/profiles/edit', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            errorEl.textContent = err.detail || 'Failed to update profile';
+            errorEl.classList.remove('hidden');
+            return;
+        }
+        currentProfile = await resp.json();
+        updateProfileButton();
 
         if (form._cleanupEmojiListener) form._cleanupEmojiListener();
         modal.remove();
@@ -440,7 +404,6 @@ function attachAvatarPickerListeners(formId) {
     if (customOpt) {
         const radioInput = customOpt.querySelector('input[type="radio"]');
         const customSwatch = customOpt.querySelector('.color-swatch-custom');
-        const colorPicker = form.querySelector('.avatar-picker-wrap');
 
         customSwatch.addEventListener('click', (e) => {
             e.preventDefault();
@@ -491,68 +454,54 @@ function attachAvatarPickerListeners(formId) {
     }
 }
 
-function attachCreateFormListeners(formId, isFirstRun = false) {
+function attachFirstRunFormListeners(formId) {
     attachAvatarPickerListeners(formId);
     const form = document.getElementById(formId);
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const name = document.getElementById('new-profile-name').value.trim();
+        const name = form.querySelector('#new-profile-name').value.trim();
         if (!name) return;
         const color = form.querySelector('input[name="avatar_color"]:checked').value;
         const emoji = form.querySelector('input[name="avatar_emoji"]').value;
-        const pin = document.getElementById('new-profile-pin').value || null;
+        const pin = form.querySelector('#new-profile-pin').value || null;
         if (pin && pin.length !== 4) return;
 
-        // First-run: validate password fields
-        let password = null;
-        if (isFirstRun) {
-            const pwInput = document.getElementById('setup-pw');
-            const confirmInput = document.getElementById('setup-pw-confirm');
-            const errorEl = document.getElementById('setup-pw-error');
-            const pw = pwInput.value;
-            const confirmValue = confirmInput.value;
-            if (pw.length < 4) {
-                errorEl.textContent = 'Password must be at least 4 characters';
-                errorEl.classList.remove('hidden');
-                return;
-            }
-            if (pw !== confirmValue) {
-                errorEl.textContent = 'Passwords do not match';
-                errorEl.classList.remove('hidden');
-                confirmInput.value = '';
-                confirmInput.focus();
-                return;
-            }
-            errorEl.classList.add('hidden');
-            password = pw;
+        const pwInput = form.querySelector('#setup-pw');
+        const confirmInput = form.querySelector('#setup-pw-confirm');
+        const errorEl = form.querySelector('#setup-pw-error');
+        const pw = pwInput.value;
+        const confirmValue = confirmInput.value;
+        if (pw.length < 4) {
+            errorEl.textContent = 'Password must be at least 4 characters';
+            errorEl.classList.remove('hidden');
+            return;
         }
+        if (pw !== confirmValue) {
+            errorEl.textContent = 'Passwords do not match';
+            errorEl.classList.remove('hidden');
+            confirmInput.value = '';
+            confirmInput.focus();
+            return;
+        }
+        errorEl.classList.add('hidden');
 
         if (form._cleanupEmojiListener) form._cleanupEmojiListener();
 
         try {
-            const body = { name, pin, avatar_color: color, avatar_emoji: emoji };
-            if (password) body.password = password;
             const resp = await fetch('/api/profiles', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
+                body: JSON.stringify({ name, pin, avatar_color: color, avatar_emoji: emoji, password: pw }),
             });
             if (resp.ok) {
                 const profile = await resp.json();
-                if (isFirstRun) {
-                    // Profile + password created in one call; session cookie already set
-                    currentProfile = profile;
-                    applyProfilePrefs();
-                    updateProfileButton();
-                    profileOverlay.classList.add('hidden');
-                    handleInitialRoute();
-                } else {
-                    // Show updated profile list so user can choose
-                    const listResp = await fetch('/api/profiles');
-                    const profiles = await listResp.json();
-                    showProfileSelector(profiles);
-                }
+                currentProfile = profile;
+                applyProfilePrefs();
+                updateProfileButton();
+                profileOverlay.innerHTML = '';
+                profileOverlay.classList.add('hidden');
+                handleInitialRoute();
             } else {
                 const err = await resp.json();
                 nativeAlert(err.detail || 'Failed to create profile');
@@ -846,20 +795,21 @@ async function showSettingsModal() {
         `;
         attachAvatarPickerListeners('settings-create-profile-form');
 
+        const createForm = overlay.querySelector('#settings-create-profile-form');
+
         overlay.querySelector('.pin-cancel').addEventListener('click', () => {
-            const form = document.getElementById('settings-create-profile-form');
-            if (form && form._cleanupEmojiListener) form._cleanupEmojiListener();
+            if (createForm._cleanupEmojiListener) createForm._cleanupEmojiListener();
             showSettingsView();
         });
 
-        document.getElementById('settings-create-profile-form').addEventListener('submit', async (e) => {
+        createForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const form = e.target;
-            const name = document.getElementById('new-profile-name').value.trim();
+            const name = form.querySelector('#new-profile-name').value.trim();
             if (!name) return;
             const color = form.querySelector('input[name="avatar_color"]:checked').value;
             const emoji = form.querySelector('input[name="avatar_emoji"]').value;
-            const pin = document.getElementById('new-profile-pin').value || null;
+            const pin = form.querySelector('#new-profile-pin').value || null;
             if (pin && pin.length !== 4) return;
 
             if (form._cleanupEmojiListener) form._cleanupEmojiListener();
