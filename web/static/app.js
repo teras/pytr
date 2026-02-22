@@ -248,12 +248,14 @@ function showVideoView() {
 function navigateToVideo(videoId, title, channel, duration) {
     cacheListView();
     history.pushState({ view: 'video', videoId, title, channel, duration }, '', `/watch?v=${videoId}`);
+    document.title = title ? `${title} - YTP` : 'YTP';
     showVideoView();
     playVideo(videoId, title, channel, duration);
 }
 
 function navigateToChannel(channelId, channelName) {
     history.pushState({ view: 'channel', channelId, channelName }, '', `/channel/${channelId}`);
+    document.title = channelName ? `${channelName} - YTP` : 'YTP';
     showListView();
     loadChannelVideos(channelId, channelName);
 }
@@ -289,6 +291,7 @@ window.addEventListener('pagehide', () => {
 
 window.addEventListener('popstate', (e) => {
     if (e.state?.view === 'video') {
+        document.title = e.state.title ? `${e.state.title} - YTP` : 'YTP';
         showVideoView();
         playVideo(e.state.videoId, e.state.title, e.state.channel, e.state.duration);
         if (e.state.playlistId) {
@@ -301,22 +304,15 @@ window.addEventListener('popstate', (e) => {
             }
         }
     } else if (e.state?.view === 'channel') {
+        document.title = e.state.channelName ? `${e.state.channelName} - YTP` : 'YTP';
         showListView();
         if (e.state.tab === 'playlists') {
             loadChannelPlaylists(e.state.channelId, e.state.channelName);
         } else {
             loadChannelVideos(e.state.channelId, e.state.channelName);
         }
-    } else if (e.state?.view === 'history') {
-        showListView();
-        loadHistory();
-    } else if (e.state?.view === 'favorites') {
-        showListView();
-        loadFavorites();
-    } else if (e.state?.view === 'channels') {
-        showListView();
-        loadChannels();
     } else if (e.state?.view === 'search') {
+        document.title = e.state.query ? `${e.state.query} - YTP` : 'YTP';
         showListView();
         if (listViewCache && listViewCache.query === e.state.query) {
             restoreListCache();
@@ -324,9 +320,21 @@ window.addEventListener('popstate', (e) => {
             searchVideos(e.state.query, { pushState: false });
         }
     } else {
-        // Default (home) = remembered tab
-        showListView();
-        loadHomeTab();
+        document.title = 'YTP';
+        if (e.state?.view === 'history') {
+            showListView();
+            loadHistory();
+        } else if (e.state?.view === 'favorites') {
+            showListView();
+            loadFavorites();
+        } else if (e.state?.view === 'channels') {
+            showListView();
+            loadChannels();
+        } else {
+            // Default (home) = remembered tab
+            showListView();
+            loadHomeTab();
+        }
     }
 });
 
@@ -875,6 +883,7 @@ async function playVideo(videoId, title, channel, duration) {
         }
 
         videoTitle.textContent = info.title || title;
+        document.title = (info.title || title) ? `${info.title || title} - YTP` : 'YTP';
         videoChannel.textContent = info.channel || channel;
 
         if (info.channel_id) {
@@ -1179,6 +1188,7 @@ searchInput.addEventListener('keypress', e => e.key === 'Enter' && searchVideos(
 document.getElementById('logo-link').addEventListener('click', (e) => {
     e.preventDefault();
     history.pushState({ view: 'home' }, '', '/');
+    document.title = 'YTP';
     showListView();
     loadHomeTab();
 });
