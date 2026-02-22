@@ -637,12 +637,14 @@ async function showSettingsModal() {
     // Fetch current settings
     let hasPassword = false;
     let cookiesBrowser = '';
+    let allowEmbed = false;
     try {
         const resp = await fetch('/api/profiles/settings');
         if (resp.ok) {
             const data = await resp.json();
             hasPassword = data.has_password;
             cookiesBrowser = data.cookies_browser || '';
+            allowEmbed = !!data.allow_embed;
         }
     } catch {}
 
@@ -654,6 +656,12 @@ async function showSettingsModal() {
             <form id="settings-form" class="profile-form">
                 <label class="settings-label">App Password <span class="settings-hint">${hasPassword ? '(currently set)' : '(none)'}</span></label>
                 <input type="password" id="settings-password" placeholder="${hasPassword ? 'New password (leave empty to keep)' : 'Set a password'}" autocomplete="new-password">
+
+                <label class="settings-label" style="margin-top:16px">
+                    <input type="checkbox" id="settings-allow-embed" ${allowEmbed ? 'checked' : ''}>
+                    Allow embed access
+                    <span class="settings-hint">(no auth required, for LibRedirect)</span>
+                </label>
 
                 <label class="settings-label" style="margin-top:16px">
                     Browser Cookies
@@ -680,6 +688,7 @@ async function showSettingsModal() {
     const form = overlay.querySelector('#settings-form');
     const pwInput = overlay.querySelector('#settings-password');
     const cookiesSelect = overlay.querySelector('#settings-cookies-browser');
+    const embedToggle = overlay.querySelector('#settings-allow-embed');
 
     overlay.querySelector('.pin-cancel').addEventListener('click', () => overlay.remove());
     overlay.addEventListener('click', (e) => {
@@ -697,6 +706,16 @@ async function showSettingsModal() {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password: newPw }),
+            });
+        }
+
+        // Save embed setting if changed
+        const newEmbed = embedToggle.checked;
+        if (newEmbed !== allowEmbed) {
+            await fetch('/api/profiles/settings/allow-embed', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ allow_embed: newEmbed }),
             });
         }
 

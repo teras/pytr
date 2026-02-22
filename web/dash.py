@@ -8,9 +8,9 @@ from urllib.parse import quote
 from xml.sax.saxutils import escape as xml_escape
 
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
-from auth import require_auth
+from auth import require_auth, require_auth_or_embed
 from container import probe_ranges
 from helpers import register_cleanup, make_cache_cleanup, get_video_info, http_client, is_youtube_url, VIDEO_ID_RE
 
@@ -121,7 +121,7 @@ def _dedup_by_height(fmts: list) -> list:
 # ── DASH manifest endpoint ───────────────────────────────────────────────────
 
 @router.get("/api/dash/{video_id}")
-async def get_dash_manifest(video_id: str, auth: bool = Depends(require_auth)):
+async def get_dash_manifest(video_id: str, auth: bool = Depends(require_auth_or_embed)):
     """Generate DASH MPD manifest with proxied URLs.
 
     Uses a single container type for video to avoid track-switching issues.
@@ -138,7 +138,13 @@ async def get_dash_manifest(video_id: str, auth: bool = Depends(require_auth)):
     try:
         info = await asyncio.to_thread(get_video_info, video_id)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        err_msg = str(e)
+        if 'Sign in' in err_msg or 'bot' in err_msg:
+            return JSONResponse(status_code=503, content={
+                'error': 'rate_limited',
+                'message': 'YouTube is temporarily blocking requests.',
+            })
+        raise HTTPException(status_code=500, detail=err_msg)
 
     duration = info.get('duration') or 0
 

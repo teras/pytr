@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
     profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL,
     created_at REAL NOT NULL,
-    expiry REAL NOT NULL
+    expiry REAL NOT NULL,
+    last_ip TEXT
 );
 """
 
@@ -89,6 +90,10 @@ def init_db():
         cols = [r[1] for r in conn.execute("PRAGMA table_info(profiles)").fetchall()]
         if "avatar_emoji" not in cols:
             conn.execute("ALTER TABLE profiles ADD COLUMN avatar_emoji TEXT NOT NULL DEFAULT ''")
+        # Migration: add last_ip to sessions if missing
+        sess_cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
+        if "last_ip" not in sess_cols:
+            conn.execute("ALTER TABLE sessions ADD COLUMN last_ip TEXT")
 
 
 def list_profiles() -> list[dict]:
@@ -382,6 +387,23 @@ def clear_profile_from_sessions(profile_id: int):
         conn.execute(
             "UPDATE sessions SET profile_id = NULL WHERE profile_id = ?", (profile_id,)
         )
+
+
+def update_session_ip(token: str, ip: str):
+    """Update the last_ip for a session."""
+    with _connect() as conn:
+        conn.execute("UPDATE sessions SET last_ip = ? WHERE token = ?", (ip, token))
+
+
+def has_session_with_ip(ip: str) -> bool:
+    """Check if any non-expired session has this IP."""
+    now = time.time()
+    with _connect() as conn:
+        r = conn.execute(
+            "SELECT 1 FROM sessions WHERE last_ip = ? AND expiry > ? LIMIT 1",
+            (ip, now),
+        ).fetchone()
+    return r is not None
 
 
 def cleanup_expired_sessions():

@@ -10,6 +10,7 @@ const videoView = document.getElementById('video-view');
 const listHeader = document.getElementById('list-header');
 const listTitle = document.getElementById('list-title');
 const clearListBtn = document.getElementById('clear-list-btn');
+const listTabs = document.getElementById('list-tabs');
 
 // Search
 const searchInput = document.getElementById('search-input');
@@ -60,6 +61,7 @@ let videoQualities = [];
 let pendingSeek = null; // {time, play} — set during audio language switch
 let isLiveStream = false; // true when playing a live stream
 let liveRetried = false; // true after one recovery attempt
+let _dashAutoRefreshed = false; // prevent DASH error → playVideo loop
 
 // ── Quality Selector ────────────────────────────────────────────────────────
 
@@ -363,10 +365,14 @@ function handleInitialRoute() {
     }
 }
 
-async function loadListPage(endpoint, title, {showClear = false, removable = false, clearEndpoint = '', clearPrompt = ''} = {}) {
+async function loadListPage(endpoint, title, {showClear = false, removable = false, clearEndpoint = '', clearPrompt = '', keepTabs = false} = {}) {
     if (typeof _removeChannelTabs === 'function') _removeChannelTabs();
     if (typeof _removeFilterToggles === 'function') _removeFilterToggles();
     listHeader.classList.remove('hidden');
+    if (!keepTabs) {
+        listTabs.classList.add('hidden');
+        listTitle.classList.remove('hidden');
+    }
     listTitle.textContent = title;
     clearListBtn.classList.toggle('hidden', !showClear);
     clearListBtn.textContent = `Clear ${title.toLowerCase()}`;
@@ -424,8 +430,34 @@ async function loadListPage(endpoint, title, {showClear = false, removable = fal
     }
 }
 
-function loadHistory() { return loadListPage('/api/profiles/history?limit=50', 'Watch History', {showClear: true, removable: true, clearEndpoint: '/api/profiles/history', clearPrompt: 'Clear all watch history?'}); }
-function loadFavorites() { return loadListPage('/api/profiles/favorites?limit=50', 'Favorites', {showClear: true, removable: true, clearEndpoint: '/api/profiles/favorites', clearPrompt: 'Clear all favorites?'}); }
+function loadHistoryOrFavorites(tab) {
+    listTabs.classList.remove('hidden');
+    listTitle.classList.add('hidden');
+
+    listTabs.querySelectorAll('.list-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+
+    // Attach tab click listeners (replace to avoid duplicates)
+    listTabs.querySelectorAll('.list-tab').forEach(btn => {
+        btn.onclick = () => {
+            if (btn.dataset.tab === tab) return;
+            const newTab = btn.dataset.tab;
+            const url = newTab === 'favorites' ? '/favorites' : '/';
+            history.replaceState({ view: newTab }, '', url);
+            loadHistoryOrFavorites(newTab);
+        };
+    });
+
+    if (tab === 'favorites') {
+        return loadListPage('/api/profiles/favorites?limit=50', 'Favorites', {showClear: true, removable: true, clearEndpoint: '/api/profiles/favorites', clearPrompt: 'Clear all favorites?', keepTabs: true});
+    } else {
+        return loadListPage('/api/profiles/history?limit=50', 'Watch History', {showClear: true, removable: true, clearEndpoint: '/api/profiles/history', clearPrompt: 'Clear all watch history?', keepTabs: true});
+    }
+}
+
+function loadHistory() { return loadHistoryOrFavorites('history'); }
+function loadFavorites() { return loadHistoryOrFavorites('favorites'); }
 
 let _clearListEndpoint = '';
 let _clearListPrompt = '';
@@ -445,7 +477,18 @@ clearListBtn.addEventListener('click', async () => {
 
 // ── Player ──────────────────────────────────────────────────────────────────
 
+function showPlayerError(title, message) {
+    videoTitle.textContent = title || 'Video unavailable';
+    qualitySelector.classList.add('hidden');
+    const overlay = document.createElement('div');
+    overlay.className = 'player-error-overlay';
+    overlay.innerHTML = `<div class="player-error-icon">!</div><p>${escapeHtml(message || 'This video is currently unavailable.')}</p>`;
+    playerContainer.appendChild(overlay);
+}
+
 function stopPlayer() {
+    const errOverlay = playerContainer.querySelector('.player-error-overlay');
+    if (errOverlay) errOverlay.remove();
     if (!isLiveStream) savePosition();
     if (positionSaveTimer) {
         clearTimeout(positionSaveTimer);
@@ -523,6 +566,12 @@ async function playVideo(videoId, title, channel, duration) {
         const resp = await fetch(`/api/info/${videoId}`);
         const info = await resp.json();
 
+        if (!resp.ok) {
+            showPlayerError(title, info.message);
+            fetchRelatedVideos(videoId);
+            return;
+        }
+
         videoTitle.textContent = info.title || title;
         videoChannel.textContent = info.channel || channel;
 
@@ -579,8 +628,8 @@ async function playVideo(videoId, title, channel, duration) {
             }
         }
     } catch (err) {
-        console.error('Info fetch failed, falling back to DASH:', err);
-        startDashPlayer(videoId);
+        console.error('Info fetch failed:', err);
+        showPlayerError(title);
     }
 
     fetchRelatedVideos(videoId);
@@ -596,11 +645,13 @@ function startDashPlayer(videoId) {
                 flushBufferAtTrackSwitch: true,
             },
             abr: { autoSwitchBitrate: { video: false } },
+            retryAttempts: { MPD: 0 },
         },
     });
     dashPlayer.initialize(videoPlayer, `/api/dash/${videoId}`, true);
 
     dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
+        _dashAutoRefreshed = false;
         videoQualities = buildQualitiesDash();
         if (videoQualities.length === 0) return;
 
@@ -632,6 +683,14 @@ function startDashPlayer(videoId) {
         if (entry) {
             updateQualityHighlight(entry.height);
         }
+    });
+
+    dashPlayer.on(dashjs.MediaPlayer.events.ERROR, (e) => {
+        if (!e.error || _dashAutoRefreshed) return;
+        _dashAutoRefreshed = true;
+        console.warn('DASH error, auto-refreshing session');
+        savePosition();
+        playVideo(videoId, videoTitle.textContent, videoChannel.textContent, videoPlayer.dataset.expectedDuration);
     });
 }
 

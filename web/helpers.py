@@ -149,8 +149,9 @@ def is_youtube_url(url: str) -> bool:
 
 # ── Video info cache ────────────────────────────────────────────────────────
 
-_info_cache: dict = {}  # video_id -> {"info": dict, "created": float}
+_info_cache: dict = {}  # video_id -> {"info": dict, "created": float} or {"error": str, "created": float}
 _INFO_CACHE_TTL = 5 * 3600  # 5 hours (YouTube URLs expire ~6h)
+_NEGATIVE_CACHE_TTL = 300  # 5 minutes — cache failures to avoid hammering YouTube
 
 
 register_cleanup(make_cache_cleanup(_info_cache, _INFO_CACHE_TTL, "info"))
@@ -164,21 +165,36 @@ def get_video_info(video_id: str) -> dict:
 
     Thread-safe: ydl_info.extract_info() is not safe to call concurrently,
     so we serialize with a global lock (double-checked pattern).
+    Failures are cached for 5 minutes to avoid hammering YouTube.
     """
     cached = _info_cache.get(video_id)
-    if cached and time.time() - cached['created'] < _INFO_CACHE_TTL:
-        return cached['info']
+    if cached:
+        age = time.time() - cached['created']
+        if cached.get('error'):
+            if age < _NEGATIVE_CACHE_TTL:
+                raise yt_dlp.utils.DownloadError(cached['error'])
+        elif age < _INFO_CACHE_TTL:
+            return cached['info']
 
     with _info_lock:
         # Re-check after acquiring lock (another thread may have populated cache)
         cached = _info_cache.get(video_id)
-        if cached and time.time() - cached['created'] < _INFO_CACHE_TTL:
-            return cached['info']
+        if cached:
+            age = time.time() - cached['created']
+            if cached.get('error'):
+                if age < _NEGATIVE_CACHE_TTL:
+                    raise yt_dlp.utils.DownloadError(cached['error'])
+            elif age < _INFO_CACHE_TTL:
+                return cached['info']
 
         url = _yt_url(video_id)
-        info = ydl_info.extract_info(url, download=False)
-        _info_cache[video_id] = {'info': info, 'created': time.time()}
-        return info
+        try:
+            info = ydl_info.extract_info(url, download=False)
+            _info_cache[video_id] = {'info': info, 'created': time.time()}
+            return info
+        except Exception as e:
+            _info_cache[video_id] = {'error': str(e), 'created': time.time()}
+            raise
 
 
 def _format_duration(seconds) -> str:

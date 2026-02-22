@@ -16,7 +16,7 @@ from urllib.parse import quote, urljoin
 from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import Response, StreamingResponse
 
-from auth import require_auth
+from auth import require_auth, require_auth_or_embed
 from helpers import register_cleanup, make_cache_cleanup, get_video_info, http_client, is_youtube_url, VIDEO_ID_RE
 
 log = logging.getLogger(__name__)
@@ -153,7 +153,7 @@ async def get_hls_master(
     video_id: str,
     audio: str | None = None,
     live: bool = False,
-    auth: bool = Depends(require_auth),
+    auth: bool = Depends(require_auth_or_embed),
 ):
     """Fetch YouTube's HLS master manifest, filter by audio language, rewrite URIs.
 
@@ -197,7 +197,7 @@ async def get_hls_master(
 
 
 @router.get("/audio-tracks/{video_id}")
-async def get_audio_tracks(video_id: str, auth: bool = Depends(require_auth)):
+async def get_audio_tracks(video_id: str, auth: bool = Depends(require_auth_or_embed)):
     """Return available audio languages for a video (from cached HLS manifest)."""
     if not VIDEO_ID_RE.match(video_id):
         raise HTTPException(status_code=400, detail="Invalid video ID")

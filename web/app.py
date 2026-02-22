@@ -34,11 +34,13 @@ profiles_db.init_db()
 
 import helpers  # noqa: F401 — ensure cache dir + yt-dlp instance created on startup
 from helpers import maybe_cleanup
+from auth import buffer_session_ip
 
 
 @app.middleware("http")
 async def cleanup_middleware(request, call_next):
     maybe_cleanup()
+    buffer_session_ip(request)
     return await call_next(request)
 
 # Register routers

@@ -118,6 +118,12 @@ h1 {
     color: #f1f1f1;
 }
 
+/* Shared tab bar (channel tabs, list tabs) */
+#list-tabs {
+    display: flex;
+    gap: 0;
+}
+
 #clear-list-btn {
     color: #888;
     text-decoration: none;
@@ -296,6 +302,7 @@ h1 {
 }
 
 #player-container {
+    position: relative;
     background-color: #000;
     border-radius: 12px;
     overflow: hidden;
@@ -305,6 +312,41 @@ h1 {
     width: 100%;
     max-height: 70vh;
     display: block;
+}
+
+/* Player error overlay */
+.player-error-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 10;
+}
+
+.player-error-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 3px solid #ff4444;
+    color: #ff4444;
+    font-size: 28px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+}
+
+.player-error-overlay p {
+    color: #ccc;
+    font-size: 15px;
+    text-align: center;
+    max-width: 400px;
+    line-height: 1.5;
+    padding: 0 20px;
 }
 
 .video-details {
@@ -751,7 +793,7 @@ h1 {
     margin-top: 2px;
 }
 
-/* Channel Tabs */
+/* Shared Tab Styles (channel tabs, list tabs) */
 .channel-tabs {
     display: flex;
     gap: 0;
@@ -759,8 +801,9 @@ h1 {
     border-bottom: 1px solid #303030;
 }
 
-.channel-tab {
-    padding: 10px 20px;
+.channel-tab,
+.list-tab {
+    padding: 8px 18px;
     font-size: 14px;
     font-weight: 500;
     color: #888;
@@ -769,14 +812,17 @@ h1 {
     border-bottom: 2px solid transparent;
     cursor: pointer;
     transition: all 0.2s;
+    white-space: nowrap;
 }
 
-.channel-tab.active {
+.channel-tab.active,
+.list-tab.active {
     color: #f1f1f1;
     border-bottom-color: #f1f1f1;
 }
 
-.channel-tab:hover:not(.active) {
+.channel-tab:hover:not(.active),
+.list-tab:hover:not(.active) {
     color: #ccc;
 }
 

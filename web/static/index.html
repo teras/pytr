@@ -29,7 +29,12 @@
             <!-- List View (Search / Channel) -->
             <div id="list-view">
                 <div id="list-header" class="hidden">
-                    <h2 id="list-title"></h2><span id="clear-list-btn" class="hidden">Clear history</span>
+                    <h2 id="list-title"></h2>
+                    <div id="list-tabs" class="hidden">
+                        <button class="list-tab active" data-tab="history">Watch History</button>
+                        <button class="list-tab" data-tab="favorites">Favorites</button>
+                    </div>
+                    <span id="clear-list-btn" class="hidden">Clear history</span>
                 </div>
                 <div id="video-grid"></div>
                 <div id="load-more-container" class="hidden"></div>

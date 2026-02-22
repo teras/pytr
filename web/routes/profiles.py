@@ -57,6 +57,9 @@ class UpdatePasswordReq(BaseModel):
 class UpdateCookiesBrowserReq(BaseModel):
     cookies_browser: str | None = None  # None or empty = disable
 
+class UpdateAllowEmbedReq(BaseModel):
+    allow_embed: bool = False
+
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -240,6 +243,7 @@ async def get_settings(request: Request, auth: bool = Depends(require_auth)):
     return {
         "has_password": db.get_app_password() is not None,
         "cookies_browser": db.get_setting("cookies_browser") or "",
+        "allow_embed": db.get_setting("allow_embed") == "1",
     }
 
 
@@ -268,3 +272,11 @@ async def update_cookies_browser(req: UpdateCookiesBrowserReq, request: Request,
     from helpers import init_ydl
     init_ydl()
     return {"ok": True, "cookies_browser": value or ""}
+
+
+@router.put("/settings/allow-embed")
+async def update_allow_embed(req: UpdateAllowEmbedReq, request: Request,
+                             auth: bool = Depends(require_auth)):
+    _require_admin(request)
+    db.set_setting("allow_embed", "1" if req.allow_embed else None)
+    return {"ok": True, "allow_embed": req.allow_embed}

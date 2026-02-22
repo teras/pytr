@@ -113,9 +113,49 @@ async def require_auth(request: Request):
     """FastAPI dependency that requires authentication."""
     if not _get_password():
         return True
-    if not verify_session(request):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    return True
+    if verify_session(request):
+        return True
+    raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+# ── IP-based embed access ────────────────────────────────────────────────────
+
+# Buffered IP updates: token -> ip (flushed to DB every 5 minutes)
+_pending_ip_updates: dict[str, str] = {}
+
+
+def buffer_session_ip(request: Request):
+    """If request has a valid session cookie, buffer the IP for deferred DB write."""
+    token = request.cookies.get("ytp_session")
+    if token:
+        _pending_ip_updates[token] = get_client_ip(request)
+
+
+def _flush_session_ips():
+    """Flush buffered IP updates to SQLite."""
+    if not _pending_ip_updates:
+        return
+    updates = dict(_pending_ip_updates)
+    _pending_ip_updates.clear()
+    for token, ip in updates.items():
+        profiles_db.update_session_ip(token, ip)
+    log.debug(f"Flushed {len(updates)} session IP updates")
+
+
+register_cleanup(_flush_session_ips)
+
+
+async def require_auth_or_embed(request: Request):
+    """Like require_auth, but also allows access if embed is enabled and IP has an active session."""
+    if not _get_password():
+        return True
+    if verify_session(request):
+        return True
+    if profiles_db.get_setting("allow_embed") == "1":
+        ip = get_client_ip(request)
+        if profiles_db.has_session_with_ip(ip):
+            return True
+    raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 def get_profile_id(request: Request) -> int | None:
@@ -219,6 +259,16 @@ async def index(request: Request):
     return _serve_spa(request)
 
 
+@router.get("/embed/{video_id}")
+@router.get("/v/{video_id}")
+@router.get("/shorts/{video_id}")
+@router.get("/live/{video_id}")
+async def embed_page(video_id: str):
+    if profiles_db.get_setting("allow_embed") != "1":
+        raise HTTPException(status_code=403, detail="Embed access is disabled")
+    return FileResponse("static/embed.html")
+
+
 @router.get("/watch")
 async def watch_page(request: Request):
     return _serve_spa(request)
@@ -307,6 +357,7 @@ async def do_login(request: Request, response: Response, password: str = Form(de
     if secrets.compare_digest(password, app_password):
         clear_failures(ip)
         token, session = profiles_db.create_session()
+        profiles_db.update_session_ip(token, ip)
 
         response = RedirectResponse(url=redirect_to, status_code=302)
         response.set_cookie(

@@ -7,9 +7,9 @@ import re
 import time
 
 from fastapi import APIRouter, HTTPException, Request, Depends
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 
-from auth import require_auth
+from auth import require_auth, require_auth_or_embed
 from dash import proxy_range_request
 from helpers import CACHE_DIR, VIDEO_ID_RE, format_number, register_cleanup, make_cache_cleanup, get_video_info as _cached_info, http_client
 
@@ -36,7 +36,7 @@ register_cleanup(make_cache_cleanup(_subtitle_cache, _SUBTITLE_CACHE_TTL, "subti
 
 
 @router.get("/info/{video_id}")
-async def get_video_info(video_id: str, auth: bool = Depends(require_auth)):
+async def get_video_info(video_id: str, auth: bool = Depends(require_auth_or_embed)):
     """Get video info (views, likes, etc.)"""
     _check_video_id(video_id)
     try:
@@ -98,11 +98,17 @@ async def get_video_info(video_id: str, auth: bool = Depends(require_auth)):
             'hls_manifest_url': f'/api/hls/master/{video_id}' if has_multi_audio else None,
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        err_msg = str(e)
+        if 'Sign in' in err_msg or 'bot' in err_msg:
+            return JSONResponse(status_code=503, content={
+                'error': 'rate_limited',
+                'message': 'YouTube is temporarily blocking requests. Try setting up browser cookies in Settings, or try again later.',
+            })
+        raise HTTPException(status_code=500, detail=err_msg)
 
 
 @router.get("/subtitle/{video_id}")
-async def get_subtitle(video_id: str, lang: str, auth: bool = Depends(require_auth)):
+async def get_subtitle(video_id: str, lang: str, auth: bool = Depends(require_auth_or_embed)):
     """Proxy a subtitle VTT file (original language or manual subs only)."""
     _check_video_id(video_id)
     if not _LANG_RE.match(lang):
@@ -135,7 +141,7 @@ async def get_subtitle(video_id: str, lang: str, auth: bool = Depends(require_au
 
 
 @router.get("/stream-live/{video_id}")
-async def stream_live(video_id: str, request: Request, auth: bool = Depends(require_auth)):
+async def stream_live(video_id: str, request: Request, auth: bool = Depends(require_auth_or_embed)):
     """Fallback: proxy progressive format (22/18) with range requests."""
     _check_video_id(video_id)
     try:
