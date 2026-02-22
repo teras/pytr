@@ -478,6 +478,15 @@ h1 {
     text-decoration: underline;
 }
 
+.video-description .timestamp-link {
+    color: #3ea6ff;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.video-description .timestamp-link:hover {
+    text-decoration: underline;
+}
 
 /* Sidebar - Related Videos */
 .video-sidebar {

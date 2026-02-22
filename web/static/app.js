@@ -27,6 +27,16 @@ const videoChannel = document.getElementById('video-channel');
 const videoMeta = document.getElementById('video-meta');
 const videoDescription = document.getElementById('video-description');
 
+// Timestamp click handler (delegated)
+videoDescription.addEventListener('click', (e) => {
+    const link = e.target.closest('.timestamp-link');
+    if (!link) return;
+    e.preventDefault();
+    const time = parseFloat(link.dataset.time);
+    videoPlayer.currentTime = time;
+    if (videoPlayer.paused) videoPlayer.play();
+});
+
 // Quality selector
 const qualitySelector = document.getElementById('quality-selector');
 const qualityBtn = document.getElementById('quality-btn');
@@ -1086,10 +1096,20 @@ function escapeAttr(text) {
 
 function linkifyText(text) {
     const escaped = escapeHtml(text);
-    return escaped.replace(/(https?:\/\/[^\s<]+)/g, (match) => {
+    // First linkify URLs
+    let result = escaped.replace(/(https?:\/\/[^\s<]+)/g, (match) => {
         const href = match.replace(/&quot;/g, '%22').replace(/&#39;/g, '%27').replace(/&amp;/g, '&');
         return `<a href="${href}" target="_blank" rel="noopener">${match}</a>`;
     });
+    // Then parse timestamps (0:00, 1:23, 1:23:45) — but not inside <a> tags
+    result = result.replace(/(?:<a[^>]*>.*?<\/a>)|(?:^|\s|\()(\d{1,2}:\d{2}(?::\d{2})?)\b/g, (full, ts) => {
+        if (!ts) return full; // skip <a> tag matches
+        const parts = ts.split(':').map(Number);
+        const seconds = parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : parts[0] * 60 + parts[1];
+        const prefix = full.slice(0, full.indexOf(ts));
+        return `${prefix}<a href="#" class="timestamp-link" data-time="${seconds}">${ts}</a>`;
+    });
+    return result;
 }
 
 // ── Native Modals (replace browser alert/confirm) ──────────────────────────
