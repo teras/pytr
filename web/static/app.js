@@ -283,6 +283,10 @@ async function resolveHandleAndLoad(handle, tab) {
     }
 }
 
+window.addEventListener('pagehide', () => {
+    videoPlayer.pause();
+});
+
 window.addEventListener('popstate', (e) => {
     if (e.state?.view === 'video') {
         showVideoView();
@@ -792,12 +796,13 @@ function stopPlayer() {
         clearTimeout(positionSaveTimer);
         positionSaveTimer = null;
     }
+    videoPlayer.pause();
     if (dashPlayer) {
-        dashPlayer.destroy();
+        try { dashPlayer.destroy(); } catch(e) { console.warn('dash destroy error:', e); }
         dashPlayer = null;
     }
     if (hlsPlayer) {
-        hlsPlayer.destroy();
+        try { hlsPlayer.destroy(); } catch(e) { console.warn('hls destroy error:', e); }
         hlsPlayer = null;
     }
     currentPlayerType = null;
@@ -820,7 +825,6 @@ function stopPlayer() {
     [...videoPlayer.querySelectorAll('track')].forEach(t => t.remove());
     currentVideoId = null;
     currentVideoChannelId = null;
-    videoPlayer.pause();
     videoPlayer.removeAttribute('src');
     videoPlayer.removeAttribute('poster');
     videoPlayer.load();
