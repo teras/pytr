@@ -809,6 +809,10 @@ h1 {
     white-space: nowrap;
 }
 
+.list-tab[data-tab="channels"] {
+    font-size: 80%;
+}
+
 .channel-tab.active,
 .list-tab.active {
     color: #f1f1f1;
@@ -1348,6 +1352,60 @@ h1 {
     font-size: 14px;
     margin-bottom: 12px;
     text-align: center;
+}
+
+/* Channel Card (followed channels list) */
+.channel-card .channel-avatar-container {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #252525;
+    border-radius: 50%;
+    margin: 16px auto 0;
+    width: 80%;
+    overflow: hidden;
+}
+
+.channel-card .channel-avatar-container img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+}
+
+.channel-card-placeholder {
+    font-size: 48px;
+    font-weight: 600;
+    color: #888;
+}
+
+.channel-card .video-info {
+    text-align: center;
+}
+
+/* Follow Button on channel page — matches player-btn / favorite-btn style */
+.channel-follow-btn {
+    padding: 4px 10px;
+    font-size: 13px;
+    font-weight: 500;
+    background-color: #272727;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.channel-follow-btn:hover {
+    background-color: #303030;
+}
+
+.channel-follow-btn.following {
+    background: #065fd4;
+    color: #fff;
 }
 
 /* Favorite Button */

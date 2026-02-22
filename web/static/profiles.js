@@ -324,6 +324,8 @@ function showEditProfileForm() {
         <div class="pin-modal-content" style="max-width:380px">
             <h3>Edit Profile</h3>
             <form id="edit-profile-form" class="profile-form">
+                <input type="text" id="edit-profile-name" placeholder="Name" maxlength="30" value="${escapeAttr(currentProfile.name)}" required>
+                <p class="pin-error hidden" id="edit-profile-error"></p>
                 ${buildAvatarPickerHtml(currentProfile.avatar_color, currentProfile.avatar_emoji)}
                 <div class="edit-pin-section">
                     <label class="edit-pin-label">
@@ -358,37 +360,54 @@ function showEditProfileForm() {
     document.getElementById('edit-profile-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const form = e.target;
+        const errorEl = modal.querySelector('#edit-profile-error');
+        errorEl.classList.add('hidden');
+        const newName = modal.querySelector('#edit-profile-name').value.trim();
         const color = form.querySelector('input[name="avatar_color"]:checked').value;
         const emoji = form.querySelector('input[name="avatar_emoji"]').value;
-        if (form._cleanupEmojiListener) form._cleanupEmojiListener();
 
-        // Save avatar
-        try {
-            const resp = await fetch('/api/profiles/avatar', {
+        // Save name if changed
+        if (newName && newName !== currentProfile.name) {
+            const resp = await fetch('/api/profiles/name', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ avatar_color: color, avatar_emoji: emoji }),
+                body: JSON.stringify({ name: newName }),
             });
-            if (resp.ok) {
-                currentProfile = await resp.json();
-                updateProfileButton();
+            if (!resp.ok) {
+                const err = await resp.json();
+                errorEl.textContent = err.detail || 'Failed to update name';
+                errorEl.classList.remove('hidden');
+                return;
             }
-        } catch {}
+            currentProfile = await resp.json();
+            updateProfileButton();
+        }
+
+        // Save avatar
+        const resp = await fetch('/api/profiles/avatar', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ avatar_color: color, avatar_emoji: emoji }),
+        });
+        if (resp.ok) {
+            currentProfile = await resp.json();
+            updateProfileButton();
+        }
 
         // Save PIN changes
         const wantsPin = pinToggle.checked;
         const newPin = pinInput.value.trim();
         if (!wantsPin && hasPin) {
-            // Remove PIN
-            await fetch('/api/profiles/pin', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: null }) });
-            currentProfile.has_pin = false;
+            const resp = await fetch('/api/profiles/pin', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: null }) });
+            if (resp.ok) currentProfile.has_pin = false;
         } else if (wantsPin && newPin) {
             if (newPin.length === 4 && /^\d+$/.test(newPin)) {
-                await fetch('/api/profiles/pin', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: newPin }) });
-                currentProfile.has_pin = true;
+                const resp = await fetch('/api/profiles/pin', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: newPin }) });
+                if (resp.ok) currentProfile.has_pin = true;
             }
         }
 
+        if (form._cleanupEmojiListener) form._cleanupEmojiListener();
         modal.remove();
     });
 }
@@ -550,13 +569,11 @@ if (profileSwitcherBtn) {
         }
         const isAdmin = currentProfile && currentProfile.is_admin;
         profileMenu.innerHTML = `
-            <div class="profile-menu-item" data-action="history">Watch History</div>
-            <div class="profile-menu-item" data-action="favorites">Favorites</div>
+            <div class="profile-menu-item" data-action="switch">Switch Profile</div>
+            <div class="profile-menu-item" data-action="edit-profile">Edit Profile</div>
             ${isAdmin ? '<div class="profile-menu-divider"></div>' : ''}
             ${isAdmin ? '<div class="profile-menu-item" data-action="settings">Options</div>' : ''}
             <div class="profile-menu-divider"></div>
-            <div class="profile-menu-item" data-action="edit-profile">Edit Profile</div>
-            <div class="profile-menu-item" data-action="switch">Switch Profile</div>
             <div class="profile-menu-item profile-menu-logout" data-action="logout">Logout ${escapeHtml(currentProfile.name)}</div>
         `;
         // Position below the button
@@ -569,11 +586,7 @@ if (profileSwitcherBtn) {
             item.addEventListener('click', async () => {
                 profileMenu.classList.add('hidden');
                 const action = item.dataset.action;
-                if (action === 'history') {
-                    navigateToHistory();
-                } else if (action === 'favorites') {
-                    navigateToFavorites();
-                } else if (action === 'edit-profile') {
+                if (action === 'edit-profile') {
                     showEditProfileForm();
                 } else if (action === 'settings') {
                     showSettingsModal();
@@ -591,20 +604,6 @@ if (profileSwitcherBtn) {
 }
 
 // Menu closing handled by consolidated listener in app.js
-
-function navigateToHistory() {
-    cacheListView();
-    history.pushState({ view: 'history' }, '', '/history');
-    showListView();
-    loadHistory();
-}
-
-function navigateToFavorites() {
-    cacheListView();
-    history.pushState({ view: 'favorites' }, '', '/favorites');
-    showListView();
-    loadFavorites();
-}
 
 // ── Settings Modal (admin) ──────────────────────────────────────────────────
 
@@ -660,21 +659,31 @@ async function showSettingsModal() {
 
         // Save password if changed
         if (newPw) {
-            await fetch('/api/profiles/settings/password', {
+            const resp = await fetch('/api/profiles/settings/password', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password: newPw }),
             });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                nativeAlert(err.detail || 'Failed to update password');
+                return;
+            }
         }
 
         // Save embed setting if changed
         const newEmbed = embedToggle.checked;
         if (newEmbed !== allowEmbed) {
-            await fetch('/api/profiles/settings/allow-embed', {
+            const resp = await fetch('/api/profiles/settings/allow-embed', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ allow_embed: newEmbed }),
             });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                nativeAlert(err.detail || 'Failed to update embed setting');
+                return;
+            }
         }
 
         overlay.remove();

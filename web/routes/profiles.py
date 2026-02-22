@@ -47,6 +47,10 @@ class UpdateAvatarReq(BaseModel):
     avatar_emoji: str = ""
 
 
+class UpdateNameReq(BaseModel):
+    name: str = Field(..., min_length=1, max_length=30)
+
+
 class FavoriteReq(BaseModel):
     title: str = ""
     channel: str = ""
@@ -57,6 +61,10 @@ class FavoriteReq(BaseModel):
     playlist_id: str = ""
     first_video_id: str = ""
     video_count: str = ""
+
+class FollowChannelReq(BaseModel):
+    channel_name: str = ""
+    avatar_url: str = ""
 
 class UpdatePasswordReq(BaseModel):
     password: str | None = None  # None or empty = remove password
@@ -168,6 +176,17 @@ async def update_avatar(req: UpdateAvatarReq, profile_id: int = Depends(require_
     return db.get_profile(profile_id)
 
 
+@router.put("/name")
+async def update_name(req: UpdateNameReq, profile_id: int = Depends(require_profile)):
+    try:
+        db.update_profile_name(profile_id, req.name)
+    except Exception as e:
+        if "UNIQUE" in str(e):
+            raise HTTPException(status_code=409, detail="Name already taken")
+        raise HTTPException(status_code=400, detail=str(e))
+    return db.get_profile(profile_id)
+
+
 @router.put("/pin")
 async def update_pin(req: UpdatePinReq, profile_id: int = Depends(require_profile)):
     pin = req.pin.strip() if req.pin else None
@@ -246,6 +265,37 @@ async def remove_favorite(video_id: str, profile_id: int = Depends(require_profi
 @router.get("/favorites/{video_id}/status")
 async def favorite_status(video_id: str, profile_id: int = Depends(require_profile)):
     return {"is_favorite": db.is_favorite(profile_id, video_id)}
+
+
+# ── Followed Channels ─────────────────────────────────────────────────────
+
+@router.get("/channels")
+async def get_followed_channels(profile_id: int = Depends(require_profile)):
+    return db.get_followed_channels(profile_id)
+
+
+@router.post("/channels/{channel_id}")
+async def follow_channel(channel_id: str, req: FollowChannelReq,
+                          profile_id: int = Depends(require_profile)):
+    db.follow_channel(profile_id, channel_id, req.channel_name, req.avatar_url)
+    return {"ok": True}
+
+
+@router.delete("/channels/{channel_id}")
+async def unfollow_channel(channel_id: str, profile_id: int = Depends(require_profile)):
+    db.unfollow_channel(profile_id, channel_id)
+    return {"ok": True}
+
+
+@router.delete("/channels")
+async def clear_followed_channels(profile_id: int = Depends(require_profile)):
+    db.clear_followed_channels(profile_id)
+    return {"ok": True}
+
+
+@router.get("/channels/{channel_id}/status")
+async def channel_follow_status(channel_id: str, profile_id: int = Depends(require_profile)):
+    return {"is_following": db.is_following(profile_id, channel_id)}
 
 
 # ── Settings (admin only) ──────────────────────────────────────────────────

@@ -406,11 +406,11 @@ async def resolve_handle(handle: str) -> str | None:
 _CHANNEL_VIDEOS_PARAMS = "EgZ2aWRlb3PyBgQKAjoA"
 
 
-async def channel_first(channel_id: str) -> tuple[str, list[dict], str | None]:
+async def channel_first(channel_id: str) -> tuple[str, str, list[dict], str | None]:
     """Initial channel videos request.
 
     POST youtubei/v1/browse with browseId + Videos tab params.
-    Returns (channel_name, results, continuation_token).
+    Returns (channel_name, avatar_url, results, continuation_token).
     """
     data = await _innertube_post("browse", {
         "browseId": channel_id,
@@ -421,6 +421,15 @@ async def channel_first(channel_id: str) -> tuple[str, list[dict], str | None]:
     channel_name = (data.get("metadata", {})
                     .get("channelMetadataRenderer", {})
                     .get("title", "Unknown"))
+
+    # Channel avatar
+    avatar_url = ""
+    avatar_data = (data.get("metadata", {})
+                   .get("channelMetadataRenderer", {})
+                   .get("avatar", {})
+                   .get("thumbnails", []))
+    if avatar_data:
+        avatar_url = avatar_data[-1].get("url", "")
 
     results = []
     token = None
@@ -480,7 +489,7 @@ async def channel_first(channel_id: str) -> tuple[str, list[dict], str | None]:
 
         break  # Only process the selected tab
 
-    return channel_name, results, token
+    return channel_name, avatar_url, results, token
 
 
 async def channel_next(continuation_token: str) -> tuple[list[dict], str | None]:

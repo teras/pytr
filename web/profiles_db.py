@@ -56,6 +56,16 @@ CREATE TABLE IF NOT EXISTS favorites (
     UNIQUE(profile_id, video_id)
 );
 
+CREATE TABLE IF NOT EXISTS followed_channels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    channel_id TEXT NOT NULL,
+    channel_name TEXT NOT NULL DEFAULT '',
+    avatar_url TEXT NOT NULL DEFAULT '',
+    added_at REAL NOT NULL,
+    UNIQUE(profile_id, channel_id)
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -175,6 +185,17 @@ def update_profile_avatar(profile_id: int, avatar_color: str, avatar_emoji: str)
         conn.execute(
             "UPDATE profiles SET avatar_color = ?, avatar_emoji = ? WHERE id = ?",
             (avatar_color, avatar_emoji, profile_id),
+        )
+
+
+def update_profile_name(profile_id: int, name: str):
+    clean = name.strip()
+    if not clean or len(clean) > 30:
+        raise ValueError("Name must be between 1 and 30 characters")
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE profiles SET name = ? WHERE id = ?",
+            (clean, profile_id),
         )
 
 
@@ -327,6 +348,55 @@ def get_favorites(profile_id: int, limit: int = 50, offset: int = 0,
                 (profile_id, limit, offset),
             ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ── Followed Channels ────────────────────────────────────────────────────────
+
+def follow_channel(profile_id: int, channel_id: str, channel_name: str = "", avatar_url: str = ""):
+    now = time.time()
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO followed_channels (profile_id, channel_id, channel_name, avatar_url, added_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(profile_id, channel_id) DO UPDATE SET
+                   channel_name = CASE WHEN excluded.channel_name = '' THEN followed_channels.channel_name ELSE excluded.channel_name END,
+                   avatar_url = CASE WHEN excluded.avatar_url = '' THEN followed_channels.avatar_url ELSE excluded.avatar_url END,
+                   added_at = excluded.added_at""",
+            (profile_id, channel_id, channel_name, avatar_url, now),
+        )
+
+
+def unfollow_channel(profile_id: int, channel_id: str) -> bool:
+    with _connect() as conn:
+        cur = conn.execute(
+            "DELETE FROM followed_channels WHERE profile_id = ? AND channel_id = ?",
+            (profile_id, channel_id),
+        )
+    return cur.rowcount > 0
+
+
+def is_following(profile_id: int, channel_id: str) -> bool:
+    with _connect() as conn:
+        r = conn.execute(
+            "SELECT 1 FROM followed_channels WHERE profile_id = ? AND channel_id = ?",
+            (profile_id, channel_id),
+        ).fetchone()
+    return r is not None
+
+
+def get_followed_channels(profile_id: int) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT channel_id, channel_name, avatar_url, added_at "
+            "FROM followed_channels WHERE profile_id = ? ORDER BY added_at DESC",
+            (profile_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def clear_followed_channels(profile_id: int):
+    with _connect() as conn:
+        conn.execute("DELETE FROM followed_channels WHERE profile_id = ?", (profile_id,))
 
 
 # ── Settings ────────────────────────────────────────────────────────────────

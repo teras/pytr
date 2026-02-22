@@ -227,6 +227,7 @@ function showListView() {
     listTabs.classList.add('hidden');
     listTitle.classList.remove('hidden');
     _removeFavFilterToggles();
+    if (typeof _removeFollowButton === 'function') _removeFollowButton();
 }
 
 function showVideoView() {
@@ -298,6 +299,9 @@ window.addEventListener('popstate', (e) => {
     } else if (e.state?.view === 'favorites') {
         showListView();
         loadFavorites();
+    } else if (e.state?.view === 'channels') {
+        showListView();
+        loadChannels();
     } else if (e.state?.view === 'search') {
         showListView();
         if (listViewCache && listViewCache.query === e.state.query) {
@@ -306,9 +310,9 @@ window.addEventListener('popstate', (e) => {
             searchVideos(e.state.query, { pushState: false });
         }
     } else {
-        // Default (home) = watch history
+        // Default (home) = remembered tab
         showListView();
-        loadHistory();
+        loadHomeTab();
     }
 });
 
@@ -354,18 +358,21 @@ function handleInitialRoute() {
             loadHistory();
         }
     } else if (path === '/history') {
-        history.replaceState({ view: 'history' }, '', '/history');
-        showListView();
-        loadHistory();
-    } else if (path === '/favorites') {
-        history.replaceState({ view: 'favorites' }, '', '/favorites');
-        showListView();
-        loadFavorites();
-    } else {
-        // Home page = watch history
         history.replaceState({ view: 'history' }, '', '/');
         showListView();
         loadHistory();
+    } else if (path === '/favorites') {
+        history.replaceState({ view: 'favorites' }, '', '/');
+        showListView();
+        loadFavorites();
+    } else if (path === '/channels') {
+        history.replaceState({ view: 'channels' }, '', '/');
+        showListView();
+        loadChannels();
+    } else {
+        // Home page = remembered tab
+        showListView();
+        loadHomeTab();
     }
 }
 
@@ -437,12 +444,33 @@ async function loadListPage(endpoint, title, {showClear = false, removable = fal
 
 let _favFilters = { video: true, playlist: true, mix: true };
 
-function loadHistoryOrFavorites(tab) {
+async function _probeHomeTabs() {
+    const [hResp, fResp, cResp] = await Promise.all([
+        fetch('/api/profiles/history?limit=1').then(r => r.ok ? r.json() : []),
+        fetch('/api/profiles/favorites?limit=1').then(r => r.ok ? r.json() : []),
+        fetch('/api/profiles/channels').then(r => r.ok ? r.json() : []),
+    ]);
+    return {
+        history: hResp.length > 0,
+        favorites: fResp.length > 0,
+        channels: cResp.length > 0,
+    };
+}
+
+function _updateTabVisibility(counts) {
+    listTabs.querySelectorAll('.list-tab').forEach(btn => {
+        btn.classList.toggle('hidden', !counts[btn.dataset.tab]);
+    });
+}
+
+function loadHistoryOrFavorites(tab, skipProbe = false) {
+    localStorage.setItem('lastHomeTab', tab);
     listTabs.classList.remove('hidden');
     listTitle.classList.add('hidden');
 
     listTabs.querySelectorAll('.list-tab').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tab);
+        if (!skipProbe) btn.classList.remove('hidden');
     });
 
     // Attach tab click listeners (replace to avoid duplicates)
@@ -450,15 +478,36 @@ function loadHistoryOrFavorites(tab) {
         btn.onclick = () => {
             if (btn.dataset.tab === tab) return;
             const newTab = btn.dataset.tab;
-            const url = newTab === 'favorites' ? '/favorites' : '/';
-            history.replaceState({ view: newTab }, '', url);
-            loadHistoryOrFavorites(newTab);
+            history.replaceState({ view: newTab }, '', '/');
+            loadHistoryOrFavorites(newTab, true);
         };
     });
 
+    // Probe counts and hide empty tabs — redirect if active tab is empty
+    if (!skipProbe) {
+        _probeHomeTabs().then(counts => {
+            _updateTabVisibility(counts);
+            // If active tab is empty, switch to one that has content
+            if (!counts[tab]) {
+                const fallback = ['history', 'favorites', 'channels'].find(t => counts[t]);
+                if (fallback) {
+                    history.replaceState({ view: fallback }, '', '/');
+                    loadHistoryOrFavorites(fallback, true);
+                }
+                // If nothing has content, current tab stays visible (shows "no results")
+            }
+        });
+    }
+
+    _loadTabContent(tab);
+}
+
+function _loadTabContent(tab) {
     if (tab === 'favorites') {
         _favFilters = { video: true, playlist: true, mix: true };
         return loadFavoritesPage();
+    } else if (tab === 'channels') {
+        return loadChannelsPage();
     } else {
         return loadListPage('/api/profiles/history?limit=50', 'Watch History', {showClear: true, removable: true, clearEndpoint: '/api/profiles/history', clearPrompt: 'Clear all watch history?', keepTabs: true});
     }
@@ -613,8 +662,90 @@ function _renderFavoriteCards(items) {
     });
 }
 
+async function loadChannelsPage() {
+    if (typeof _removeChannelTabs === 'function') _removeChannelTabs();
+    if (typeof _removeFilterToggles === 'function') _removeFilterToggles();
+    _removeFavFilterToggles();
+    listHeader.classList.remove('hidden');
+    listTabs.classList.remove('hidden');
+    listTitle.classList.add('hidden');
+    clearListBtn.classList.remove('hidden');
+    clearListBtn.textContent = 'Clear channels';
+    _clearListEndpoint = '/api/profiles/channels';
+    _clearListPrompt = 'Clear all channels?';
+    videoGrid.innerHTML = '';
+    noResults.classList.add('hidden');
+    loadMoreContainer.classList.add('hidden');
+    _listGeneration++;
+    loadMoreObserver.disconnect();
+    searchInput.value = '';
+
+    try {
+        const resp = await fetch('/api/profiles/channels');
+        if (!resp.ok) throw new Error('Failed to load channels');
+        const items = await resp.json();
+
+        if (items.length === 0) {
+            noResults.classList.remove('hidden');
+            clearListBtn.classList.add('hidden');
+        } else {
+            videoGrid.innerHTML = items.map(ch => {
+                const avatar = ch.avatar_url
+                    ? `<img src="${escapeAttr(ch.avatar_url)}" alt="${escapeHtml(ch.channel_name)}" loading="lazy">`
+                    : `<div class="channel-card-placeholder">${escapeHtml(ch.channel_name.charAt(0).toUpperCase())}</div>`;
+                return `<a class="video-card channel-card" href="/channel/${escapeAttr(ch.channel_id)}" data-channel-id="${escapeAttr(ch.channel_id)}" data-channel-name="${escapeAttr(ch.channel_name)}">
+                    <div class="thumbnail-container channel-avatar-container">
+                        ${avatar}
+                    </div>
+                    <div class="video-info">
+                        <h3 class="video-title">${escapeHtml(ch.channel_name)}</h3>
+                    </div>
+                </a>`;
+            }).join('');
+
+            // Attach click listeners
+            videoGrid.querySelectorAll('.channel-card').forEach(card => {
+                card.addEventListener('click', (e) => {
+                    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
+                    e.preventDefault();
+                    navigateToChannel(card.dataset.channelId, card.dataset.channelName);
+                });
+
+                // Remove button
+                const btn = document.createElement('button');
+                btn.className = 'remove-entry-btn';
+                btn.title = 'Unfollow';
+                btn.textContent = '\u00d7';
+                btn.addEventListener('click', async (ev) => {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    const resp = await fetch(`/api/profiles/channels/${card.dataset.channelId}`, {method: 'DELETE'});
+                    if (resp.ok) {
+                        card.remove();
+                        if (!videoGrid.querySelector('.channel-card')) {
+                            noResults.classList.remove('hidden');
+                            clearListBtn.classList.add('hidden');
+                        }
+                    }
+                });
+                card.style.position = 'relative';
+                card.appendChild(btn);
+            });
+        }
+    } catch (err) {
+        videoGrid.innerHTML = `<p class="error">Error: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
 function loadHistory() { return loadHistoryOrFavorites('history'); }
 function loadFavorites() { return loadHistoryOrFavorites('favorites'); }
+function loadChannels() { return loadHistoryOrFavorites('channels'); }
+
+function loadHomeTab() {
+    const tab = localStorage.getItem('lastHomeTab') || 'history';
+    history.replaceState({ view: tab }, '', '/');
+    loadHistoryOrFavorites(tab);
+}
 
 let _clearListEndpoint = '';
 let _clearListPrompt = '';
@@ -1023,9 +1154,9 @@ searchInput.addEventListener('keypress', e => e.key === 'Enter' && searchVideos(
 
 document.getElementById('logo-link').addEventListener('click', (e) => {
     e.preventDefault();
-    history.pushState({ view: 'history' }, '', '/');
+    history.pushState({ view: 'home' }, '', '/');
     showListView();
-    loadHistory();
+    loadHomeTab();
 });
 
 videoPlayer.addEventListener('error', () => {

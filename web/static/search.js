@@ -207,6 +207,9 @@ async function loadChannelVideos(channelId, channelName) {
             listTitle.textContent = data.channel;
         }
 
+        // Follow button
+        _renderFollowButton(channelId, data.channel || channelName, data.avatar_url || '');
+
         // Show tabs only if both have content
         if (hasVideos && hasPlaylists) {
             _renderChannelTabs(channelId);
@@ -239,6 +242,49 @@ async function loadChannelVideos(channelId, channelName) {
 
 
 // ── Channel Tabs ────────────────────────────────────────────────────────────
+
+function _removeFollowButton() {
+    const existing = document.getElementById('channel-follow-btn');
+    if (existing) existing.remove();
+}
+
+async function _renderFollowButton(channelId, channelName, avatarUrl) {
+    _removeFollowButton();
+    if (typeof currentProfile === 'undefined' || !currentProfile) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'channel-follow-btn';
+    btn.className = 'channel-follow-btn';
+
+    // Check current status
+    try {
+        const resp = await fetch(`/api/profiles/channels/${channelId}/status`);
+        const data = await resp.json();
+        let following = data.is_following;
+
+        const updateBtn = () => {
+            btn.textContent = following ? '★ Saved' : '☆ Save';
+            btn.classList.toggle('following', following);
+        };
+        updateBtn();
+
+        btn.addEventListener('click', async () => {
+            if (following) {
+                const resp = await fetch(`/api/profiles/channels/${channelId}`, {method: 'DELETE'});
+                if (resp.ok) { following = false; updateBtn(); }
+            } else {
+                const resp = await fetch(`/api/profiles/channels/${channelId}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({channel_name: channelName, avatar_url: avatarUrl}),
+                });
+                if (resp.ok) { following = true; updateBtn(); }
+            }
+        });
+
+        listHeader.appendChild(btn);
+    } catch {}
+}
 
 function _removeChannelTabs() {
     const existing = document.getElementById('channel-tabs');
@@ -289,7 +335,7 @@ async function loadChannelPlaylists(channelId, channelName) {
 
     _loadChannelPlaylists(channelId);
 
-    // Probe videos in background to decide whether to show tabs
+    // Probe videos in background to decide whether to show tabs + get avatar for follow button
     const gen = _listGeneration;
     fetch(`/api/channel/${channelId}`).then(r => r.ok ? r.json() : null).then(data => {
         if (gen !== _listGeneration) return;
@@ -297,6 +343,7 @@ async function loadChannelPlaylists(channelId, channelName) {
             if (data.channel) listTitle.textContent = data.channel;
             _renderChannelTabs(channelId);
         }
+        if (data) _renderFollowButton(channelId, data.channel || channelName, data.avatar_url || '');
     }).catch(() => {});
 }
 
