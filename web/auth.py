@@ -25,7 +25,7 @@ _COOKIE_MAX_AGE = 10 * 365 * 86400  # 10 years
 
 
 def _get_password() -> str | None:
-    """Get the app password from DB (None = open access)."""
+    """Get the app password from DB (None only during first-run bootstrap)."""
     return profiles_db.get_app_password()
 
 

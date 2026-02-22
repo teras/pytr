@@ -422,10 +422,12 @@ def get_app_password() -> str | None:
     return get_setting("app_password")
 
 
-def set_app_password(password: str | None):
+def set_app_password(password: str):
     # Stored as plaintext: design choice for a self-hosted app where the DB
     # is only accessible to the server operator (who can reset it anyway).
-    set_setting("app_password", password if password else None)
+    if not password or len(password) < 4:
+        raise ValueError("Password must be at least 4 characters")
+    set_setting("app_password", password)
 
 
 # ── Long-term cleanup ───────────────────────────────────────────────────────

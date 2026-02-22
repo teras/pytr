@@ -37,7 +37,7 @@ async function checkProfile() {
             handleInitialRoute();
         } else if (data.state === 'profile-select') {
             const profiles = data.profiles;
-            if (profiles.length === 1 && !profiles[0].has_pin) {
+            if (profiles.length === 1) {
                 await selectProfile(profiles[0].id, null);
             } else {
                 showProfileSelector(profiles);
@@ -512,8 +512,8 @@ function attachCreateFormListeners(formId, isFirstRun = false) {
             const errorEl = document.getElementById('setup-pw-error');
             const pw = pwInput.value;
             const confirmValue = confirmInput.value;
-            if (pw.length < 1) {
-                errorEl.textContent = 'Password is required';
+            if (pw.length < 4) {
+                errorEl.textContent = 'Password must be at least 4 characters';
                 errorEl.classList.remove('hidden');
                 return;
             }
@@ -693,7 +693,6 @@ function showMenuPinPrompt(profileId) {
 
 async function showSettingsModal() {
     // Fetch current settings and profiles in parallel
-    let hasPassword = false;
     let allowEmbed = false;
     let allProfiles = [];
     try {
@@ -703,7 +702,6 @@ async function showSettingsModal() {
         ]);
         if (settingsResp.ok) {
             const data = await settingsResp.json();
-            hasPassword = data.has_password;
             allowEmbed = !!data.allow_embed;
         }
         if (profilesResp.ok) {
@@ -747,8 +745,8 @@ async function showSettingsModal() {
 
                     <div class="profile-menu-divider" style="margin:8px 0"></div>
 
-                    <label class="settings-label">App Password <span class="settings-hint">${hasPassword ? '(currently set)' : '(none)'}</span></label>
-                    <input type="password" id="settings-password" placeholder="${hasPassword ? 'New password (leave empty to keep)' : 'Set a password'}" autocomplete="new-password">
+                    <label class="settings-label">App Password</label>
+                    <input type="password" id="settings-password" placeholder="New password (leave empty to keep)" minlength="4" autocomplete="new-password">
 
                     <label class="settings-label" style="margin-top:16px">
                         <input type="checkbox" id="settings-allow-embed" ${allowEmbed ? 'checked' : ''}>
@@ -796,6 +794,10 @@ async function showSettingsModal() {
             const embedToggle = overlay.querySelector('#settings-allow-embed');
 
             if (newPw) {
+                if (newPw.length < 4) {
+                    nativeAlert('Password must be at least 4 characters');
+                    return;
+                }
                 const resp = await fetch('/api/profiles/settings/password', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },

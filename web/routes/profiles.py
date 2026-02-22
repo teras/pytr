@@ -128,7 +128,9 @@ async def create_profile(req: CreateProfileReq, request: Request, response: Resp
             raise HTTPException(status_code=409, detail="Name already taken")
         raise HTTPException(status_code=400, detail=str(e))
     # First-run: also set app password and create authenticated session
-    if is_first_run and req.password:
+    if is_first_run:
+        if not req.password or len(req.password) < 4:
+            raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
         db.set_app_password(req.password)
         token, _ = get_session(request)
         db.set_session_profile(token, profile["id"])
@@ -157,9 +159,10 @@ async def select_profile(profile_id: int, req: SelectProfileReq,
     profile = db.get_profile(profile_id)
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
-    # Skip PIN check if already on this profile
+    # Skip PIN check if already on this profile or if sole profile (already authenticated via app password)
     current_pid = get_profile_id(request)
-    if profile["has_pin"] and current_pid != profile_id:
+    solo = len(db.list_profiles()) == 1
+    if profile["has_pin"] and current_pid != profile_id and not solo:
         if not req.pin or not db.verify_pin(profile_id, req.pin):
             raise HTTPException(status_code=403, detail="Invalid PIN")
     # Store in session
@@ -304,7 +307,6 @@ async def channel_follow_status(channel_id: str, profile_id: int = Depends(requi
 async def get_settings(request: Request, auth: bool = Depends(require_auth)):
     _require_admin(request)
     return {
-        "has_password": db.get_app_password() is not None,
         "allow_embed": db.get_setting("allow_embed") == "1",
     }
 
@@ -316,12 +318,14 @@ async def update_password(req: UpdatePasswordReq, request: Request, response: Re
     # First-run: no password set yet and no profile selected — allow setting initial password
     if not first_run or get_profile_id(request) is not None:
         _require_admin(request)
+    if not req.password or len(req.password) < 4:
+        raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
     db.set_app_password(req.password)
     # On first-run, create a session so subsequent calls (selectProfile) are authenticated
-    if first_run and req.password:
+    if first_run:
         token, _ = get_session(request)
         response.set_cookie(key="ytp_session", value=token, max_age=10 * 365 * 86400, httponly=True, samesite="lax")
-    return {"ok": True, "has_password": req.password is not None and len(req.password) > 0}
+    return {"ok": True}
 
 
 @router.put("/settings/allow-embed")
