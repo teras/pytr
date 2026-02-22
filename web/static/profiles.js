@@ -6,36 +6,12 @@ let currentProfile = null;
 
 const AVATAR_COLORS = [
     '#cc0000', '#e67e22', '#f1c40f', '#27ae60', '#2980b9', '#8e44ad',
-    '#ffffff', '#b0b0b0', '#555555', '#222222', '#e84393', 'transparent',
+    '#ffffff', '#b0b0b0', '#555555', '#222222', 'transparent', 'custom',
 ];
 const DEFAULT_EMOJI = '\ud83d\ude0a';
 const isTouchDevice = () => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 const _graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
-// Emoji palette for the desktop picker — grouped by category
-const EMOJI_PALETTE = {
-    'Smileys': [
-        '\ud83d\ude00','\ud83d\ude03','\ud83d\ude04','\ud83d\ude01','\ud83d\ude0a','\ud83d\ude0d',
-        '\ud83e\udd29','\ud83d\ude0e','\ud83e\udd13','\ud83e\udd17','\ud83e\udd73','\ud83d\ude0b',
-        '\ud83d\ude1c','\ud83e\udd2a','\ud83d\ude08','\ud83d\udc7b','\ud83d\udc7e','\ud83e\udd16',
-        '\ud83d\udc80','\ud83d\udca9','\ud83e\uddd9','\ud83e\udddb','\ud83e\uddd1\u200d\ud83c\udfa4','\ud83e\uddd1\u200d\ud83d\ude80',
-    ],
-    'Animals': [
-        '\ud83d\udc31','\ud83d\udc36','\ud83d\udc3b','\ud83d\udc3c','\ud83e\udd8a','\ud83e\udd81',
-        '\ud83d\udc2f','\ud83d\udc35','\ud83d\udc27','\ud83e\udd89','\ud83e\udd8b','\ud83d\udc22',
-        '\ud83d\udc19','\ud83e\udd88','\ud83d\udc33','\ud83e\udd84','\ud83d\udc32','\ud83d\udc09',
-    ],
-    'Things': [
-        '\ud83c\udfb8','\ud83c\udfae','\ud83c\udfa8','\ud83c\udfac','\ud83c\udfb5','\ud83d\udcda',
-        '\ud83d\ude80','\ud83c\udfaf','\ud83c\udfc0','\u26bd','\ud83c\udfc4','\ud83c\udfbf',
-        '\ud83d\udcf7','\ud83d\udd2d','\ud83c\udf54','\ud83c\udf55','\ud83c\udf70','\u2615',
-    ],
-    'Nature': [
-        '\ud83c\udf1f','\ud83c\udf0a','\ud83c\udf3b','\ud83c\udf40','\ud83c\udf08','\ud83c\udf1e',
-        '\ud83c\udf19','\u2b50','\ud83d\udd25','\u2744\ufe0f','\ud83c\udf3a','\ud83c\udf32',
-        '\ud83c\udf35','\ud83c\udf44','\ud83c\udf3f','\ud83c\udf38',
-    ],
-};
 
 const profileOverlay = document.getElementById('profile-overlay');
 const profileSwitcherBtn = document.getElementById('profile-switcher-btn');
@@ -93,7 +69,6 @@ function updateProfileButton() {
 // ── Profile Selector ───────────────────────────────────────────────────────
 
 function showProfileSelector(profiles) {
-    const isAdmin = currentProfile && currentProfile.is_admin;
     profileOverlay.innerHTML = `
         <div class="profile-selector">
             <h2>Who's watching?</h2>
@@ -105,15 +80,8 @@ function showProfileSelector(profiles) {
                         </div>
                         <div class="profile-name">${escapeHtml(p.name)}</div>
                         ${p.has_pin ? '<div class="profile-pin-icon">PIN</div>' : ''}
-                        ${isAdmin && !p.is_admin ? `<button class="profile-delete-btn" data-id="${p.id}" title="Delete profile">x</button>` : ''}
                     </div>
                 `).join('')}
-                ${isAdmin || profiles.length === 0 ? `
-                    <div class="profile-card profile-add-card" id="profile-add-btn">
-                        <div class="profile-avatar profile-avatar-add">+</div>
-                        <div class="profile-name">Add</div>
-                    </div>
-                ` : ''}
             </div>
         </div>
     `;
@@ -121,8 +89,7 @@ function showProfileSelector(profiles) {
 
     // Card click handlers
     profileOverlay.querySelectorAll('.profile-card[data-id]').forEach(card => {
-        card.addEventListener('click', (e) => {
-            if (e.target.closest('.profile-delete-btn')) return;
+        card.addEventListener('click', () => {
             const id = parseInt(card.dataset.id);
             const hasPin = card.dataset.hasPin === 'true';
             const isCurrentProfile = currentProfile && currentProfile.id === id;
@@ -133,27 +100,6 @@ function showProfileSelector(profiles) {
             }
         });
     });
-
-    // Delete buttons
-    profileOverlay.querySelectorAll('.profile-delete-btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            const id = parseInt(btn.dataset.id);
-            const name = btn.closest('.profile-card').querySelector('.profile-name').textContent;
-            if (await nativeConfirm(`Delete profile "${name}"?`)) {
-                await fetch(`/api/profiles/profile/${id}`, { method: 'DELETE' });
-                const resp = await fetch('/api/profiles');
-                const updated = await resp.json();
-                showProfileSelector(updated);
-            }
-        });
-    });
-
-    // Add button
-    const addBtn = document.getElementById('profile-add-btn');
-    if (addBtn) {
-        addBtn.addEventListener('click', () => showCreateProfileForm());
-    }
 }
 
 function showPinPrompt(profileId) {
@@ -226,23 +172,11 @@ async function selectProfile(id, pin) {
 
 // ── Create Profile Forms ───────────────────────────────────────────────────
 
-function buildEmojiPickerPopupHtml() {
-    let html = '<div class="emoji-picker-popup hidden" id="emoji-picker-popup">';
-    for (const [category, emojis] of Object.entries(EMOJI_PALETTE)) {
-        html += `<div class="emoji-category-label">${category}</div>`;
-        html += '<div class="emoji-grid">';
-        for (const e of emojis) {
-            html += `<span class="emoji-cell" data-emoji="${e}">${e}</span>`;
-        }
-        html += '</div>';
-    }
-    html += '</div>';
-    return html;
-}
-
 function buildAvatarPickerHtml(currentColor = null, currentEmoji = null) {
     const color = currentColor || AVATAR_COLORS[0];
     const emoji = currentEmoji || DEFAULT_EMOJI;
+    const isCustomColor = color !== 'transparent' && color !== 'custom' && !AVATAR_COLORS.includes(color);
+    const customValue = isCustomColor ? color : '#8e44ad';
     return `
         <div class="avatar-picker-wrap">
             <div class="avatar-preview-row">
@@ -251,15 +185,21 @@ function buildAvatarPickerHtml(currentColor = null, currentEmoji = null) {
                 </div>
                 <input type="text" class="emoji-input" id="emoji-input" value="${emoji}" autocomplete="off">
             </div>
-            ${buildEmojiPickerPopupHtml()}
+            <div class="emoji-picker-wrap hidden" id="emoji-picker-wrap"></div>
         </div>
         <div class="color-picker">
-            ${AVATAR_COLORS.map(c => `
-                <label class="color-option${c === color ? ' selected' : ''}">
+            ${AVATAR_COLORS.map(c => {
+                if (c === 'custom') {
+                    return `<label class="color-option color-option-custom${isCustomColor ? ' selected' : ''}">
+                        <input type="radio" name="avatar_color" value="${customValue}" ${isCustomColor ? 'checked' : ''}>
+                        <span class="color-swatch-custom"${isCustomColor ? ` style="background:${customValue}"` : ''}></span>
+                    </label>`;
+                }
+                return `<label class="color-option${c === color ? ' selected' : ''}">
                     <input type="radio" name="avatar_color" value="${c}" ${c === color ? 'checked' : ''}>
                     <span class="color-swatch" style="background:${c}"></span>
-                </label>
-            `).join('')}
+                </label>`;
+            }).join('')}
         </div>
         <input type="hidden" name="avatar_emoji" value="${emoji}">
     `;
@@ -418,7 +358,7 @@ function attachAvatarPickerListeners(formId) {
     const preview = form.querySelector('#avatar-preview');
     const emojiInput = form.querySelector('#emoji-input');
     const emojiHidden = form.querySelector('input[name="avatar_emoji"]');
-    const emojiPopup = form.querySelector('#emoji-picker-popup');
+    const pickerWrap = form.querySelector('#emoji-picker-wrap');
 
     function updatePreview() {
         const emoji = emojiHidden.value || DEFAULT_EMOJI;
@@ -433,28 +373,42 @@ function attachAvatarPickerListeners(formId) {
         emojiHidden.value = emoji;
         emojiInput.value = emoji;
         updatePreview();
-        if (emojiPopup) emojiPopup.classList.add('hidden');
+        if (pickerWrap) pickerWrap.classList.add('hidden');
     }
 
     if (preview) {
         if (isTouchDevice()) {
+            // Mobile: use native emoji keyboard
             preview.addEventListener('click', () => {
                 emojiInput.value = '';
                 emojiInput.focus();
             });
         } else {
+            // Desktop: use emoji-picker-element
             preview.addEventListener('click', (e) => {
                 e.stopPropagation();
-                if (emojiPopup) emojiPopup.classList.toggle('hidden');
+                if (pickerWrap) {
+                    if (pickerWrap.classList.contains('hidden')) {
+                        // Lazy-create the picker on first open
+                        if (!pickerWrap.querySelector('emoji-picker')) {
+                            const picker = document.createElement('emoji-picker');
+                            picker.classList.add('dark');
+                            pickerWrap.appendChild(picker);
+                            picker.addEventListener('emoji-click', (ev) => {
+                                selectEmoji(ev.detail.unicode);
+                            });
+                        }
+                        pickerWrap.classList.remove('hidden');
+                    } else {
+                        pickerWrap.classList.add('hidden');
+                    }
+                }
             });
         }
     }
 
-    if (emojiPopup) {
-        emojiPopup.addEventListener('click', (e) => e.stopPropagation());
-        emojiPopup.querySelectorAll('.emoji-cell').forEach(cell => {
-            cell.addEventListener('click', () => selectEmoji(cell.dataset.emoji));
-        });
+    if (pickerWrap) {
+        pickerWrap.addEventListener('click', (e) => e.stopPropagation());
     }
 
     if (emojiInput) {
@@ -467,18 +421,74 @@ function attachAvatarPickerListeners(formId) {
         });
     }
 
-    const closePopup = () => { if (emojiPopup) emojiPopup.classList.add('hidden'); };
+    const closePopup = () => { if (pickerWrap) pickerWrap.classList.add('hidden'); };
     document.addEventListener('click', closePopup);
     form._cleanupEmojiListener = () => document.removeEventListener('click', closePopup);
 
     form.querySelectorAll('.color-option').forEach(opt => {
         opt.addEventListener('click', () => {
+            if (opt.classList.contains('color-option-custom')) return; // handled below
             form.querySelectorAll('.color-option').forEach(o => o.classList.remove('selected'));
             opt.classList.add('selected');
             opt.querySelector('input[type="radio"]').checked = true;
             updatePreview();
         });
     });
+
+    // Custom color picker popup
+    const customOpt = form.querySelector('.color-option-custom');
+    if (customOpt) {
+        const radioInput = customOpt.querySelector('input[type="radio"]');
+        const customSwatch = customOpt.querySelector('.color-swatch-custom');
+        const colorPicker = form.querySelector('.avatar-picker-wrap');
+
+        customSwatch.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            form.querySelectorAll('.color-option').forEach(o => o.classList.remove('selected'));
+            customOpt.classList.add('selected');
+            radioInput.checked = true;
+
+            // Toggle popup
+            let popup = form.querySelector('.color-picker-popup');
+            if (popup) {
+                popup.remove();
+                return;
+            }
+            popup = document.createElement('div');
+            popup.className = 'color-picker-popup';
+            popup.addEventListener('click', (ev) => ev.stopPropagation());
+            const picker = document.createElement('hex-color-picker');
+            picker.setAttribute('color', radioInput.value);
+            popup.appendChild(picker);
+            const doneBtn = document.createElement('button');
+            doneBtn.type = 'button';
+            doneBtn.className = 'color-picker-done';
+            doneBtn.textContent = 'Done';
+            doneBtn.addEventListener('click', () => popup.remove());
+            popup.appendChild(doneBtn);
+            form.querySelector('.color-picker').appendChild(popup);
+
+            picker.addEventListener('color-changed', (ev) => {
+                const hex = ev.detail.value;
+                radioInput.value = hex;
+                customSwatch.style.background = hex;
+                updatePreview();
+            });
+        });
+
+        // Close color popup on outside click
+        const closeColorPopup = () => {
+            const popup = form.querySelector('.color-picker-popup');
+            if (popup) popup.remove();
+        };
+        const origCleanup = form._cleanupEmojiListener;
+        document.addEventListener('click', closeColorPopup);
+        form._cleanupEmojiListener = () => {
+            if (origCleanup) origCleanup();
+            document.removeEventListener('click', closeColorPopup);
+        };
+    }
 }
 
 function attachCreateFormListeners(formId, isFirstRun = false) {
@@ -561,17 +571,36 @@ profileMenu.className = 'profile-menu hidden';
 document.body.appendChild(profileMenu);
 
 if (profileSwitcherBtn) {
-    profileSwitcherBtn.addEventListener('click', (e) => {
+    profileSwitcherBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         if (!profileMenu.classList.contains('hidden')) {
             profileMenu.classList.add('hidden');
             return;
         }
         const isAdmin = currentProfile && currentProfile.is_admin;
+
+        // Fetch all profiles to show others for quick switching
+        let otherProfiles = [];
+        try {
+            const resp = await fetch('/api/profiles');
+            if (resp.ok) {
+                const all = await resp.json();
+                otherProfiles = all.filter(p => !currentProfile || p.id !== currentProfile.id);
+            }
+        } catch {}
+
+        const profileItems = otherProfiles.map(p => {
+            const display = p.avatar_emoji || escapeHtml(p.name.charAt(0).toUpperCase());
+            return `<div class="profile-menu-profile" data-id="${p.id}" data-has-pin="${p.has_pin}">
+                <span class="profile-menu-avatar" style="background:${p.avatar_color}">${display}</span>
+                <span>${escapeHtml(p.name)}</span>
+            </div>`;
+        }).join('');
+
         profileMenu.innerHTML = `
-            <div class="profile-menu-item" data-action="switch">Switch Profile</div>
-            <div class="profile-menu-item" data-action="edit-profile">Edit Profile</div>
-            ${isAdmin ? '<div class="profile-menu-divider"></div>' : ''}
+            ${profileItems}
+            ${otherProfiles.length ? '<div class="profile-menu-divider"></div>' : ''}
+            <div class="profile-menu-item" data-action="edit-profile">Edit profile</div>
             ${isAdmin ? '<div class="profile-menu-item" data-action="settings">Options</div>' : ''}
             <div class="profile-menu-divider"></div>
             <div class="profile-menu-item profile-menu-logout" data-action="logout">Logout ${escapeHtml(currentProfile.name)}</div>
@@ -582,19 +611,30 @@ if (profileSwitcherBtn) {
         profileMenu.style.right = (window.innerWidth - rect.right) + 'px';
         profileMenu.classList.remove('hidden');
 
+        // Profile switch click handlers
+        profileMenu.querySelectorAll('.profile-menu-profile').forEach(item => {
+            item.addEventListener('click', () => {
+                profileMenu.classList.add('hidden');
+                const id = parseInt(item.dataset.id);
+                const hasPin = item.dataset.hasPin === 'true';
+                if (hasPin) {
+                    showMenuPinPrompt(id);
+                } else {
+                    stopPlayer();
+                    selectProfile(id, null);
+                }
+            });
+        });
+
+        // Action menu items
         profileMenu.querySelectorAll('.profile-menu-item').forEach(item => {
-            item.addEventListener('click', async () => {
+            item.addEventListener('click', () => {
                 profileMenu.classList.add('hidden');
                 const action = item.dataset.action;
                 if (action === 'edit-profile') {
                     showEditProfileForm();
                 } else if (action === 'settings') {
                     showSettingsModal();
-                } else if (action === 'switch') {
-                    stopPlayer();
-                    const resp = await fetch('/api/profiles');
-                    const profiles = await resp.json();
-                    showProfileSelector(profiles);
                 } else if (action === 'logout') {
                     window.location.href = '/logout';
                 }
@@ -603,91 +643,246 @@ if (profileSwitcherBtn) {
     });
 }
 
+function showMenuPinPrompt(profileId) {
+    const modal = document.createElement('div');
+    modal.className = 'pin-modal';
+    modal.innerHTML = `
+        <div class="pin-modal-content">
+            <h3>Enter PIN</h3>
+            <input type="password" class="pin-input" maxlength="4" pattern="[0-9]*" inputmode="numeric" autofocus>
+            <p class="pin-error hidden">Wrong PIN</p>
+            <div class="pin-actions">
+                <button class="pin-cancel">Cancel</button>
+                <button class="pin-submit">OK</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    const input = modal.querySelector('.pin-input');
+    const error = modal.querySelector('.pin-error');
+    input.focus();
+
+    const submit = async () => {
+        const pin = input.value;
+        if (pin.length !== 4) return;
+        stopPlayer();
+        const ok = await selectProfile(profileId, pin);
+        if (ok) {
+            modal.remove();
+        } else {
+            error.classList.remove('hidden');
+            input.value = '';
+            input.focus();
+        }
+    };
+
+    input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') submit();
+    });
+    modal.querySelector('.pin-submit').addEventListener('click', submit);
+    modal.querySelector('.pin-cancel').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
+}
+
 // Menu closing handled by consolidated listener in app.js
 
 // ── Settings Modal (admin) ──────────────────────────────────────────────────
 
 async function showSettingsModal() {
-    // Fetch current settings
+    // Fetch current settings and profiles in parallel
     let hasPassword = false;
     let allowEmbed = false;
+    let allProfiles = [];
     try {
-        const resp = await fetch('/api/profiles/settings');
-        if (resp.ok) {
-            const data = await resp.json();
+        const [settingsResp, profilesResp] = await Promise.all([
+            fetch('/api/profiles/settings'),
+            fetch('/api/profiles'),
+        ]);
+        if (settingsResp.ok) {
+            const data = await settingsResp.json();
             hasPassword = data.has_password;
             allowEmbed = !!data.allow_embed;
+        }
+        if (profilesResp.ok) {
+            allProfiles = await profilesResp.json();
         }
     } catch {}
 
     const overlay = document.createElement('div');
     overlay.className = 'pin-modal';
-    overlay.innerHTML = `
-        <div class="pin-modal-content" style="max-width:400px">
-            <h3>Options</h3>
-            <form id="settings-form" class="profile-form">
-                <label class="settings-label">App Password <span class="settings-hint">${hasPassword ? '(currently set)' : '(none)'}</span></label>
-                <input type="password" id="settings-password" placeholder="${hasPassword ? 'New password (leave empty to keep)' : 'Set a password'}" autocomplete="new-password">
-
-                <label class="settings-label" style="margin-top:16px">
-                    <input type="checkbox" id="settings-allow-embed" ${allowEmbed ? 'checked' : ''}>
-                    Allow embed access
-                    <span class="settings-hint">(no auth required, for LibRedirect)</span>
-                </label>
-
-                <div class="pin-actions">
-                    <button type="button" class="pin-cancel">Cancel</button>
-                    <button type="submit">Save</button>
-                </div>
-            </form>
-        </div>
-    `;
     document.body.appendChild(overlay);
 
-    const form = overlay.querySelector('#settings-form');
-    const pwInput = overlay.querySelector('#settings-password');
-    const embedToggle = overlay.querySelector('#settings-allow-embed');
-
-    overlay.querySelector('.pin-cancel').addEventListener('click', () => overlay.remove());
     overlay.addEventListener('click', (e) => {
         if (e.target === overlay) overlay.remove();
     });
 
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const newPw = pwInput.value;
-
-        // Save password if changed
-        if (newPw) {
-            const resp = await fetch('/api/profiles/settings/password', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password: newPw }),
-            });
-            if (!resp.ok) {
-                const err = await resp.json().catch(() => ({}));
-                nativeAlert(err.detail || 'Failed to update password');
-                return;
-            }
+    // ── Settings view ──
+    function showSettingsView() {
+        function renderProfileList() {
+            return allProfiles.map(p => {
+                const display = p.avatar_emoji || escapeHtml(p.name.charAt(0).toUpperCase());
+                const deleteBtn = !p.is_admin ? `<button type="button" class="settings-profile-delete" data-id="${p.id}" title="Delete">×</button>` : '';
+                return `<div class="settings-profile-row">
+                    <span class="profile-menu-avatar" style="background:${p.avatar_color}">${display}</span>
+                    <span class="settings-profile-name">${escapeHtml(p.name)}${p.is_admin ? ' <span class="settings-hint">(admin)</span>' : ''}</span>
+                    ${deleteBtn}
+                </div>`;
+            }).join('');
         }
 
-        // Save embed setting if changed
-        const newEmbed = embedToggle.checked;
-        if (newEmbed !== allowEmbed) {
-            const resp = await fetch('/api/profiles/settings/allow-embed', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ allow_embed: newEmbed }),
-            });
-            if (!resp.ok) {
-                const err = await resp.json().catch(() => ({}));
-                nativeAlert(err.detail || 'Failed to update embed setting');
-                return;
-            }
-        }
+        overlay.innerHTML = `
+            <div class="pin-modal-content" style="max-width:400px">
+                <h3>Options</h3>
+                <form id="settings-form" class="profile-form">
+                    <div class="settings-profiles-header">
+                        <label class="settings-label">Profiles</label>
+                        <button type="button" id="settings-add-profile" class="settings-add-profile-btn" title="Add profile">+</button>
+                    </div>
+                    <div id="settings-profile-list" class="settings-profile-list">
+                        ${renderProfileList()}
+                    </div>
 
-        overlay.remove();
-    });
+                    <div class="profile-menu-divider" style="margin:8px 0"></div>
+
+                    <label class="settings-label">App Password <span class="settings-hint">${hasPassword ? '(currently set)' : '(none)'}</span></label>
+                    <input type="password" id="settings-password" placeholder="${hasPassword ? 'New password (leave empty to keep)' : 'Set a password'}" autocomplete="new-password">
+
+                    <label class="settings-label" style="margin-top:16px">
+                        <input type="checkbox" id="settings-allow-embed" ${allowEmbed ? 'checked' : ''}>
+                        Allow embed access
+                        <span class="settings-hint">(no auth required, for LibRedirect)</span>
+                    </label>
+
+                    <div class="pin-actions">
+                        <button type="button" class="pin-cancel">Cancel</button>
+                        <button type="submit">Save</button>
+                    </div>
+                </form>
+            </div>
+        `;
+
+        const form = overlay.querySelector('#settings-form');
+        const profileListEl = overlay.querySelector('#settings-profile-list');
+
+        function attachProfileDeleteHandlers() {
+            profileListEl.querySelectorAll('.settings-profile-delete').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const id = parseInt(btn.dataset.id);
+                    const row = btn.closest('.settings-profile-row');
+                    const name = row.querySelector('.settings-profile-name').textContent.trim();
+                    if (await nativeConfirm(`Delete profile "${name}"?`)) {
+                        await fetch(`/api/profiles/profile/${id}`, { method: 'DELETE' });
+                        const resp = await fetch('/api/profiles');
+                        if (resp.ok) {
+                            allProfiles = await resp.json();
+                            profileListEl.innerHTML = renderProfileList();
+                            attachProfileDeleteHandlers();
+                        }
+                    }
+                });
+            });
+        }
+        attachProfileDeleteHandlers();
+
+        overlay.querySelector('#settings-add-profile').addEventListener('click', () => showAddProfileView());
+        overlay.querySelector('.pin-cancel').addEventListener('click', () => overlay.remove());
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const newPw = overlay.querySelector('#settings-password').value;
+            const embedToggle = overlay.querySelector('#settings-allow-embed');
+
+            if (newPw) {
+                const resp = await fetch('/api/profiles/settings/password', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: newPw }),
+                });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    nativeAlert(err.detail || 'Failed to update password');
+                    return;
+                }
+            }
+
+            const newEmbed = embedToggle.checked;
+            if (newEmbed !== allowEmbed) {
+                const resp = await fetch('/api/profiles/settings/allow-embed', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ allow_embed: newEmbed }),
+                });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    nativeAlert(err.detail || 'Failed to update embed setting');
+                    return;
+                }
+            }
+
+            overlay.remove();
+        });
+    }
+
+    // ── Add profile view ──
+    function showAddProfileView() {
+        overlay.innerHTML = `
+            <div class="pin-modal-content" style="max-width:380px">
+                <h3>New Profile</h3>
+                <form id="settings-create-profile-form" class="profile-form">
+                    <input type="text" id="new-profile-name" placeholder="Name" maxlength="30" required autofocus>
+                    ${buildAvatarPickerHtml()}
+                    <input type="password" id="new-profile-pin" placeholder="4-digit PIN (optional)" maxlength="4" pattern="[0-9]*" inputmode="numeric">
+                    <div class="pin-actions">
+                        <button type="button" class="pin-cancel">Cancel</button>
+                        <button type="submit">Create</button>
+                    </div>
+                </form>
+            </div>
+        `;
+        attachAvatarPickerListeners('settings-create-profile-form');
+
+        overlay.querySelector('.pin-cancel').addEventListener('click', () => {
+            const form = document.getElementById('settings-create-profile-form');
+            if (form && form._cleanupEmojiListener) form._cleanupEmojiListener();
+            showSettingsView();
+        });
+
+        document.getElementById('settings-create-profile-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const form = e.target;
+            const name = document.getElementById('new-profile-name').value.trim();
+            if (!name) return;
+            const color = form.querySelector('input[name="avatar_color"]:checked').value;
+            const emoji = form.querySelector('input[name="avatar_emoji"]').value;
+            const pin = document.getElementById('new-profile-pin').value || null;
+            if (pin && pin.length !== 4) return;
+
+            if (form._cleanupEmojiListener) form._cleanupEmojiListener();
+
+            try {
+                const resp = await fetch('/api/profiles', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, pin, avatar_color: color, avatar_emoji: emoji }),
+                });
+                if (resp.ok) {
+                    const listResp = await fetch('/api/profiles');
+                    if (listResp.ok) allProfiles = await listResp.json();
+                    showSettingsView();
+                } else {
+                    const err = await resp.json();
+                    nativeAlert(err.detail || 'Failed to create profile');
+                }
+            } catch {
+                nativeAlert('Failed to create profile');
+            }
+        });
+    }
+
+    showSettingsView();
 }
 
 // ── Preference Saving ──────────────────────────────────────────────────────

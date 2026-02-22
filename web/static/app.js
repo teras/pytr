@@ -1108,9 +1108,9 @@ function showModal(message, {confirm: isConfirm = false} = {}) {
             </div>
         `;
         document.body.appendChild(overlay);
-        // Defensive: focus Cancel for confirm dialogs, OK for alerts
         const cancelBtn = overlay.querySelector('.pin-cancel');
         if (cancelBtn) cancelBtn.focus(); else overlay.querySelector('.pin-submit').focus();
+        // Delay removal by one frame to prevent click-through to modals underneath
         overlay.querySelector('.pin-submit').addEventListener('click', () => { overlay.remove(); resolve(true); });
         if (cancelBtn) cancelBtn.addEventListener('click', () => { overlay.remove(); resolve(false); });
         overlay.addEventListener('click', (e) => { if (e.target === overlay) { overlay.remove(); resolve(isConfirm ? false : true); } });
