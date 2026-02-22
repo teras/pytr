@@ -94,6 +94,16 @@ def init_db():
         sess_cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
         if "last_ip" not in sess_cols:
             conn.execute("ALTER TABLE sessions ADD COLUMN last_ip TEXT")
+        # Migration: add playlist/mix columns to favorites if missing
+        fav_cols = [r[1] for r in conn.execute("PRAGMA table_info(favorites)").fetchall()]
+        for col, typ, default in [
+            ("item_type", "TEXT NOT NULL", "'video'"),
+            ("playlist_id", "TEXT NOT NULL", "''"),
+            ("first_video_id", "TEXT NOT NULL", "''"),
+            ("video_count", "TEXT NOT NULL", "''"),
+        ]:
+            if col not in fav_cols:
+                conn.execute(f"ALTER TABLE favorites ADD COLUMN {col} {typ} DEFAULT {default}")
 
 
 def list_profiles() -> list[dict]:
@@ -137,6 +147,8 @@ def create_profile(name: str, pin: str | None = None, avatar_color: str = "#cc00
                     avatar_emoji: str = "") -> dict:
     now = time.time()
     clean_name = name.strip()
+    if not clean_name or len(clean_name) > 30:
+        raise ValueError("Name must be between 1 and 30 characters")
     clean_pin = pin if pin else None
     with _connect() as conn:
         # First profile becomes admin
@@ -254,20 +266,28 @@ def clear_favorites(profile_id: int):
 
 def add_favorite(profile_id: int, video_id: str, title: str = "",
                  channel: str = "", thumbnail: str = "",
-                 duration: int = 0, duration_str: str = ""):
+                 duration: int = 0, duration_str: str = "",
+                 item_type: str = "video", playlist_id: str = "",
+                 first_video_id: str = "", video_count: str = ""):
     now = time.time()
     with _connect() as conn:
         conn.execute(
-            """INSERT INTO favorites (profile_id, video_id, title, channel, thumbnail, duration, duration_str, added_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """INSERT INTO favorites (profile_id, video_id, title, channel, thumbnail, duration, duration_str, added_at,
+                   item_type, playlist_id, first_video_id, video_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(profile_id, video_id) DO UPDATE SET
                    title = excluded.title,
                    channel = CASE WHEN excluded.channel = '' THEN favorites.channel ELSE excluded.channel END,
                    thumbnail = CASE WHEN excluded.thumbnail = '' THEN favorites.thumbnail ELSE excluded.thumbnail END,
                    duration = CASE WHEN excluded.duration = 0 THEN favorites.duration ELSE excluded.duration END,
                    duration_str = CASE WHEN excluded.duration_str = '' THEN favorites.duration_str ELSE excluded.duration_str END,
+                   item_type = excluded.item_type,
+                   playlist_id = excluded.playlist_id,
+                   first_video_id = CASE WHEN excluded.first_video_id = '' THEN favorites.first_video_id ELSE excluded.first_video_id END,
+                   video_count = CASE WHEN excluded.video_count = '' THEN favorites.video_count ELSE excluded.video_count END,
                    added_at = excluded.added_at""",
-            (profile_id, video_id, title, channel, thumbnail, duration, duration_str, now),
+            (profile_id, video_id, title, channel, thumbnail, duration, duration_str, now,
+             item_type, playlist_id, first_video_id, video_count),
         )
 
 
@@ -289,13 +309,23 @@ def is_favorite(profile_id: int, video_id: str) -> bool:
     return r is not None
 
 
-def get_favorites(profile_id: int, limit: int = 50, offset: int = 0) -> list[dict]:
+def get_favorites(profile_id: int, limit: int = 50, offset: int = 0,
+                   item_type: str | None = None) -> list[dict]:
     with _connect() as conn:
-        rows = conn.execute(
-            "SELECT video_id, title, channel, thumbnail, duration, duration_str, added_at "
-            "FROM favorites WHERE profile_id = ? ORDER BY added_at DESC LIMIT ? OFFSET ?",
-            (profile_id, limit, offset),
-        ).fetchall()
+        if item_type:
+            rows = conn.execute(
+                "SELECT video_id, title, channel, thumbnail, duration, duration_str, added_at, "
+                "item_type, playlist_id, first_video_id, video_count "
+                "FROM favorites WHERE profile_id = ? AND item_type = ? ORDER BY added_at DESC LIMIT ? OFFSET ?",
+                (profile_id, item_type, limit, offset),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT video_id, title, channel, thumbnail, duration, duration_str, added_at, "
+                "item_type, playlist_id, first_video_id, video_count "
+                "FROM favorites WHERE profile_id = ? ORDER BY added_at DESC LIMIT ? OFFSET ?",
+                (profile_id, limit, offset),
+            ).fetchall()
     return [dict(r) for r in rows]
 
 

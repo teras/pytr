@@ -1,6 +1,8 @@
 # Copyright (c) 2026 Panayotis Katsaloulis
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Profile management routes."""
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from pydantic import BaseModel, Field
 
@@ -14,10 +16,11 @@ router = APIRouter(prefix="/api/profiles")
 # ── Request models ──────────────────────────────────────────────────────────
 
 class CreateProfileReq(BaseModel):
-    name: str = Field(..., pattern=r'^[a-zA-Z0-9_]+$')
+    name: str = Field(..., min_length=1, max_length=30, pattern=r'^.+$')
     pin: str | None = None
     avatar_color: str = Field(default="#cc0000", pattern=r'^#[0-9a-fA-F]{6}$|^transparent$')
     avatar_emoji: str = ""
+    password: str | None = None  # Only used during first-run setup
 
 class SelectProfileReq(BaseModel):
     pin: str | None = None
@@ -33,7 +36,7 @@ class SavePositionReq(BaseModel):
     channel: str = ""
     thumbnail: str = ""
     duration: int = 0
-    duration_str: str = ""
+    duration_str: str = Field(default="", pattern=r'^(\d{1,2}:\d{2}(:\d{2})?)?$')
 
 class UpdatePinReq(BaseModel):
     pin: str | None = None  # None or empty = remove PIN
@@ -49,7 +52,11 @@ class FavoriteReq(BaseModel):
     channel: str = ""
     thumbnail: str = ""
     duration: int = 0
-    duration_str: str = ""
+    duration_str: str = Field(default="", pattern=r'^(\d{1,2}:\d{2}(:\d{2})?)?$')
+    item_type: Literal["video", "playlist", "mix", "live"] = "video"
+    playlist_id: str = ""
+    first_video_id: str = ""
+    video_count: str = ""
 
 class UpdatePasswordReq(BaseModel):
     password: str | None = None  # None or empty = remove password
@@ -102,6 +109,7 @@ async def list_profiles(auth: bool = Depends(require_auth)):
 async def create_profile(req: CreateProfileReq, request: Request, response: Response,
                          auth: bool = Depends(require_auth)):
     profiles = db.list_profiles()
+    is_first_run = not profiles and db.get_app_password() is None
     # First profile: anyone can create. After that: admin only.
     if profiles:
         _require_admin(request)
@@ -111,6 +119,12 @@ async def create_profile(req: CreateProfileReq, request: Request, response: Resp
         if "UNIQUE" in str(e):
             raise HTTPException(status_code=409, detail="Name already taken")
         raise HTTPException(status_code=400, detail=str(e))
+    # First-run: also set app password and create authenticated session
+    if is_first_run and req.password:
+        db.set_app_password(req.password)
+        token, _ = get_session(request)
+        db.set_session_profile(token, profile["id"])
+        response.set_cookie(key="ytp_session", value=token, max_age=10 * 365 * 86400, httponly=True, samesite="lax")
     return profile
 
 
@@ -203,8 +217,9 @@ async def get_position(video_id: str, profile_id: int = Depends(require_profile)
 
 @router.get("/favorites")
 async def get_favorites(limit: int = 50, offset: int = 0,
+                        type: str | None = None,
                         profile_id: int = Depends(require_profile)):
-    return db.get_favorites(profile_id, limit, offset)
+    return db.get_favorites(profile_id, limit, offset, item_type=type)
 
 
 @router.delete("/favorites")
@@ -217,7 +232,8 @@ async def clear_favorites(profile_id: int = Depends(require_profile)):
 async def add_favorite(video_id: str, req: FavoriteReq,
                        profile_id: int = Depends(require_profile)):
     db.add_favorite(profile_id, video_id, req.title, req.channel,
-                    req.thumbnail, req.duration, req.duration_str)
+                    req.thumbnail, req.duration, req.duration_str,
+                    req.item_type, req.playlist_id, req.first_video_id, req.video_count)
     return {"ok": True}
 
 

@@ -405,6 +405,15 @@ function showLoadingCard(show) {
     }
 }
 
+function formatDuration(seconds) {
+    if (!seconds || seconds <= 0) return '';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 function createVideoCard(item) {
     // Playlist/mix card
     if (item.type === 'playlist' || item.type === 'mix') {
@@ -427,8 +436,7 @@ function createVideoCard(item) {
     }
 
     // Regular video card
-    const meta = item.is_live ? '<span class="video-live">LIVE</span>'
-               : item.published ? `<span class="video-published">${escapeHtml(item.published)}</span>`
+    const meta = item.published ? `<span class="video-published">${escapeHtml(item.published)}</span>`
                : '';
     const durationBadge = item.is_live ? '<span class="duration live">LIVE</span>'
                         : item.duration_str ? `<span class="duration">${escapeHtml(item.duration_str)}</span>` : '';
@@ -612,6 +620,8 @@ async function _loadQueue(videoId, playlistId) {
             if (_queue.currentIndex === -1) _queue.currentIndex = 0;
             _queueCollapsed = false;
             _renderQueue();
+            // Re-check favorite status now that queue is loaded
+            if (typeof checkFavoriteStatus === 'function') checkFavoriteStatus(videoId);
         }
     } catch (err) {
         console.error('Failed to fetch playlist contents:', err);
@@ -701,6 +711,9 @@ queueToggleArea.addEventListener('click', () => {
 queueCloseArea.addEventListener('click', () => {
     _closeQueue();
 });
+
+// Expose queue state for other modules (e.g. profiles.js)
+window._getQueue = () => _queue;
 
 // Auto-advance: listen for video ended
 videoPlayer.addEventListener('ended', () => {

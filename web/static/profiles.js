@@ -271,73 +271,18 @@ function showCreateFirstProfile() {
             <h2>Welcome to YTP</h2>
             <p class="wizard-subtitle">Create your admin profile to get started</p>
             <form id="create-first-profile-form" class="profile-form">
-                <input type="text" id="new-profile-name" placeholder="Name" maxlength="20" pattern="[a-zA-Z0-9_]+" title="Letters, numbers and underscores only" required autofocus>
+                <input type="text" id="new-profile-name" placeholder="Name" maxlength="30" required autofocus>
+                <input type="password" id="setup-pw" placeholder="App password" required autocomplete="new-password">
+                <input type="password" id="setup-pw-confirm" placeholder="Confirm password" required autocomplete="new-password">
+                <p class="pin-error hidden" id="setup-pw-error"></p>
                 ${buildAvatarPickerHtml()}
                 <input type="password" id="new-profile-pin" placeholder="4-digit PIN (optional)" maxlength="4" pattern="[0-9]*" inputmode="numeric">
-                <button type="submit">Next</button>
+                <button type="submit">Start</button>
             </form>
         </div>
     `;
     profileOverlay.classList.remove('hidden');
     attachCreateFormListeners('create-first-profile-form', true);
-}
-
-function showSetupPassword(profile) {
-    profileOverlay.innerHTML = `
-        <div class="profile-selector">
-            <h2>Set App Password</h2>
-            <p class="wizard-subtitle">This password protects access to YTP</p>
-            <form id="setup-password-form" class="profile-form">
-                <input type="password" id="setup-pw" placeholder="Password" required autofocus autocomplete="new-password">
-                <input type="password" id="setup-pw-confirm" placeholder="Confirm password" required autocomplete="new-password">
-                <p class="pin-error hidden" id="setup-pw-error"></p>
-                <button type="submit">Finish Setup</button>
-            </form>
-        </div>
-    `;
-    profileOverlay.classList.remove('hidden');
-
-    const form = document.getElementById('setup-password-form');
-    const pwInput = document.getElementById('setup-pw');
-    const confirmInput = document.getElementById('setup-pw-confirm');
-    const errorEl = document.getElementById('setup-pw-error');
-
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const pw = pwInput.value;
-        const confirmValue = confirmInput.value;
-
-        if (pw.length < 1) {
-            errorEl.textContent = 'Password is required';
-            errorEl.classList.remove('hidden');
-            return;
-        }
-        if (pw !== confirmValue) {
-            errorEl.textContent = 'Passwords do not match';
-            errorEl.classList.remove('hidden');
-            confirmInput.value = '';
-            confirmInput.focus();
-            return;
-        }
-
-        try {
-            const resp = await fetch('/api/profiles/settings/password', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password: pw }),
-            });
-            if (resp.ok) {
-                // Select the profile and proceed
-                await selectProfile(profile.id, null);
-            } else {
-                errorEl.textContent = 'Failed to save password';
-                errorEl.classList.remove('hidden');
-            }
-        } catch {
-            errorEl.textContent = 'Network error';
-            errorEl.classList.remove('hidden');
-        }
-    });
 }
 
 function showCreateProfileForm() {
@@ -350,7 +295,7 @@ function showCreateProfileForm() {
         <div class="pin-modal-content" style="max-width:380px">
             <h3>New Profile</h3>
             <form id="create-profile-form" class="profile-form">
-                <input type="text" id="new-profile-name" placeholder="Name" maxlength="20" pattern="[a-zA-Z0-9_]+" title="Letters, numbers and underscores only" required autofocus>
+                <input type="text" id="new-profile-name" placeholder="Name" maxlength="30" required autofocus>
                 ${buildAvatarPickerHtml()}
                 <input type="password" id="new-profile-pin" placeholder="4-digit PIN (optional)" maxlength="4" pattern="[0-9]*" inputmode="numeric">
                 <div class="pin-actions">
@@ -530,19 +475,49 @@ function attachCreateFormListeners(formId, isFirstRun = false) {
         const pin = document.getElementById('new-profile-pin').value || null;
         if (pin && pin.length !== 4) return;
 
+        // First-run: validate password fields
+        let password = null;
+        if (isFirstRun) {
+            const pwInput = document.getElementById('setup-pw');
+            const confirmInput = document.getElementById('setup-pw-confirm');
+            const errorEl = document.getElementById('setup-pw-error');
+            const pw = pwInput.value;
+            const confirmValue = confirmInput.value;
+            if (pw.length < 1) {
+                errorEl.textContent = 'Password is required';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            if (pw !== confirmValue) {
+                errorEl.textContent = 'Passwords do not match';
+                errorEl.classList.remove('hidden');
+                confirmInput.value = '';
+                confirmInput.focus();
+                return;
+            }
+            errorEl.classList.add('hidden');
+            password = pw;
+        }
+
         if (form._cleanupEmojiListener) form._cleanupEmojiListener();
 
         try {
+            const body = { name, pin, avatar_color: color, avatar_emoji: emoji };
+            if (password) body.password = password;
             const resp = await fetch('/api/profiles', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, pin, avatar_color: color, avatar_emoji: emoji }),
+                body: JSON.stringify(body),
             });
             if (resp.ok) {
                 const profile = await resp.json();
                 if (isFirstRun) {
-                    // First-run wizard: go to password setup step
-                    showSetupPassword(profile);
+                    // Profile + password created in one call; session cookie already set
+                    currentProfile = profile;
+                    applyProfilePrefs();
+                    updateProfileButton();
+                    profileOverlay.classList.add('hidden');
+                    handleInitialRoute();
                 } else {
                     // Show updated profile list so user can choose
                     const listResp = await fetch('/api/profiles');
@@ -721,10 +696,16 @@ function savePreference(key, value) {
 
 // ── Favorites ──────────────────────────────────────────────────────────────
 
+function _getActiveQueue() {
+    return typeof window._getQueue === 'function' ? window._getQueue() : null;
+}
+
 async function checkFavoriteStatus(videoId) {
     if (!currentProfile) return;
+    const queue = _getActiveQueue();
+    const checkId = queue ? queue.playlistId : videoId;
     try {
-        const resp = await fetch(`/api/profiles/favorites/${videoId}/status`);
+        const resp = await fetch(`/api/profiles/favorites/${encodeURIComponent(checkId)}/status`);
         if (resp.ok) {
             const data = await resp.json();
             updateFavoriteButton(data.is_favorite);
@@ -735,8 +716,10 @@ async function checkFavoriteStatus(videoId) {
 function updateFavoriteButton(isFavorite) {
     const btn = document.getElementById('favorite-btn');
     if (!btn) return;
+    const queue = _getActiveQueue();
+    const label = queue ? (isFavorite ? '★ Playlist Saved' : '☆ Save Playlist') : (isFavorite ? '★ Saved' : '☆ Save');
     btn.dataset.favorited = isFavorite ? 'true' : 'false';
-    btn.textContent = isFavorite ? '★ Saved' : '☆ Save';
+    btn.textContent = label;
     btn.classList.toggle('favorited', isFavorite);
 }
 
@@ -745,21 +728,53 @@ async function toggleFavorite() {
     const btn = document.getElementById('favorite-btn');
     if (!btn) return;
 
+    const queue = _getActiveQueue();
     const isFav = btn.dataset.favorited === 'true';
-    if (isFav) {
-        await fetch(`/api/profiles/favorites/${currentVideoId}`, { method: 'DELETE' });
-        updateFavoriteButton(false);
+
+    if (queue) {
+        // Queue mode: save/remove the playlist/mix
+        const favId = queue.playlistId;
+        if (isFav) {
+            await fetch(`/api/profiles/favorites/${encodeURIComponent(favId)}`, { method: 'DELETE' });
+            updateFavoriteButton(false);
+        } else {
+            const itemType = favId.startsWith('RD') ? 'mix' : 'playlist';
+            const firstVideoId = queue.videos[0]?.id || currentVideoId;
+            const thumbnail = `https://img.youtube.com/vi/${firstVideoId}/hqdefault.jpg`;
+            await fetch(`/api/profiles/favorites/${encodeURIComponent(favId)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: queue.title || '',
+                    channel: videoChannel.textContent || '',
+                    thumbnail,
+                    item_type: itemType,
+                    playlist_id: favId,
+                    first_video_id: firstVideoId,
+                    video_count: String(queue.videos.length),
+                }),
+            });
+            updateFavoriteButton(true);
+        }
     } else {
-        const title = videoTitle.textContent || '';
-        const channel = videoChannel.textContent || '';
-        const thumbnail = videoPlayer.poster || `https://img.youtube.com/vi/${currentVideoId}/hqdefault.jpg`;
-        const duration = parseInt(videoPlayer.dataset.expectedDuration) || 0;
-        await fetch(`/api/profiles/favorites/${currentVideoId}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title, channel, thumbnail, duration }),
-        });
-        updateFavoriteButton(true);
+        // Regular video mode
+        if (isFav) {
+            await fetch(`/api/profiles/favorites/${currentVideoId}`, { method: 'DELETE' });
+            updateFavoriteButton(false);
+        } else {
+            const title = videoTitle.textContent || '';
+            const channel = videoChannel.textContent || '';
+            const thumbnail = videoPlayer.poster || `https://img.youtube.com/vi/${currentVideoId}/hqdefault.jpg`;
+            const duration = parseInt(videoPlayer.dataset.expectedDuration) || 0;
+            const body = { title, channel, thumbnail, duration, duration_str: formatDuration(duration) };
+            if (isLiveStream) body.item_type = 'live';
+            await fetch(`/api/profiles/favorites/${currentVideoId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            updateFavoriteButton(true);
+        }
     }
 }
 
@@ -790,6 +805,7 @@ async function savePositionToAPI() {
                 video_id: currentVideoId,
                 position: parseFloat(videoPlayer.currentTime.toFixed(1)),
                 title, channel, thumbnail, duration,
+                duration_str: formatDuration(duration),
             }),
         }).catch(() => {});
     }

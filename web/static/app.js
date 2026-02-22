@@ -223,6 +223,10 @@ function showListView() {
     stopPlayer();
     // Close queue when leaving video view
     if (typeof _closeQueue === 'function') _closeQueue();
+    // Reset list UI — specific views (history/favorites) re-show what they need
+    listTabs.classList.add('hidden');
+    listTitle.classList.remove('hidden');
+    _removeFavFilterToggles();
 }
 
 function showVideoView() {
@@ -431,6 +435,8 @@ async function loadListPage(endpoint, title, {showClear = false, removable = fal
     }
 }
 
+let _favFilters = { video: true, playlist: true, mix: true };
+
 function loadHistoryOrFavorites(tab) {
     listTabs.classList.remove('hidden');
     listTitle.classList.add('hidden');
@@ -451,10 +457,160 @@ function loadHistoryOrFavorites(tab) {
     });
 
     if (tab === 'favorites') {
-        return loadListPage('/api/profiles/favorites?limit=50', 'Favorites', {showClear: true, removable: true, clearEndpoint: '/api/profiles/favorites', clearPrompt: 'Clear all favorites?', keepTabs: true});
+        _favFilters = { video: true, playlist: true, mix: true };
+        return loadFavoritesPage();
     } else {
         return loadListPage('/api/profiles/history?limit=50', 'Watch History', {showClear: true, removable: true, clearEndpoint: '/api/profiles/history', clearPrompt: 'Clear all watch history?', keepTabs: true});
     }
+}
+
+function _removeFavFilterToggles() {
+    const existing = document.getElementById('fav-filter-toggles');
+    if (existing) existing.remove();
+}
+
+function _renderFavFilterToggles(items) {
+    _removeFavFilterToggles();
+    // Only show filters if there's a mix of types
+    const hasVideos = items.some(i => !i.item_type || i.item_type === 'video' || i.item_type === 'live');
+    const hasPlaylists = items.some(i => i.item_type === 'playlist');
+    const hasMixes = items.some(i => i.item_type === 'mix');
+    const typeCount = [hasVideos, hasPlaylists, hasMixes].filter(Boolean).length;
+    if (typeCount < 2) return;
+
+    const container = document.createElement('div');
+    container.id = 'fav-filter-toggles';
+    container.className = 'filter-toggles';
+
+    const group = document.createElement('div');
+    group.className = 'filter-group';
+
+    [
+        { key: 'video', label: 'Videos', show: hasVideos },
+        { key: 'playlist', label: 'Playlists', show: hasPlaylists },
+        { key: 'mix', label: 'Mixes', show: hasMixes },
+    ].forEach(({ key, label, show }) => {
+        if (!show) return;
+        const btn = document.createElement('button');
+        btn.className = `filter-btn${_favFilters[key] ? ' active' : ''}`;
+        btn.textContent = label;
+        btn.addEventListener('click', () => {
+            _favFilters[key] = !_favFilters[key];
+            btn.classList.toggle('active', _favFilters[key]);
+            _applyFavFilters(items);
+        });
+        group.appendChild(btn);
+    });
+
+    container.appendChild(group);
+    videoGrid.parentNode.insertBefore(container, videoGrid);
+}
+
+function _applyFavFilters(allItems) {
+    const filtered = allItems.filter(i => {
+        const t = i.item_type || 'video';
+        return _favFilters[t === 'live' ? 'video' : t];
+    });
+    if (filtered.length === 0) {
+        videoGrid.innerHTML = '';
+        noResults.classList.remove('hidden');
+    } else {
+        noResults.classList.add('hidden');
+        _renderFavoriteCards(filtered);
+    }
+}
+
+async function loadFavoritesPage() {
+    if (typeof _removeChannelTabs === 'function') _removeChannelTabs();
+    if (typeof _removeFilterToggles === 'function') _removeFilterToggles();
+    listHeader.classList.remove('hidden');
+    listTabs.classList.remove('hidden');
+    listTitle.classList.add('hidden');
+    clearListBtn.classList.remove('hidden');
+    clearListBtn.textContent = 'Clear favorites';
+    _clearListEndpoint = '/api/profiles/favorites';
+    _clearListPrompt = 'Clear all favorites?';
+    videoGrid.innerHTML = '';
+    noResults.classList.add('hidden');
+    loadMoreContainer.classList.add('hidden');
+    _listGeneration++;
+    loadMoreObserver.disconnect();
+    searchInput.value = '';
+
+    try {
+        // Always fetch all items first to determine which filter buttons to show
+        const allResp = await fetch('/api/profiles/favorites?limit=200');
+        if (!allResp.ok) throw new Error('Failed to load favorites');
+        const allItems = await allResp.json();
+
+        // Render filter toggles based on all items
+        _renderFavFilterToggles(allItems);
+
+        // Apply client-side filter
+        const items = allItems.filter(i => { const t = i.item_type || 'video'; return _favFilters[t === 'live' ? 'video' : t]; });
+
+        if (items.length === 0) {
+            noResults.classList.remove('hidden');
+            if (allItems.length === 0) clearListBtn.classList.add('hidden');
+        } else {
+            _renderFavoriteCards(items);
+        }
+    } catch (err) {
+        videoGrid.innerHTML = `<p class="error">Error: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
+function _renderFavoriteCards(items) {
+    videoGrid.innerHTML = items.map(item => {
+        const itemType = item.item_type || 'video';
+        if (itemType === 'playlist' || itemType === 'mix') {
+            return createVideoCard({
+                id: item.first_video_id || item.video_id,
+                title: item.title,
+                channel: item.channel,
+                thumbnail: item.thumbnail || `https://img.youtube.com/vi/${item.first_video_id || item.video_id}/hqdefault.jpg`,
+                type: itemType,
+                playlist_id: item.playlist_id || item.video_id,
+                first_video_id: item.first_video_id,
+                video_count: item.video_count || '',
+            });
+        }
+        const isLive = itemType === 'live';
+        return createVideoCard({
+            id: item.video_id,
+            title: item.title,
+            channel: item.channel,
+            thumbnail: item.thumbnail || `https://img.youtube.com/vi/${item.video_id}/hqdefault.jpg`,
+            duration: item.duration,
+            duration_str: item.duration_str || '',
+            is_live: isLive,
+        });
+    }).join('');
+    attachCardListeners(videoGrid);
+
+    // Add remove buttons — use video_id (which is PL*/RD* for playlists)
+    videoGrid.querySelectorAll('.video-card').forEach((card, idx) => {
+        const item = items[idx];
+        const btn = document.createElement('button');
+        btn.className = 'remove-entry-btn';
+        btn.title = 'Remove';
+        btn.textContent = '\u00d7';
+        btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const deleteId = item.video_id;
+            const resp = await fetch(`/api/profiles/favorites/${encodeURIComponent(deleteId)}`, { method: 'DELETE' });
+            if (resp.ok) {
+                card.remove();
+                if (!videoGrid.querySelector('.video-card')) {
+                    noResults.classList.remove('hidden');
+                    clearListBtn.classList.add('hidden');
+                }
+            }
+        });
+        card.style.position = 'relative';
+        card.appendChild(btn);
+    });
 }
 
 function loadHistory() { return loadHistoryOrFavorites('history'); }
