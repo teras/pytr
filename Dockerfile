@@ -21,8 +21,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY web/ .
 
-# Create cache directory (subtitle VTTs)
-RUN mkdir -p cache
+# Create writable cache directory (subtitle VTTs)
+ARG UID=1000
+ARG GID=1000
+RUN mkdir -p cache && chown ${UID}:${GID} cache
 
 # Expose port
 EXPOSE 8000

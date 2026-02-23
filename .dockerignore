@@ -3,6 +3,6 @@ __pycache__
 .git
 .gitignore
 venv
-downloads/*
+cache/*
 *.md
 .claude
