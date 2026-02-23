@@ -766,6 +766,7 @@ queueCloseArea.addEventListener('click', () => {
 
 // Expose queue state for other modules (e.g. profiles.js)
 window._getQueue = () => _queue;
+window._playQueueItem = _playQueueItem;
 
 // Auto-advance: listen for video ended
 videoPlayer.addEventListener('ended', () => {
