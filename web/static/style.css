@@ -1628,3 +1628,94 @@ h1 {
     .profile-cards { gap: 16px; }
     .profile-selector h2 { font-size: 1.5rem; }
 }
+
+/* ── TV / D-pad Navigation ────────────────────────────────────────────────── */
+.tv-focus {
+    outline: 3px solid #4d90fe !important;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 6px rgba(77, 144, 254, 0.3);
+    scroll-margin: 40px;
+}
+
+body.tv-nav-active *:focus {
+    outline: none;
+}
+
+.video-card.tv-focus,
+.related-card.tv-focus,
+.profile-card.tv-focus {
+    transform: scale(1.03);
+    transition: transform 0.15s ease;
+}
+
+.quality-option.tv-focus,
+.audio-option.tv-focus,
+.subtitle-option.tv-focus,
+.profile-menu-item.tv-focus {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+#profile-switcher-btn.tv-focus {
+    border-radius: 50%;
+}
+
+#player-container.tv-focus {
+    outline-offset: 4px;
+}
+
+#player-container.tv-player-mode {
+    outline-color: #e94040;
+    box-shadow: 0 0 0 6px rgba(233, 64, 64, 0.3);
+}
+
+/* ── TV OSD overlay ───────────────────────────────────────────────────── */
+.tv-osd {
+    position: absolute;
+    bottom: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(0, 0, 0, 0.8);
+    border-radius: 8px;
+    padding: 10px 20px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    z-index: 100;
+    width: 80%;
+}
+
+.tv-osd.visible {
+    opacity: 1;
+}
+
+.tv-osd-icon {
+    font-size: 22px;
+    flex-shrink: 0;
+    width: 30px;
+    text-align: center;
+}
+
+.tv-osd-bar {
+    flex: 1;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.25);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.tv-osd-progress {
+    height: 100%;
+    background: #e94040;
+    border-radius: 3px;
+    transition: width 0.15s ease;
+}
+
+.tv-osd-time {
+    font-size: 13px;
+    color: #ddd;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
