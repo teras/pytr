@@ -346,6 +346,23 @@ h1 {
     padding: 0 20px;
 }
 
+.player-error-retry {
+    margin-top: 16px;
+    padding: 8px 24px;
+    font-size: 14px;
+    font-weight: 500;
+    background-color: #303030;
+    color: #f1f1f1;
+    border: none;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.player-error-retry:hover {
+    background-color: #3f3f3f;
+}
+
 .video-details {
     padding: 16px 0;
 }
@@ -1573,11 +1590,13 @@ h1 {
 }
 
 /* Favorite Button */
-#favorite-btn {
+#favorite-btn,
+.player-btn.favorited {
     font-size: 13px;
 }
 
-#favorite-btn.favorited {
+#favorite-btn.favorited,
+.player-btn.favorited {
     background: #065fd4;
     color: #fff;
 }
@@ -1824,6 +1843,46 @@ body.tv-nav-active .video-details {
     padding: 6px 12px;
 }
 
+.tv-top-menu-wrapper {
+    position: relative;
+}
+
+.tv-top-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 4px;
+    background: #212121;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    padding: 6px 0;
+    min-width: 120px;
+    max-height: 280px;
+    overflow-y: auto;
+    z-index: 200;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+}
+
+.tv-exit-btn {
+    margin-left: 12px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    background: transparent;
+    color: #888;
+    border: 1px solid #555;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tv-exit-btn:hover,
+.tv-exit-btn.tv-focus {
+    color: #f1f1f1;
+    border-color: #999;
+    background: rgba(255, 255, 255, 0.1);
+}
+
 .tv-top-meta {
     flex: 1;
     min-width: 0;
@@ -1907,17 +1966,37 @@ body.tv-nav-active .video-details {
     font-size: 11px;
 }
 
-/* Queue strip in bottom overlay — same card style as related */
-.tv-queue-strip {
-    display: flex;
-    gap: 16px;
-    overflow-x: hidden;
-    margin-bottom: 8px;
-}
-
 .tv-queue-card.active {
     outline: 2px solid #cc0000;
     outline-offset: -2px;
+}
+
+/* TV Bottom Row (progressive reveal via max-height for smooth reflow) */
+.tv-bottom-row {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height 0.3s ease, opacity 0.25s ease;
+    margin-top: 8px;
+}
+
+.tv-bottom-row:first-child {
+    margin-top: 0;
+}
+
+.tv-bottom-row.visible {
+    max-height: 260px;
+    opacity: 1;
+}
+
+.tv-skeleton-card {
+    flex: 0 0 240px;
+    flex-direction: column;
+    padding: 0;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #1a1a1a;
+    pointer-events: none;
 }
 
 /* TV Search page: bigger cards */

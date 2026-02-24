@@ -576,6 +576,7 @@ function _renderRelatedFiltered() {
     } else {
         relatedVideos.innerHTML = '<p style="color: #717171; font-size: 14px;">No related videos found</p>';
     }
+    window.dispatchEvent(new Event('related-ready'));
 }
 
 function createRelatedCard(video) {
@@ -675,12 +676,14 @@ async function _loadQueue(videoId, playlistId) {
             // Re-check favorite status now that queue is loaded
             if (typeof checkFavoriteStatus === 'function') checkFavoriteStatus(videoId);
         }
+        window.dispatchEvent(new Event('queue-ready'));
     } catch (err) {
         console.error('Failed to fetch playlist contents:', err);
         queueTitle.textContent = 'Queue unavailable';
         queueSection.classList.remove('hidden');
         queueList.innerHTML = '<div style="padding: 12px; color: #ff4444; font-size: 13px;">Failed to load playlist</div>';
         setTimeout(() => { if (!_queue) queueSection.classList.add('hidden'); }, 4000);
+        window.dispatchEvent(new Event('queue-ready'));
     }
 }
 
@@ -766,7 +769,10 @@ queueCloseArea.addEventListener('click', () => {
 
 // Expose queue state for other modules (e.g. profiles.js)
 window._getQueue = () => _queue;
+window._getRelatedResults = () => _relatedRawResults;
+window._closeQueue = _closeQueue;
 window._playQueueItem = _playQueueItem;
+window._startQueue = _startQueue;
 
 // Auto-advance: listen for video ended
 videoPlayer.addEventListener('ended', () => {

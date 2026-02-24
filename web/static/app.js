@@ -792,7 +792,11 @@ function showPlayerError(title, message) {
     qualitySelector.classList.add('hidden');
     const overlay = document.createElement('div');
     overlay.className = 'player-error-overlay';
-    overlay.innerHTML = `<div class="player-error-icon">!</div><p>${escapeHtml(message || 'This video is currently unavailable.')}</p>`;
+    overlay.innerHTML = `<div class="player-error-icon">!</div><p>${escapeHtml(message || 'This video is currently unavailable.')}</p><button class="player-error-retry">Retry</button>`;
+    overlay.querySelector('.player-error-retry').addEventListener('click', () => {
+        const vid = new URLSearchParams(window.location.search).get('v');
+        if (vid) playVideo(vid);
+    });
     playerContainer.appendChild(overlay);
 }
 
@@ -842,10 +846,11 @@ async function playVideo(videoId, title, channel, duration) {
     stopPlayer();
     currentVideoId = videoId;
 
-    videoTitle.textContent = title || 'Loading...';
+    videoTitle.textContent = title || '';
     videoChannel.textContent = channel || '';
     videoChannel.href = '#';
     videoMeta.textContent = '';
+    window.dispatchEvent(new Event('video-changed'));
     videoDescription.textContent = '';
     videoDescription.classList.add('hidden');
     qualitySelector.classList.remove('hidden');
@@ -877,7 +882,7 @@ async function playVideo(videoId, title, channel, duration) {
         const info = await resp.json();
 
         if (!resp.ok) {
-            showPlayerError(title, info.message);
+            showPlayerError(title, info.message || info.detail);
             fetchRelatedVideos(videoId);
             return;
         }
@@ -888,6 +893,7 @@ async function playVideo(videoId, title, channel, duration) {
 
         if (info.channel_id) {
             currentVideoChannelId = info.channel_id;
+            window.dispatchEvent(new Event('channel-id-ready'));
             videoChannel.href = `/channel/${info.channel_id}`;
             videoChannel.onclick = (e) => {
                 e.preventDefault();

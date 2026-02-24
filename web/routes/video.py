@@ -104,7 +104,9 @@ async def get_video_info(video_id: str, auth: bool = Depends(require_auth_or_emb
                 'error': 'rate_limited',
                 'message': 'YouTube is temporarily blocking requests. Try again later.',
             })
-        raise HTTPException(status_code=500, detail=err_msg)
+        # Clean up yt-dlp error prefix like "ERROR: [youtube] ID: "
+        clean_msg = re.sub(r'^(?:ERROR:\s*)?\[youtube\]\s*[\w-]+:\s*', '', err_msg)
+        raise HTTPException(status_code=500, detail=clean_msg or err_msg)
 
 
 @router.get("/subtitle/{video_id}")

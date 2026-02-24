@@ -4,6 +4,7 @@ import sys
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.firefox.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
@@ -646,6 +647,116 @@ def test_subtitles_persist_on_audio_switch(driver):
     print("  === PASSED ===")
 
 
+PLAYLIST_VIDEO = "NI2sLfseweE"
+PLAYLIST_ID = "PLLazhr7ULbhrbrPSpjTWFrUfj0gC-m754"
+
+
+def test_tv_bottom_overlay(driver):
+    """TV mode bottom overlay: generator-based rows with queue, related, channel data."""
+    print(f"\n=== Test: TV bottom overlay ({PLAYLIST_VIDEO}) ===")
+
+    # Enable TV mode BEFORE navigation so video-changed handler activates playerMode
+    driver.execute_script("localStorage.setItem('tv-mode', '1')")
+
+    # Navigate to playlist URL — page load reads localStorage, video-changed fires with TV active
+    driver.get(f"{BASE}/watch?v={PLAYLIST_VIDEO}&list={PLAYLIST_ID}")
+
+    # Wait for video to load
+    WebDriverWait(driver, 60).until(
+        lambda d: d.find_element(By.ID, "video-title").text not in ("", "Loading...")
+    )
+    print(f"  [OK] Video loaded: {driver.find_element(By.ID, 'video-title').text[:50]}")
+
+    assert driver.execute_script("return document.body.classList.contains('tv-nav-active')"), "TV mode should be active"
+    print(f"  [OK] TV mode active")
+
+    # Wait for queue to be loaded (playlist contents)
+    WebDriverWait(driver, 30).until(
+        lambda d: d.execute_script("return window._getQueue && window._getQueue()?.videos?.length > 0")
+    )
+    print(f"  [OK] Queue loaded")
+
+    # Send ArrowDown to show first row
+    driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ARROW_DOWN)
+    time.sleep(0.5)
+
+    # Verify overlay container appears
+    overlay = WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, ".tv-related-overlay"))
+    )
+    assert "visible" in (overlay.get_attribute("class") or ""), "Overlay should be visible"
+    print(f"  [OK] Bottom overlay appeared")
+
+    # Verify first row exists
+    rows = driver.find_elements(By.CSS_SELECTOR, ".tv-related-overlay .tv-bottom-row")
+    assert len(rows) >= 1, f"Expected at least 1 row, got {len(rows)}"
+    first_row = rows[0]
+    assert "visible" in (first_row.get_attribute("class") or ""), "First row should be visible"
+    print(f"  [OK] First row visible")
+
+    # Wait for first row (queue) to resolve — no data-pending attr
+    WebDriverWait(driver, 15).until(
+        lambda d: not d.find_elements(By.CSS_SELECTOR, ".tv-related-overlay .tv-bottom-row")[0].get_attribute("data-pending")
+    )
+    cards = driver.find_elements(By.CSS_SELECTOR, ".tv-related-overlay .tv-bottom-row:first-child .tv-overlay-item")
+    assert len(cards) > 0, "Queue row should have cards after resolving"
+    print(f"  [OK] Queue row resolved with {len(cards)} cards")
+
+    # Send ArrowDown again to show 2nd row (related)
+    driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ARROW_DOWN)
+    time.sleep(0.5)
+
+    rows = driver.find_elements(By.CSS_SELECTOR, ".tv-related-overlay .tv-bottom-row")
+    assert len(rows) >= 2, f"Expected at least 2 rows, got {len(rows)}"
+    print(f"  [OK] 2nd row appeared (placeholder)")
+
+    # Wait for related row to resolve
+    WebDriverWait(driver, 30).until(
+        lambda d: len(d.find_elements(By.CSS_SELECTOR, ".tv-related-overlay .tv-bottom-row")) >= 2
+        and not d.find_elements(By.CSS_SELECTOR, ".tv-related-overlay .tv-bottom-row")[1].get_attribute("data-pending")
+    )
+    related_cards = driver.find_elements(By.CSS_SELECTOR, ".tv-related-overlay .tv-bottom-row:nth-child(2) .tv-overlay-item")
+    assert len(related_cards) > 0, "Related row should have cards"
+    print(f"  [OK] Related row resolved with {len(related_cards)} cards")
+
+    # Send ArrowDown to show 3rd row (playlists) — needs channel-id-ready
+    driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ARROW_DOWN)
+    time.sleep(0.5)
+    rows = driver.find_elements(By.CSS_SELECTOR, ".tv-related-overlay .tv-bottom-row")
+    assert len(rows) >= 3, f"Expected at least 3 rows, got {len(rows)}"
+    print(f"  [OK] 3rd row appeared (placeholder for playlists)")
+
+    # Send ArrowUp to remove bottom-most row
+    driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ARROW_UP)
+    time.sleep(0.5)
+    rows_after_up = driver.find_elements(By.CSS_SELECTOR, ".tv-related-overlay .tv-bottom-row.visible")
+    assert len(rows_after_up) < len(rows), "ArrowUp should have removed bottom-most row"
+    print(f"  [OK] ArrowUp removed bottom-most row ({len(rows)} -> {len(rows_after_up)})")
+
+    # Send Escape to hide all
+    driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
+    time.sleep(0.5)
+
+    # Overlay should be hidden/removed
+    overlays = driver.find_elements(By.CSS_SELECTOR, ".tv-related-overlay.visible")
+    assert len(overlays) == 0, "Escape should hide all overlays"
+    print(f"  [OK] Escape hid all overlays")
+
+    # Check for JS errors in console
+    errors = driver.execute_script("""
+        return (window._consoleLogs || []).filter(function(l) { return l.indexOf('Error') !== -1 || l.indexOf('error') !== -1; });
+    """)
+    if errors:
+        print(f"  [WARN] JS errors in console: {errors[:3]}")
+    else:
+        print(f"  [OK] No JS errors in console")
+
+    # Clean up TV mode
+    driver.execute_script("localStorage.removeItem('tv-mode'); document.body.classList.remove('tv-nav-active')")
+
+    print("  === PASSED ===")
+
+
 def main():
     print("Setting up Firefox driver...")
     driver = setup_driver()
@@ -661,6 +772,7 @@ def main():
         test_quality_switch_dash(driver)
         test_audio_switch_at_1440p(driver)
         test_subtitles_persist_on_audio_switch(driver)
+        test_tv_bottom_overlay(driver)
         print("\n========== ALL TESTS PASSED ==========")
     except Exception as e:
         print(f"\n  !!! FAILED: {e}")

@@ -562,6 +562,7 @@ if (profileSwitcherBtn) {
             ${otherProfiles.length ? '<div class="profile-menu-divider"></div>' : ''}
             <div class="profile-menu-item" data-action="edit-profile">Edit profile</div>
             ${isAdmin ? '<div class="profile-menu-item" data-action="settings">Options</div>' : ''}
+            <div class="profile-menu-item" data-action="tv-mode">${document.body.classList.contains('tv-nav-active') ? 'Desktop Mode' : 'TV Mode'}</div>
             <div class="profile-menu-divider"></div>
             <div class="profile-menu-item profile-menu-logout" data-action="logout">Logout ${escapeHtml(currentProfile.name)}</div>
         `;
@@ -595,6 +596,8 @@ if (profileSwitcherBtn) {
                     showEditProfileForm();
                 } else if (action === 'settings') {
                     showSettingsModal();
+                } else if (action === 'tv-mode') {
+                    if (typeof window.toggleTvMode === 'function') window.toggleTvMode();
                 } else if (action === 'logout') {
                     window.location.href = '/logout';
                 }
