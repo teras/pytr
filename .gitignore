@@ -14,3 +14,12 @@ web/data/
 # IDE
 .vscode/
 .idea/
+
+# Android
+clients/android/.gradle/
+clients/android/build/
+clients/android/app/build/
+clients/android/local.properties
+*.apk
+*.aab
+*.jks

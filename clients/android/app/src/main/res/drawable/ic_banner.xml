@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <!-- Background -->
+    <path
+        android:fillColor="#141414"
+        android:pathData="M0,0h320v180H0z" />
+    <!-- Play triangle -->
+    <path
+        android:fillColor="#E50914"
+        android:pathData="M120,50 L120,130 L210,90 Z" />
+    <!-- PYTR text -->
+    <group>
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M85,155 L85,145 L95,145 L95,150 L90,150 L90,155 Z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M100,155 L100,145 L105,145 L108,150 L111,145 L116,145 L116,155 L111,155 L111,149 L108,154 L105,149 L105,155 Z" />
+    </group>
+</vector>

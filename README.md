@@ -62,6 +62,50 @@ Install from [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/libredir
 4. Disable all default public instances
 5. Enable **Embeds** to also replace YouTube players on third-party sites
 
+## 📺 Android TV App
+
+PYTR includes a native Android TV app that wraps the web UI in a full-screen WebView with D-pad navigation and media key support.
+
+### Install
+
+Download the APK from [Releases](https://github.com/teras/pytr/releases) and sideload it:
+
+```bash
+adb connect <TV_IP>:5555
+adb install pytr-tv.apk
+```
+
+### Server Discovery
+
+The TV app automatically discovers PYTR servers on your local network using UDP broadcast. A lightweight discovery service runs alongside the main container.
+
+The `docker-compose.yml` already includes the discovery service. If you're running PYTR with a plain `docker run`, add the discovery sidecar:
+
+```bash
+docker run -d --network host --restart unless-stopped \
+  -v ./discovery.py:/discovery.py:ro \
+  python:3.12-slim python3 -u /discovery.py
+```
+
+### Firewall
+
+If you use a firewall, open these ports:
+
+```bash
+sudo firewall-cmd --add-port=8000/tcp   # Web UI
+sudo firewall-cmd --add-port=5444/udp   # TV auto-discovery
+```
+
+### Building from Source
+
+```bash
+cd clients/android
+gradle assembleRelease
+# APK: app/build/outputs/apk/release/app-release.apk
+```
+
+Requires Android SDK with platform 34 and Gradle 8.5+.
+
 ## ⚙️ Configuration
 
 ### 🍪 YouTube Cookies

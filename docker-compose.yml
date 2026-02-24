@@ -11,3 +11,11 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+
+  discovery:
+    image: python:3.12-slim
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./discovery.py:/discovery.py:ro
+    command: ["python3", "-u", "/discovery.py"]
