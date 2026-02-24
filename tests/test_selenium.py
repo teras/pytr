@@ -1,4 +1,4 @@
-"""Selenium tests for YTP multi-audio: DASH default, HLS on audio switch."""
+"""Selenium tests for PYTR multi-audio: DASH default, HLS on audio switch."""
 import time
 import sys
 
@@ -777,8 +777,8 @@ def main():
     except Exception as e:
         print(f"\n  !!! FAILED: {e}")
         # Take screenshot for debugging
-        driver.save_screenshot("/tmp/ytp_test_fail.png")
-        print("  Screenshot saved to /tmp/ytp_test_fail.png")
+        driver.save_screenshot("/tmp/pytr_test_fail.png")
+        print("  Screenshot saved to /tmp/pytr_test_fail.png")
         # Print browser console logs
         try:
             logs = driver.execute_script("return window._consoleLogs || []")

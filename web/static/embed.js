@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Panayotis Katsaloulis
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// YTP Embed — minimal standalone player for /embed/, /v/, /shorts/, /live/
+// PYTR Embed — minimal standalone player for /embed/, /v/, /shorts/, /live/
 
 (function () {
     'use strict';
@@ -271,7 +271,7 @@
     fetch(`/api/info/${videoId}`)
         .then(r => { if (!r.ok) throw new Error('Video not found'); return r.json(); })
         .then(info => {
-            document.title = info.title || 'YTP';
+            document.title = info.title || 'PYTR';
             video.poster = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
             loadSubtitles(info.subtitle_tracks || []);
 

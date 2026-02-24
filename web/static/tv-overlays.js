@@ -377,7 +377,7 @@
                 },
             },
             {
-                label: 'Playlists',
+                label: 'Channel Playlists',
                 active: () => true,
                 generate: async (signal) => {
                     const chId = await _waitForChannelId(signal);

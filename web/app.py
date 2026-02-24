@@ -1,6 +1,6 @@
 # Copyright (c) 2026 Panayotis Katsaloulis
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""YTP - YouTube Proxy. FastAPI entry point."""
+"""PYTR - Private YouTube Relay. FastAPI entry point."""
 import logging
 from contextlib import asynccontextmanager
 
@@ -24,7 +24,7 @@ async def lifespan(app):
     logging.getLogger(__name__).info("httpx client closed")
 
 
-app = FastAPI(title="YTP", lifespan=lifespan)
+app = FastAPI(title="PYTR", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 

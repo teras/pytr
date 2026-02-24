@@ -22,9 +22,9 @@ _COOKIE_MAX_AGE = 10 * 365 * 86400  # 10 years
 def _json_with_cookie(data: dict, token: str, request: Request) -> Response:
     """Return a JSON response, setting session cookie if needed."""
     resp = Response(content=json.dumps(data), media_type='application/json')
-    if request.cookies.get("ytp_session") != token:
+    if request.cookies.get("pytr_session") != token:
         resp.set_cookie(
-            key="ytp_session",
+            key="pytr_session",
             value=token,
             max_age=_COOKIE_MAX_AGE,
             httponly=True,

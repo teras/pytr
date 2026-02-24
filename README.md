@@ -1,16 +1,16 @@
-# 🎬 YTP - YouTube Player
+# 🎬 PYTR - Private YouTube Relay
 
-[![License](https://img.shields.io/github/license/teras/ytp)](LICENSE)
-[![Docker Pulls](https://img.shields.io/docker/pulls/teras/ytp)](https://hub.docker.com/r/teras/ytp)
-[![Docker Image Size](https://img.shields.io/docker/image-size/teras/ytp/latest)](https://hub.docker.com/r/teras/ytp)
-[![Last Commit](https://img.shields.io/github/last-commit/teras/ytp)](https://github.com/teras/ytp)
+[![License](https://img.shields.io/github/license/teras/pytr)](LICENSE)
+[![Docker Pulls](https://img.shields.io/docker/pulls/teras/pytr)](https://hub.docker.com/r/teras/pytr)
+[![Docker Image Size](https://img.shields.io/docker/image-size/teras/pytr/latest)](https://hub.docker.com/r/teras/pytr)
+[![Last Commit](https://img.shields.io/github/last-commit/teras/pytr)](https://github.com/teras/pytr)
 
 A self-hosted web interface for searching and streaming YouTube videos.
 
 ## 🚀 Quick Start
 
 ```bash
-docker run -d -p 8000:8000 -v ./data:/app/data --restart unless-stopped teras/ytp:latest
+docker run -d -p 8000:8000 -v ./data:/app/data --restart unless-stopped teras/pytr:latest
 ```
 
 Then open http://localhost:8000
@@ -18,8 +18,8 @@ Then open http://localhost:8000
 ## 🔧 Building from Source
 
 ```bash
-git clone https://github.com/teras/ytp.git
-cd ytp
+git clone https://github.com/teras/pytr.git
+cd pytr
 docker compose up --build -d
 ```
 
@@ -40,9 +40,9 @@ Data is persisted in `./data/` (SQLite database with profiles, history, favorite
 - 🍪 YouTube cookie support for age-restricted content
 - 📱 Mobile-friendly responsive interface
 
-## 🔗 Browser Extension (Redirect YouTube → YTP)
+## 🔗 Browser Extension (Redirect YouTube → PYTR)
 
-Use [LibRedirect](https://libredirect.github.io) to automatically redirect YouTube URLs and embeds to your YTP instance.
+Use [LibRedirect](https://libredirect.github.io) to automatically redirect YouTube URLs and embeds to your PYTR instance.
 
 ### Firefox
 
@@ -58,7 +58,7 @@ Install from [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/libredir
 
 1. Open LibRedirect settings → **YouTube**
 2. Set frontend to **Invidious**
-3. Under **Custom instances**, add your YTP URL (e.g. `http://localhost:8000`)
+3. Under **Custom instances**, add your PYTR URL (e.g. `http://localhost:8000`)
 4. Disable all default public instances
 5. Enable **Embeds** to also replace YouTube players on third-party sites
 
@@ -72,7 +72,7 @@ To access age-restricted content, place a `cookies.txt` file in the `./data/` di
 
 ```bash
 docker run --rm -v ./data:/app/data -v ~/.mozilla/firefox:/tmp/ff:ro \
-  -u "$(id -u):$(id -g)" teras/ytp:latest yt-dlp \
+  -u "$(id -u):$(id -g)" teras/pytr:latest yt-dlp \
   --cookies-from-browser firefox:/tmp/ff \
   --cookies /dev/stdout --skip-download \
   "https://www.youtube.com/watch?v=dQw4w9WgXcQ" 2>/dev/null \

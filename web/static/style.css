@@ -1753,9 +1753,12 @@ body.tv-nav-active .container {
 body.tv-nav-active .video-page-layout {
     grid-template-columns: 1fr;
     gap: 0;
+    min-height: 100vh;
+    place-items: center;
 }
 
 body.tv-nav-active #player-container {
+    width: min(100vw, calc(100vh * 16 / 9));
     max-height: 100vh;
     border-radius: 0;
 }

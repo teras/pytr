@@ -128,7 +128,7 @@ async def create_profile(req: CreateProfileReq, request: Request, response: Resp
         db.set_app_password(req.password)
         token, _ = get_session(request)
         db.set_session_profile(token, profile["id"])
-        response.set_cookie(key="ytp_session", value=token, max_age=10 * 365 * 86400, httponly=True, samesite="lax")
+        response.set_cookie(key="pytr_session", value=token, max_age=10 * 365 * 86400, httponly=True, samesite="lax")
     return profile
 
 
@@ -163,7 +163,7 @@ async def select_profile(profile_id: int, req: SelectProfileReq,
     token, session = get_session(request)
     db.set_session_profile(token, profile_id)
     # Set cookie on the injected response so FastAPI includes it
-    response.set_cookie(key="ytp_session", value=token, max_age=10 * 365 * 86400, httponly=True, samesite="lax")
+    response.set_cookie(key="pytr_session", value=token, max_age=10 * 365 * 86400, httponly=True, samesite="lax")
     return {"ok": True, "profile": profile}
 
 
@@ -319,7 +319,7 @@ async def update_password(req: UpdatePasswordReq, request: Request, response: Re
     # On first-run, create a session so subsequent calls (selectProfile) are authenticated
     if first_run:
         token, _ = get_session(request)
-        response.set_cookie(key="ytp_session", value=token, max_age=10 * 365 * 86400, httponly=True, samesite="lax")
+        response.set_cookie(key="pytr_session", value=token, max_age=10 * 365 * 86400, httponly=True, samesite="lax")
     return {"ok": True}
 
 

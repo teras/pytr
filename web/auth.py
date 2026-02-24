@@ -131,7 +131,7 @@ def clear_failures(ip: str):
 
 def get_session(request: Request) -> tuple[str, dict]:
     """Get existing session from DB or create a new one. Returns (token, session_dict)."""
-    token = request.cookies.get("ytp_session")
+    token = request.cookies.get("pytr_session")
     if token:
         session = profiles_db.get_session(token)
         if session:
@@ -145,7 +145,7 @@ def get_session(request: Request) -> tuple[str, dict]:
 def verify_session(request: Request) -> bool:
     if not _get_password():
         return True
-    token = request.cookies.get("ytp_session")
+    token = request.cookies.get("pytr_session")
     if token:
         session = profiles_db.get_session(token)
         if session:
@@ -170,7 +170,7 @@ _pending_ip_updates: dict[str, str] = {}
 
 def buffer_session_ip(request: Request):
     """If request has a valid session cookie, buffer the IP for deferred DB write."""
-    token = request.cookies.get("ytp_session")
+    token = request.cookies.get("pytr_session")
     if token:
         _pending_ip_updates[token] = get_client_ip(request)
 
@@ -204,7 +204,7 @@ async def require_auth_or_embed(request: Request):
 
 def get_profile_id(request: Request) -> int | None:
     """Get the profile_id from the current session, or None."""
-    token = request.cookies.get("ytp_session")
+    token = request.cookies.get("pytr_session")
     if token:
         session = profiles_db.get_session(token)
         if session:
@@ -568,7 +568,7 @@ async def do_login(request: Request, response: Response, password: str = Form(de
 
         response = RedirectResponse(url=redirect_to, status_code=302)
         response.set_cookie(
-            key="ytp_session",
+            key="pytr_session",
             value=token,
             max_age=_COOKIE_MAX_AGE,
             httponly=True,
@@ -584,11 +584,11 @@ async def do_login(request: Request, response: Response, password: str = Form(de
 
 @router.get("/logout")
 async def logout(request: Request):
-    token = request.cookies.get("ytp_session")
+    token = request.cookies.get("pytr_session")
     if token:
         profiles_db.delete_session(token)
     response = RedirectResponse(url="/login", status_code=302)
-    response.delete_cookie("ytp_session")
+    response.delete_cookie("pytr_session")
     return response
 
 
@@ -647,7 +647,7 @@ async def pair_status(code: str, request: Request, response: Response):
         profiles_db.update_session_ip(token, ip)
         PAIRING_REQUESTS.pop(code, None)
         response.set_cookie(
-            key="ytp_session",
+            key="pytr_session",
             value=token,
             max_age=_COOKIE_MAX_AGE,
             httponly=True,

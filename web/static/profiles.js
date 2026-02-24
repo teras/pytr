@@ -221,7 +221,7 @@ function buildAvatarPickerHtml(currentColor = null, currentEmoji = null) {
 function showCreateFirstProfile() {
     profileOverlay.innerHTML = `
         <div class="profile-selector">
-            <h2>Welcome to YTP</h2>
+            <h2>Welcome to PYTR</h2>
             <p class="wizard-subtitle">Create your admin profile to get started</p>
             <form id="create-first-profile-form" class="profile-form">
                 <input type="text" id="new-profile-name" placeholder="Name" maxlength="30" required autofocus>

@@ -51,7 +51,7 @@ async function searchVideos(query, { pushState = true } = {}) {
     } else {
         history.replaceState({ view: 'search', query }, '', searchUrl);
     }
-    document.title = `${query} - YTP`;
+    document.title = `${query} - PYTR`;
 
     showListView();
     searchInput.value = query;
@@ -206,7 +206,7 @@ async function loadChannelVideos(channelId, channelName) {
 
         if (data.channel) {
             listTitle.textContent = data.channel;
-            document.title = `${data.channel} - YTP`;
+            document.title = `${data.channel} - PYTR`;
         }
 
         // Follow button
@@ -344,7 +344,7 @@ async function loadChannelPlaylists(channelId, channelName) {
         if (data && data.results && data.results.length > 0) {
             if (data.channel) {
                 listTitle.textContent = data.channel;
-                document.title = `${data.channel} - YTP`;
+                document.title = `${data.channel} - PYTR`;
             }
             _renderChannelTabs(channelId);
         }

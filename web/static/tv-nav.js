@@ -334,14 +334,16 @@
             if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 if (isTvActive() && isVideoView()) {
-                    _tv.showTop(false);
+                    if (_tv.isBottomOpen()) _tv.hideBottom();
+                    else _tv.showTop(false);
                 } else { exitPlayerMode(); }
                 return;
             }
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
                 if (isTvActive() && isVideoView()) {
-                    _tv.showNextRow();
+                    if (_tv.isTopOpen()) _tv.hideTop();
+                    else _tv.showNextRow();
                 } else { exitPlayerMode(); }
                 return;
             }
