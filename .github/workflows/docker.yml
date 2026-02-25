@@ -17,9 +17,11 @@ jobs:
           distribution: 'temurin'
       - uses: android-actions/setup-android@v3
 
-      # WebOS icon prerequisite
+      # WebOS prerequisites
       - name: Install librsvg2-bin
         run: sudo apt-get install -y librsvg2-bin
+      - name: Install webOS CLI
+        run: npm install -g @webos-tools/cli
 
       # Decode keystore from secret
       - name: Setup Android signing

@@ -406,11 +406,11 @@ async def resolve_handle(handle: str) -> str | None:
 _CHANNEL_VIDEOS_PARAMS = "EgZ2aWRlb3PyBgQKAjoA"
 
 
-async def channel_first(channel_id: str) -> tuple[str, str, list[dict], str | None]:
+async def channel_first(channel_id: str) -> tuple[str, str, str, list[dict], str | None]:
     """Initial channel videos request.
 
     POST youtubei/v1/browse with browseId + Videos tab params.
-    Returns (channel_name, avatar_url, results, continuation_token).
+    Returns (channel_name, avatar_url, subscriber_count, results, continuation_token).
     """
     data = await _innertube_post("browse", {
         "browseId": channel_id,
@@ -430,6 +430,32 @@ async def channel_first(channel_id: str) -> tuple[str, str, list[dict], str | No
                    .get("thumbnails", []))
     if avatar_data:
         avatar_url = avatar_data[-1].get("url", "")
+
+    # Subscriber count from header
+    subscriber_count = ""
+    header = data.get("header", {})
+    for renderer_key in ("c4TabbedHeaderRenderer", "pageHeaderRenderer"):
+        hdr = header.get(renderer_key, {})
+        sub_text = hdr.get("subscriberCountText", {})
+        if isinstance(sub_text, dict):
+            subscriber_count = sub_text.get("simpleText", "") or "".join(r.get("text", "") for r in sub_text.get("runs", []))
+            break
+    if not subscriber_count:
+        # pageHeaderRenderer stores it in content → metadata
+        meta_rows = (header.get("pageHeaderRenderer", {})
+                     .get("content", {})
+                     .get("pageHeaderViewModel", {})
+                     .get("metadata", {})
+                     .get("contentMetadataViewModel", {})
+                     .get("metadataRows", []))
+        for row in meta_rows:
+            for part in row.get("metadataParts", []):
+                txt = part.get("text", {}).get("content", "")
+                if "subscriber" in txt.lower():
+                    subscriber_count = txt
+                    break
+            if subscriber_count:
+                break
 
     results = []
     token = None
@@ -489,7 +515,7 @@ async def channel_first(channel_id: str) -> tuple[str, str, list[dict], str | No
 
         break  # Only process the selected tab
 
-    return channel_name, avatar_url, results, token
+    return channel_name, avatar_url, subscriber_count, results, token
 
 
 async def channel_next(continuation_token: str) -> tuple[list[dict], str | None]:

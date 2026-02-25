@@ -97,7 +97,7 @@ async def get_channel_videos(
     token, session = get_session(request)
 
     try:
-        channel_name, avatar_url, results, cursor = await create_channel(token, channel_id)
+        channel_name, avatar_url, subscriber_count, results, cursor = await create_channel(token, channel_id)
     except Exception as e:
         log.error(f"Channel videos error: {e}")
         raise HTTPException(status_code=500, detail="Failed to load channel videos")
@@ -106,6 +106,7 @@ async def get_channel_videos(
         'channel': channel_name,
         'channel_id': channel_id,
         'avatar_url': avatar_url,
+        'subscriber_count': subscriber_count,
         'results': results,
         'cursor': cursor
     }, token, request)

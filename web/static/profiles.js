@@ -19,6 +19,14 @@ function randomAvatar() {
         emoji: AVATAR_EMOJIS[Math.floor(Math.random() * AVATAR_EMOJIS.length)],
     };
 }
+function emojiColor(bg) {
+    if (!bg || bg === 'transparent') return '#fff';
+    const hex = bg.replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? '#000' : '#fff';
+}
 const isTouchDevice = () => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 const _graphemeSegmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
 
@@ -73,7 +81,7 @@ function applyProfilePrefs() {
 function updateProfileButton() {
     if (!currentProfile || !profileSwitcherBtn) return;
     const display = currentProfile.avatar_emoji || currentProfile.name.charAt(0).toUpperCase();
-    profileSwitcherBtn.innerHTML = `<span class="profile-avatar-small" style="background:${currentProfile.avatar_color}">${display}</span>`;
+    profileSwitcherBtn.innerHTML = `<span class="profile-avatar-small" style="background:${currentProfile.avatar_color};color:${emojiColor(currentProfile.avatar_color)}">${display}</span>`;
     profileSwitcherBtn.classList.remove('hidden');
 }
 
@@ -86,7 +94,7 @@ function showProfileSelector(profiles) {
             <div class="profile-cards">
                 ${profiles.map(p => `
                     <div class="profile-card" data-id="${p.id}" data-has-pin="${p.has_pin}">
-                        <div class="profile-avatar" style="background:${p.avatar_color}">
+                        <div class="profile-avatar" style="background:${p.avatar_color};color:${emojiColor(p.avatar_color)}">
                             ${p.avatar_emoji || escapeHtml(p.name.charAt(0).toUpperCase())}
                         </div>
                         <div class="profile-name">${escapeHtml(p.name)}</div>
@@ -193,7 +201,7 @@ function buildAvatarPickerHtml(currentColor = null, currentEmoji = null) {
     return `
         <div class="avatar-picker-wrap">
             <div class="avatar-preview-row">
-                <div class="avatar-preview" id="avatar-preview" style="background:${color}" title="Click to change emoji">
+                <div class="avatar-preview" id="avatar-preview" style="background:${color};color:${emojiColor(color)}" title="Click to change emoji">
                     ${emoji}
                 </div>
                 <input type="text" class="emoji-input" id="emoji-input" value="${emoji}" autocomplete="off">
@@ -367,6 +375,7 @@ function attachAvatarPickerListeners(formId) {
         if (preview) {
             preview.textContent = emoji;
             preview.style.background = color;
+            preview.style.color = emojiColor(color);
         }
     }
 
@@ -578,7 +587,7 @@ if (profileSwitcherBtn) {
         const profileItems = otherProfiles.map(p => {
             const display = p.avatar_emoji || escapeHtml(p.name.charAt(0).toUpperCase());
             return `<div class="profile-menu-profile" data-id="${p.id}" data-has-pin="${p.has_pin}">
-                <span class="profile-menu-avatar" style="background:${p.avatar_color}">${display}</span>
+                <span class="profile-menu-avatar" style="background:${p.avatar_color};color:${emojiColor(p.avatar_color)}">${display}</span>
                 <span>${escapeHtml(p.name)}</span>
             </div>`;
         }).join('');
@@ -713,7 +722,7 @@ async function showSettingsModal() {
                 const display = p.avatar_emoji || escapeHtml(p.name.charAt(0).toUpperCase());
                 const deleteBtn = !p.is_admin ? `<button type="button" class="settings-profile-delete" data-id="${p.id}" title="Delete">×</button>` : '';
                 return `<div class="settings-profile-row">
-                    <span class="profile-menu-avatar" style="background:${p.avatar_color}">${display}</span>
+                    <span class="profile-menu-avatar" style="background:${p.avatar_color};color:${emojiColor(p.avatar_color)}">${display}</span>
                     <span class="settings-profile-name">${escapeHtml(p.name)}${p.is_admin ? ' <span class="settings-hint">(admin)</span>' : ''}</span>
                     ${deleteBtn}
                 </div>`;

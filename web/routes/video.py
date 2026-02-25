@@ -87,6 +87,7 @@ async def get_video_info(video_id: str, auth: bool = Depends(require_auth_or_emb
             'title': info.get('title', 'Unknown'),
             'channel': info.get('channel') or info.get('uploader', 'Unknown'),
             'channel_id': info.get('channel_id', ''),
+            'channel_followers': format_number(info.get('channel_follower_count')),
             'upload_date': upload_date,
             'duration': info.get('duration', 0),
             'views': format_number(info.get('view_count')),

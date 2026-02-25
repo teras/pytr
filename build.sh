@@ -20,6 +20,19 @@ if [ "$NO_DOCKER" = false ]; then
     command -v docker >/dev/null || missing+=("docker")
 fi
 
+# Auto-detect Android SDK if not set
+if [ -z "${ANDROID_HOME:-}${ANDROID_SDK_ROOT:-}" ]; then
+    for candidate in "$HOME/Android/Sdk" "$HOME/Android" "$HOME/.android/sdk" \
+                     "/opt/android-sdk" "/usr/lib/android-sdk" \
+                     "$HOME/Library/Android/sdk"; do
+        if [ -d "$candidate/platforms" ]; then
+            export ANDROID_HOME="$candidate"
+            echo "Auto-detected ANDROID_HOME=$candidate"
+            break
+        fi
+    done
+fi
+
 if [ -z "${ANDROID_HOME:-}${ANDROID_SDK_ROOT:-}" ]; then
     missing+=("ANDROID_HOME or ANDROID_SDK_ROOT env var")
 fi
@@ -36,28 +49,21 @@ mkdir -p build
 build_apk() {
     echo "── Building Android APK ──"
 
-    local svg="clients/pytr_box.svg"
+    local face_svg="web/static/pytr.svg"
     local res_dir="clients/android/app/src/main/res"
 
-    # Generate vector drawable launcher icon (square) from SVG
-    local launcher="$res_dir/drawable/ic_launcher.xml"
-    if [ ! -f "$launcher" ] || [ "$svg" -nt "$launcher" ]; then
-        echo "Generating launcher vector drawable from SVG..."
-        python3 clients/svg2vd.py "$svg" "$launcher" --dp-width 48 --dp-height 48
+    # Generate adaptive launcher icon (foreground/background layers + fallback PNGs)
+    local mipmap_check="$res_dir/mipmap-anydpi-v26/ic_launcher.xml"
+    if [ ! -f "$mipmap_check" ] || [ "$face_svg" -nt "$mipmap_check" ]; then
+        echo "Generating launcher icon (adaptive + mipmap PNGs)..."
+        python3 clients/gen_mipmaps.py "$face_svg" "$res_dir"
     fi
 
-    # Generate mipmap PNGs at all densities
-    local mipmap_check="$res_dir/mipmap-xxxhdpi/ic_launcher.png"
-    if [ ! -f "$mipmap_check" ] || [ "$svg" -nt "$mipmap_check" ]; then
-        echo "Generating mipmap PNGs..."
-        python3 clients/gen_mipmaps.py "$svg" "$res_dir"
-    fi
-
-    # Generate banner PNG (320x180, icon + PYTR text)
-    local banner="$res_dir/drawable/ic_banner.png"
-    if [ ! -f "$banner" ] || [ "$svg" -nt "$banner" ]; then
-        echo "Generating TV banner PNG..."
-        python3 clients/gen_banner.py "$svg" "$banner"
+    # Generate TV banner (single combined PNG per density)
+    local banner_check="$res_dir/mipmap-xxxhdpi/ic_banner.png"
+    if [ ! -f "$banner_check" ] || [ "$face_svg" -nt "$banner_check" ]; then
+        echo "Generating TV banner (mipmap PNGs)..."
+        python3 clients/gen_banner.py "$face_svg" "$res_dir"
     fi
 
     # Ensure local.properties exists
@@ -94,67 +100,19 @@ build_ipk() {
     echo "── Building WebOS IPK ──"
 
     local webos_dir="clients/webos"
-    local svg="clients/pytr_box.svg"
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
+    local svg="web/static/pytr.svg"
 
-    # Generate icons from SVG if needed
+    # Generate icons from face SVG with background and padding
     if [ ! -f "$webos_dir/icon.png" ] || [ "$svg" -nt "$webos_dir/icon.png" ]; then
         echo "Generating WebOS icons from SVG..."
-        rsvg-convert -w 80 -h 80 "$svg" -o "$webos_dir/icon.png"
-        rsvg-convert -w 130 -h 130 "$svg" -o "$webos_dir/largeIcon.png"
+        python3 clients/gen_webos_icons.py "$svg" "$webos_dir"
     fi
 
-    # Read app ID and version from appinfo.json
+    ares-package "$webos_dir" -o build/ --no-minify
     local app_id app_version
     app_id=$(python3 -c "import json; print(json.load(open('$webos_dir/appinfo.json'))['id'])")
     app_version=$(python3 -c "import json; print(json.load(open('$webos_dir/appinfo.json'))['version'])")
-
-    # Build data.tar.gz — app files under /usr/palm/applications/<id>/
-    local data_root="$tmp_dir/data"
-    local app_dest="$data_root/usr/palm/applications/$app_id"
-    local svc_dest="$data_root/usr/palm/services/${app_id}.service"
-    mkdir -p "$app_dest" "$svc_dest"
-
-    # Copy app files (exclude build artifacts)
-    for f in appinfo.json index.html icon.png largeIcon.png; do
-        [ -f "$webos_dir/$f" ] && cp "$webos_dir/$f" "$app_dest/"
-    done
-    [ -d "$webos_dir/webOSTVjs" ] && cp -r "$webos_dir/webOSTVjs" "$app_dest/"
-
-    # Copy service files
-    if [ -d "$webos_dir/services" ]; then
-        cp "$webos_dir/services/"* "$svc_dest/"
-    fi
-
-    tar czf "$tmp_dir/data.tar.gz" -C "$data_root" .
-
-    # Build control.tar.gz
-    local ctrl_dir="$tmp_dir/control"
-    mkdir -p "$ctrl_dir"
-    cat > "$ctrl_dir/control" << EOF
-Package: $app_id
-Version: $app_version
-Section: misc
-Priority: optional
-Architecture: all
-webOS-Package-Format-Version: 2
-maintainer: PYTR
-Description: PYTR TV Client
-EOF
-    tar czf "$tmp_dir/control.tar.gz" -C "$ctrl_dir" .
-
-    # Build debian-binary
-    echo "2.0" > "$tmp_dir/debian-binary"
-
-    # Assemble IPK (ar archive)
-    ar r "$tmp_dir/${app_id}_${app_version}_all.ipk" \
-        "$tmp_dir/debian-binary" \
-        "$tmp_dir/control.tar.gz" \
-        "$tmp_dir/data.tar.gz" 2>/dev/null
-
-    cp "$tmp_dir/${app_id}_${app_version}_all.ipk" build/pytr-tv.ipk
-    rm -rf "$tmp_dir"
+    mv "build/${app_id}_${app_version}_all.ipk" build/pytr-tv.ipk
     echo "Built: build/pytr-tv.ipk"
 }
 

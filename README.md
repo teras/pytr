@@ -85,30 +85,16 @@ sudo firewall-cmd --add-port=5444/udp   # TV auto-discovery
 
 ### 🍪 YouTube Cookies
 
-To access age-restricted content, place a `cookies.txt` file in the `./data/` directory. You can export YouTube cookies from your browser using yt-dlp:
-
-**Firefox** (no extra install needed — uses yt-dlp from the Docker image):
+To access age-restricted content, extract YouTube cookies from your browser:
 
 ```bash
-docker run --rm -v ./data:/app/data -v ~/.mozilla/firefox:/tmp/ff:ro \
-  -u "$(id -u):$(id -g)" teras/pytr:latest yt-dlp \
-  --cookies-from-browser firefox:/tmp/ff \
-  --cookies /dev/stdout --skip-download \
-  "https://www.youtube.com/watch?v=dQw4w9WgXcQ" 2>/dev/null \
-  | grep -E '^(#|\.youtube\.com|\.google\.com)' > data/cookies.txt
+pip install yt-dlp   # if not already installed
+python3 extract-cookies.py
 ```
 
-**Any browser** (requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) installed locally):
+The script supports Firefox, Chrome, Chromium, Brave, and Edge. It will ask you to select your browser, then extract only YouTube/Google cookies to `data/cookies.txt`.
 
-```bash
-yt-dlp --cookies-from-browser BROWSER --cookies /dev/stdout \
-  --skip-download "https://www.youtube.com/watch?v=dQw4w9WgXcQ" 2>/dev/null \
-  | grep -E '^(#|\.youtube\.com|\.google\.com)' > data/cookies.txt
-```
-
-Replace `BROWSER` with `firefox`, `chrome`, `chromium`, `brave`, or `edge`.
-
-After placing the file, restart the container: `docker compose restart`
+After extracting, restart the container: `docker compose restart`
 
 ### 👤 Non-default UID/GID
 

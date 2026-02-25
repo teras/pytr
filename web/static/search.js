@@ -205,7 +205,9 @@ async function loadChannelVideos(channelId, channelName) {
         showLoadingCard(false);
 
         if (data.channel) {
-            listTitle.textContent = data.channel;
+            listTitle.textContent = data.subscriber_count
+                ? `${data.channel}\u2003\u2003\ud83d\udc65 ${data.subscriber_count}`
+                : data.channel;
             document.title = `${data.channel} - PYTR`;
         }
 

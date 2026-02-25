@@ -1,53 +1,72 @@
 #!/usr/bin/env python3
-"""Generate Android TV banner PNG (320x180) from pytr_box.svg: icon left + PYTR text right on dark bg."""
-import subprocess, sys, tempfile, os
+"""Generate Android TV banner: face icon left + PYTR text right.
 
-def generate(svg_path, out_path, width=320, height=180):
-    bg_color = "#181818"
-    icon_size = int(height * 0.75)  # icon 75% of height
-    icon_y = (height - icon_size) // 2
-    icon_x = int(height * 0.15)  # left margin
-    text_x = icon_x + icon_size + int(height * 0.15)
-    text_y = height // 2
+Uses the face SVG (no background box). Generates per-density:
+  - ic_banner.png  (combined: face + text on dark background)
+No adaptive layers — single self-contained image.
+"""
+import subprocess, os, re, tempfile
 
-    # Read original SVG content to embed
+DENSITIES = {
+    'mipmap-mdpi':    (320, 180),
+    'mipmap-hdpi':    (480, 270),
+    'mipmap-xhdpi':   (640, 360),
+    'mipmap-xxhdpi':  (960, 540),
+    'mipmap-xxxhdpi': (1280, 720),
+}
+
+BG_COLOR = '#181818'
+
+
+def _extract_svg(svg_path):
     with open(svg_path) as f:
-        svg_content = f.read()
+        content = f.read()
+    inner = re.search(r'<svg[^>]*>(.*)</svg>', content, re.DOTALL)
+    vb = re.search(r'viewBox="([^"]*)"', content)
+    return inner.group(1), vb.group(1) if vb else '0 0 160 160'
 
-    # Extract inner SVG content (everything between <svg ...> and </svg>)
-    import re
-    inner = re.search(r'<svg[^>]*>(.*)</svg>', svg_content, re.DOTALL)
-    if not inner:
-        raise ValueError("Cannot parse SVG")
-    inner_svg = inner.group(1)
 
-    # Get viewBox
-    vb_match = re.search(r'viewBox="([^"]*)"', svg_content)
-    vb = vb_match.group(1) if vb_match else "0 0 170 170"
-
-    banner_svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
-  <rect width="{width}" height="{height}" fill="{bg_color}" rx="12"/>
-  <svg x="{icon_x}" y="{icon_y}" width="{icon_size}" height="{icon_size}" viewBox="{vb}">
-    {inner_svg}
-  </svg>
-  <text x="{text_x}" y="{text_y}" fill="#ffffff" font-family="sans-serif" font-weight="700" font-size="52" dominant-baseline="central" letter-spacing="3">PYTR</text>
-</svg>'''
-
-    with tempfile.NamedTemporaryFile(suffix='.svg', mode='w', delete=False) as tmp:
-        tmp.write(banner_svg)
-        tmp_path = tmp.name
-
+def _render(svg_str, w, h, out):
+    with tempfile.NamedTemporaryFile(suffix='.svg', mode='w', delete=False) as f:
+        f.write(svg_str); tmp = f.name
     try:
-        subprocess.run(['rsvg-convert', '-w', str(width), '-h', str(height), tmp_path, '-o', out_path], check=True)
+        subprocess.run(['rsvg-convert', '-w', str(w), '-h', str(h), tmp, '-o', out], check=True)
     finally:
-        os.unlink(tmp_path)
+        os.unlink(tmp)
+
+
+def generate(svg_path, res_dir):
+    inner, vb = _extract_svg(svg_path)
+
+    for folder, (w, h) in DENSITIES.items():
+        out_dir = os.path.join(res_dir, folder)
+        os.makedirs(out_dir, exist_ok=True)
+
+        icon_size = int(h * 0.7)
+        icon_y = (h - icon_size) // 2
+        icon_x = int(h * 0.15)
+        text_x = icon_x + icon_size + int(h * 0.1)
+        text_y = h // 2
+        font_size = int(h * 0.28)
+
+        # Combined banner: dark background + face + PYTR text
+        svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">'
+               f'<rect width="{w}" height="{h}" fill="{BG_COLOR}"/>'
+               f'<svg x="{icon_x}" y="{icon_y}" width="{icon_size}" height="{icon_size}" viewBox="{vb}">'
+               f'{inner}</svg>'
+               f'<text x="{text_x}" y="{text_y}" fill="#ffffff" font-family="sans-serif"'
+               f' font-weight="700" font-size="{font_size}" dominant-baseline="central"'
+               f' letter-spacing="3">PYTR</text></svg>')
+        out = os.path.join(out_dir, 'ic_banner.png')
+        _render(svg, w, h, out)
+
+        print(f'  {folder}: {w}x{h}')
+
 
 if __name__ == '__main__':
     import argparse
     p = argparse.ArgumentParser()
-    p.add_argument('svg', help='Source square SVG (pytr_box.svg)')
-    p.add_argument('out', help='Output PNG path')
-    p.add_argument('--width', type=int, default=320)
-    p.add_argument('--height', type=int, default=180)
+    p.add_argument('svg', help='Face SVG (without background box)')
+    p.add_argument('res_dir', help='Android res/ directory')
     a = p.parse_args()
-    generate(a.svg, a.out, a.width, a.height)
+    generate(a.svg, a.res_dir)

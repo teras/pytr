@@ -4,6 +4,7 @@
 import asyncio
 import logging
 import shutil
+import socket
 import time
 from pathlib import Path
 
@@ -135,8 +136,16 @@ def _load_stored_key(ip: str):
     return None
 
 
-def _store_key(ip: str, pkey, token: str | None = None):
-    """Store SSH key (and optionally token) in webos_dev_tokens, keyed by IP."""
+def _load_stored_passphrase(ip: str) -> str | None:
+    """Load a stored passphrase for this IP."""
+    for entry in _get_tokens():
+        if entry.get("name") == ip:
+            return entry.get("passphrase")
+    return None
+
+
+def _store_key(ip: str, pkey, token: str | None = None, passphrase: str | None = None):
+    """Store SSH key (and optionally token/passphrase) in webos_dev_tokens, keyed by IP."""
     import io
     buf = io.StringIO()
     pkey.write_private_key(buf)
@@ -149,6 +158,8 @@ def _store_key(ip: str, pkey, token: str | None = None):
             entry["ssh_key"] = pem
             if token:
                 entry["token"] = token
+            if passphrase:
+                entry["passphrase"] = passphrase
             _save_tokens(tokens)
             return
 
@@ -156,24 +167,26 @@ def _store_key(ip: str, pkey, token: str | None = None):
     entry = {"name": ip, "ssh_key": pem}
     if token:
         entry["token"] = token
+    if passphrase:
+        entry["passphrase"] = passphrase
     tokens.append(entry)
     _save_tokens(tokens)
 
 
 async def _deploy_webos(ip: str, passphrase: str, add_step, is_cancelled) -> dict:
     import io
+    import json
     import paramiko
     from helpers import http_client
 
     if not _WEBOS_IPK.exists():
         raise HTTPException(status_code=500, detail="webOS IPK package not found on server")
 
-    # Try stored key first
-    pkey = _load_stored_key(ip)
-    if pkey:
-        add_step("Using stored SSH key...")
-    else:
-        if not passphrase:
+    # Use provided passphrase, or fall back to stored one
+    effective_passphrase = passphrase or _load_stored_passphrase(ip)
+
+    async def _fetch_new_key():
+        if not effective_passphrase:
             raise HTTPException(status_code=400,
                                 detail="Passphrase is required for first-time setup. Enable Key Server on the TV and enter the passphrase.")
 
@@ -185,23 +198,41 @@ async def _deploy_webos(ip: str, passphrase: str, add_step, is_cancelled) -> dic
             raise HTTPException(status_code=400, detail="Cannot reach Key Server. Make sure Key Server is ON in the Developer Mode app.")
 
         try:
-            pkey = paramiko.RSAKey.from_private_key(io.StringIO(key_resp.text), password=passphrase)
+            return paramiko.RSAKey.from_private_key(io.StringIO(key_resp.text), password=effective_passphrase)
         except paramiko.ssh_exception.PasswordRequiredException:
             raise HTTPException(status_code=400, detail="Invalid passphrase for SSH key")
         except Exception:
             raise HTTPException(status_code=400, detail="Failed to decrypt SSH key — check your passphrase")
 
+    # Try stored key first
+    pkey = _load_stored_key(ip)
+    stored_key = pkey is not None
+    if stored_key:
+        add_step("Using stored SSH key...")
+    else:
+        pkey = await _fetch_new_key()
         add_step("SSH key saved for future deploys.")
 
     add_step("Connecting to TV via SSH...")
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-    def _ssh_connect():
-        ssh.connect(ip, port=9922, username="prisoner", pkey=pkey, timeout=10,
+    def _ssh_connect(key):
+        ssh.connect(ip, port=9922, username="prisoner", pkey=key, timeout=10,
                     disabled_algorithms={"pubkeys": ["rsa-sha2-256", "rsa-sha2-512"]})
 
-    await asyncio.get_event_loop().run_in_executor(None, _ssh_connect)
+    try:
+        await asyncio.get_event_loop().run_in_executor(None, _ssh_connect, pkey)
+    except Exception:
+        if not stored_key:
+            raise
+        # Stored key failed — try fetching a fresh key
+        add_step("Stored key rejected, fetching new key...")
+        ssh.close()
+        pkey = await _fetch_new_key()
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        await asyncio.get_event_loop().run_in_executor(None, _ssh_connect, pkey)
 
     try:
         sftp = ssh.open_sftp()
@@ -220,23 +251,65 @@ async def _deploy_webos(ip: str, passphrase: str, add_step, is_cancelled) -> dic
         await asyncio.get_event_loop().run_in_executor(None, _upload)
 
         add_step("Installing app...")
-        install_cmd = (
-            f'luna-send -n 1 -f luna://com.webos.appInstallService/dev/install '
-            f'\'{{"id":"com.pytr.tv","ipkUrl":"{remote_path}","subscribe":true}}\''
-        )
-        stdin, stdout, stderr = ssh.exec_command(install_cmd)
-        install_output = stdout.read().decode()
-        install_err = stderr.read().decode()
-        log.info(f"Install output: {install_output}")
-        if install_err:
-            log.warning(f"Install stderr: {install_err}")
+        install_params = json.dumps({"id": "com.pytr.tv", "ipkUrl": remote_path, "subscribe": True})
+        install_cmd = f"/usr/bin/luna-send-pub -i luna://com.webos.appInstallService/dev/install '{install_params}'"
 
-        # Wait a moment for installation to complete
-        await asyncio.sleep(2)
+        def _run_install():
+            channel = ssh.get_transport().open_session()
+            channel.exec_command(install_cmd)
+            channel.settimeout(30)
+            buf = ""
+            result = (None, None)
+            try:
+                while True:
+                    chunk = channel.recv(4096).decode(errors="replace")
+                    if not chunk:
+                        break
+                    buf += chunk
+                    lines = buf.split('\n')
+                    buf = lines[-1]
+                    for line in lines[:-1]:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            msg = json.loads(line)
+                        except ValueError:
+                            continue
+                        log.info(f"Install: {msg.get('details', {}).get('state', msg)}")
+                        if msg.get("returnValue") is False:
+                            result = (False, msg.get("errorText", "Installation failed"))
+                        else:
+                            state = str(msg.get("details", {}).get("state", "")).upper()
+                            if state in ("INSTALLED", "SUCCESS"):
+                                result = (True, None)
+                            elif "FAILED" in state:
+                                reason = msg.get("details", {}).get("reason", state)
+                                result = (False, f"Installation failed: {reason}")
+                        if result[0] is not None:
+                            break
+                    if result[0] is not None:
+                        break
+            except socket.timeout:
+                pass
+            finally:
+                try:
+                    channel.shutdown(1)
+                except Exception:
+                    pass
+                channel.close()
+            if result[0] is None:
+                return False, "No response from install service"
+            return result
+
+        installed, err = await asyncio.get_event_loop().run_in_executor(None, _run_install)
+        if not installed:
+            raise Exception(err)
 
         add_step("Launching app...")
-        launch_cmd = 'luna-send -n 1 -f luna://com.webos.applicationManager/launch \'{"id":"com.pytr.tv"}\''
-        ssh.exec_command(launch_cmd)
+        ssh.exec_command("/usr/bin/luna-send-pub -n 1 'luna://com.webos.service.applicationManager/launch' "
+                         "'{\"id\":\"com.pytr.tv\"}'")
+        await asyncio.sleep(1)
 
         add_step("Reading dev mode token...")
         token = None
@@ -252,8 +325,8 @@ async def _deploy_webos(ip: str, passphrase: str, add_step, is_cancelled) -> dic
             pass
         sftp.close()
 
-        # Store SSH key (and token if available) for this IP
-        _store_key(ip, pkey, token)
+        # Store SSH key (and token/passphrase if available) for this IP
+        _store_key(ip, pkey, token, effective_passphrase)
 
         add_step("Done! App deployed successfully.")
         return {"ok": True, "token": token}

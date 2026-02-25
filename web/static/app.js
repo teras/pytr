@@ -891,6 +891,9 @@ async function playVideo(videoId, title, channel, duration) {
         videoTitle.textContent = info.title || title;
         document.title = (info.title || title) ? `${info.title || title} - PYTR` : 'PYTR';
         videoChannel.textContent = info.channel || channel;
+        if (info.channel_followers) {
+            videoChannel.textContent += `\u2003\u2003\ud83d\udc65 ${info.channel_followers}`;
+        }
 
         if (info.channel_id) {
             currentVideoChannelId = info.channel_id;

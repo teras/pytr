@@ -58,15 +58,15 @@ async def create_search(session_token: str, query: str) -> tuple[list[dict], str
     return results, cursor_id
 
 
-async def create_channel(session_token: str, channel_id: str) -> tuple[str, str, list[dict], str | None]:
-    """Get channel videos and return (channel_name, avatar_url, first_batch, cursor_id)."""
-    channel_name, avatar_url, results, yt_token = await channel_first(channel_id)
+async def create_channel(session_token: str, channel_id: str) -> tuple[str, str, str, list[dict], str | None]:
+    """Get channel videos and return (channel_name, avatar_url, subscriber_count, first_batch, cursor_id)."""
+    channel_name, avatar_url, subscriber_count, results, yt_token = await channel_first(channel_id)
 
     if not results:
-        return channel_name, avatar_url, [], None
+        return channel_name, avatar_url, subscriber_count, [], None
 
     if not yt_token:
-        return channel_name, avatar_url, results, None
+        return channel_name, avatar_url, subscriber_count, results, None
 
     cursor_id = secrets.token_urlsafe(16)
     _get_bucket(session_token)[cursor_id] = CursorState(
@@ -75,7 +75,7 @@ async def create_channel(session_token: str, channel_id: str) -> tuple[str, str,
         channel_name=channel_name,
         pulled=len(results),
     )
-    return channel_name, avatar_url, results, cursor_id
+    return channel_name, avatar_url, subscriber_count, results, cursor_id
 
 
 async def create_channel_playlists(session_token: str, channel_id: str) -> tuple[str, list[dict], str | None]:
