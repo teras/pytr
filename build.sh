@@ -36,12 +36,28 @@ mkdir -p build
 build_apk() {
     echo "── Building Android APK ──"
 
-    # Generate vector drawable from SVG if needed
     local svg="clients/pytr_box.svg"
-    local banner="clients/android/app/src/main/res/drawable/ic_banner.xml"
+    local res_dir="clients/android/app/src/main/res"
+
+    # Generate vector drawable launcher icon (square) from SVG
+    local launcher="$res_dir/drawable/ic_launcher.xml"
+    if [ ! -f "$launcher" ] || [ "$svg" -nt "$launcher" ]; then
+        echo "Generating launcher vector drawable from SVG..."
+        python3 clients/svg2vd.py "$svg" "$launcher" --dp-width 48 --dp-height 48
+    fi
+
+    # Generate mipmap PNGs at all densities
+    local mipmap_check="$res_dir/mipmap-xxxhdpi/ic_launcher.png"
+    if [ ! -f "$mipmap_check" ] || [ "$svg" -nt "$mipmap_check" ]; then
+        echo "Generating mipmap PNGs..."
+        python3 clients/gen_mipmaps.py "$svg" "$res_dir"
+    fi
+
+    # Generate banner PNG (320x180, icon + PYTR text)
+    local banner="$res_dir/drawable/ic_banner.png"
     if [ ! -f "$banner" ] || [ "$svg" -nt "$banner" ]; then
-        echo "Generating vector drawable from SVG..."
-        python3 clients/svg2vd.py "$svg" "$banner" --vp-width 320 --vp-height 180 --dp-width 320 --dp-height 180
+        echo "Generating TV banner PNG..."
+        python3 clients/gen_banner.py "$svg" "$banner"
     fi
 
     # Ensure local.properties exists

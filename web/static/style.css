@@ -67,6 +67,7 @@ h1 {
 
 .search-box {
     display: flex;
+    flex: 1;
     gap: 10px;
     max-width: 600px;
 }
@@ -1743,6 +1744,10 @@ body.tv-nav-active *:focus {
 
 /* ── TV Layout: Full 10-foot UI ──────────────────────────────────────────── */
 body.tv-nav-active header {
+    display: flex;
+    padding: 16px 32px;
+}
+body.tv-nav-active.tv-video-active header {
     display: none;
 }
 
@@ -1825,6 +1830,25 @@ body.tv-nav-active .video-details {
     border: none;
     border-radius: 20px;
     cursor: pointer;
+}
+
+.tv-top-home-btn {
+    background: none;
+    border: none;
+    padding: 4px 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+}
+.tv-top-home-btn img {
+    height: 28px;
+    width: auto;
+    filter: brightness(0.7);
+    transition: filter 0.2s;
+}
+.tv-top-home-btn.tv-focus img,
+.tv-top-home-btn:hover img {
+    filter: brightness(1);
 }
 
 /* Row 2: buttons left, info right */

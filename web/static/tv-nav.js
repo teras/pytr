@@ -12,7 +12,7 @@
     _tv.navigateTopOverlay = () => 'exit';
     _tv.navigateBottomOverlay = () => false;
 
-    const FOCUSABLE = '.video-card, .related-card, .queue-item, .player-btn, .filter-btn, .list-tab, .channel-tab, .profile-card, #search-input, #search-btn, #logo-link, #profile-switcher-btn, #player-container, .quality-option, .audio-option, .subtitle-option, .profile-menu-item, .queue-toggle-area';
+    const FOCUSABLE = '.video-card, .related-card, .queue-item, .player-btn, .filter-btn, .list-tab, .channel-tab, .profile-card, #search-input, #search-btn, #logo-link, #profile-switcher-btn, #player-container, .quality-option, .audio-option, .subtitle-option, .profile-menu-item, .queue-toggle-area, .tv-top-home-btn';
 
     const MENU_SELECTORS = [
         { menu: '#quality-menu', btn: '#quality-btn' },
@@ -409,11 +409,13 @@
         _tv.showTop(true);
     });
 
-    // Clean up overlays when leaving video view
+    // Clean up overlays when leaving video view + toggle body class for TV header
     const vvEl = document.getElementById('video-view');
     if (vvEl) {
         new MutationObserver(() => {
-            if (!isVideoView()) {
+            const inVideo = !vvEl.classList.contains('hidden');
+            document.body.classList.toggle('tv-video-active', inVideo);
+            if (!inVideo) {
                 _tv.hideTop(); _tv.hideBottom();
             }
         }).observe(vvEl, { attributes: true, attributeFilter: ['class'] });

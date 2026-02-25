@@ -15,18 +15,6 @@ docker run -d -p 8000:8000 -v ./data:/app/data --restart unless-stopped teras/py
 
 Then open http://localhost:8000
 
-## 🔧 Building from Source
-
-```bash
-git clone https://github.com/teras/pytr.git
-cd pytr
-docker compose up --build -d
-```
-
-On first launch, a setup wizard will guide you through creating an admin profile and setting the app password.
-
-Data is persisted in `./data/` (SQLite database with profiles, history, favorites, and settings).
-
 ## ✨ Features
 
 - 🔍 Search YouTube videos with infinite scroll
@@ -39,6 +27,20 @@ Data is persisted in `./data/` (SQLite database with profiles, history, favorite
 - 🖼️ Embeddable player for use with LibRedirect
 - 🍪 YouTube cookie support for age-restricted content
 - 📱 Mobile-friendly responsive interface
+- 📺 TV apps for Android TV and LG webOS with auto-discovery
+
+## 🔧 Building from Source
+
+```bash
+git clone https://github.com/teras/pytr.git
+cd pytr
+./build.sh   # builds TV apps + Docker image
+docker compose up -d
+```
+
+On first launch, a setup wizard will guide you through creating an admin profile and setting the app password.
+
+Data is persisted in `./data/` (SQLite database with profiles, history, favorites, and settings).
 
 ## 🔗 Browser Extension (Redirect YouTube → PYTR)
 
@@ -62,30 +64,13 @@ Install from [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/libredir
 4. Disable all default public instances
 5. Enable **Embeds** to also replace YouTube players on third-party sites
 
-## 📺 Android TV App
+## 📺 TV App
 
-PYTR includes a native Android TV app that wraps the web UI in a full-screen WebView with D-pad navigation and media key support.
+PYTR includes TV apps for **Android TV** and **LG webOS**. Open `http://<your-pytr-host>:8000/setup-tv` to install them directly to your TV.
 
-### Install
-
-Download the APK from [Releases](https://github.com/teras/pytr/releases) and sideload it:
-
-```bash
-adb connect <TV_IP>:5555
-adb install pytr-tv.apk
-```
-
-### Server Discovery
-
-The TV app automatically discovers PYTR servers on your local network using UDP broadcast. A lightweight discovery service runs alongside the main container.
-
-The `docker-compose.yml` already includes the discovery service. If you're running PYTR with a plain `docker run`, add the discovery sidecar:
-
-```bash
-docker run -d --network host --restart unless-stopped \
-  -v ./discovery.py:/discovery.py:ro \
-  python:3.12-slim python3 -u /discovery.py
-```
+Before installing, enable **Developer Mode** on your TV:
+- **Android TV**: Settings → About → tap "Build number" 7 times, then enable USB debugging in Developer options
+- **LG webOS**: Install the [Developer Mode app](https://webostv.developer.lge.com/develop/getting-started/developer-mode-app) from the LG Content Store
 
 ### Firewall
 
@@ -95,16 +80,6 @@ If you use a firewall, open these ports:
 sudo firewall-cmd --add-port=8000/tcp   # Web UI
 sudo firewall-cmd --add-port=5444/udp   # TV auto-discovery
 ```
-
-### Building from Source
-
-```bash
-cd clients/android
-gradle assembleRelease
-# APK: app/build/outputs/apk/release/app-release.apk
-```
-
-Requires Android SDK with platform 34 and Gradle 8.5+.
 
 ## ⚙️ Configuration
 

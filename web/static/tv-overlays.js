@@ -230,6 +230,15 @@
             e.stopPropagation(); // don't let TV nav intercept typing
         });
 
+        const homeBtn = document.createElement('button');
+        homeBtn.className = 'tv-overlay-item tv-top-home-btn';
+        homeBtn.innerHTML = '<img src="/static/pytr.svg" alt="Home">';
+        homeBtn.addEventListener('click', () => {
+            hideTop();
+            document.getElementById('logo-link').click();
+        });
+
+        searchRow.appendChild(homeBtn);
         searchRow.appendChild(searchInput);
         searchRow.appendChild(searchBtn);
 

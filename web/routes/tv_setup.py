@@ -316,7 +316,7 @@ async def _deploy_android(ip: str, add_step, is_cancelled) -> dict:
                 raise Exception("TV did not authorize the connection. Approve on the TV and try again.")
 
         add_step("Installing app...")
-        output = await _adb("-s", target, "install", "-r", str(_ANDROID_APK), timeout=60)
+        output = await _adb("-s", target, "install", "-r", "--no-streaming", str(_ANDROID_APK), timeout=60)
         if "success" not in output.lower():
             raise Exception(f"Install failed: {output}")
 
