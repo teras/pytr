@@ -68,7 +68,8 @@
         osdEl = document.createElement('div');
         osdEl.className = 'tv-osd';
         osdEl.innerHTML = '<div class="tv-osd-icon"></div><div class="tv-osd-bar"><div class="tv-osd-progress"></div></div><div class="tv-osd-time"></div>';
-        document.getElementById('player-container')?.appendChild(osdEl);
+        var pc = document.getElementById('player-container');
+        if (pc) pc.appendChild(osdEl);
         return osdEl;
     }
 
@@ -230,7 +231,7 @@
     document.addEventListener('keydown', function (e) {
         if (handleMediaKey(e)) return;
 
-        const tag = document.activeElement?.tagName;
+        const tag = document.activeElement && document.activeElement.tagName;
         const isInput = tag === 'INPUT' || tag === 'TEXTAREA';
 
         // Typing mode: let keys through, Escape/ArrowDown exits
@@ -303,14 +304,14 @@
             }
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                if (currentEl?.tagName === 'INPUT') {
+                if (currentEl && currentEl.tagName === 'INPUT') {
                     currentEl.focus(); // start typing
                 } else if (currentEl) {
                     currentEl.click();
                 }
                 return;
             }
-            if (e.key === 'Backspace' || e.key === 'BrowserBack' || e.key === 'XF86Back') {
+            if (e.key === 'Backspace' || e.key === 'BrowserBack' || e.key === 'XF86Back' || e.keyCode === 461) {
                 e.preventDefault(); handleBack(); return;
             }
             return;
@@ -352,7 +353,7 @@
                 video.paused ? video.play() : video.pause();
                 showOsd(video.paused ? '\u23F8' : '\u25B6'); return;
             }
-            if (e.key === 'Backspace' || e.key === 'BrowserBack' || e.key === 'XF86Back') {
+            if (e.key === 'Backspace' || e.key === 'BrowserBack' || e.key === 'XF86Back' || e.keyCode === 461) {
                 e.preventDefault(); handleBack(); return;
             }
             return;
@@ -393,7 +394,7 @@
             return;
         }
 
-        if (e.key === 'Backspace' || e.key === 'BrowserBack' || e.key === 'XF86Back') {
+        if (e.key === 'Backspace' || e.key === 'BrowserBack' || e.key === 'XF86Back' || e.keyCode === 461) {
             e.preventDefault(); handleBack(); return;
         }
     });

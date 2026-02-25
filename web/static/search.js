@@ -285,7 +285,7 @@ async function _renderFollowButton(channelId, channelName, avatarUrl) {
         });
 
         listHeader.appendChild(btn);
-    } catch {}
+    } catch(e) {}
 }
 
 function _removeChannelTabs() {
@@ -741,7 +741,8 @@ function _playQueueItem(index) {
 function _advanceQueue() {
     if (!_queue) return;
     // Only auto-advance if the current video is actually the queue's current item
-    const expectedId = _queue.videos[_queue.currentIndex]?.id;
+    const cur = _queue.videos[_queue.currentIndex];
+    const expectedId = cur ? cur.id : undefined;
     if (currentVideoId !== expectedId) return;
     const nextIndex = _queue.currentIndex + 1;
     if (nextIndex < _queue.videos.length) {
@@ -822,7 +823,7 @@ function restoreListCache() {
         }
 
         // Restore filter toggles and channel tabs
-        if (listViewMode === 'search' && listViewCache.searchRawResults?.length > 0) {
+        if (listViewMode === 'search' && listViewCache.searchRawResults && listViewCache.searchRawResults.length > 0) {
             _searchRawResults = listViewCache.searchRawResults;
             _renderFilterToggles();
         } else if (listViewMode === 'channel' || listViewMode === 'channel_playlists') {

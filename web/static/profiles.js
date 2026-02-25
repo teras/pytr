@@ -20,7 +20,7 @@ function randomAvatar() {
     };
 }
 const isTouchDevice = () => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-const _graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+const _graphemeSegmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
 
 
 const profileOverlay = document.getElementById('profile-overlay');
@@ -177,7 +177,7 @@ async function selectProfile(id, pin) {
         showListView();
         loadHistory();
         return true;
-    } catch {
+    } catch(e) {
         return false;
     }
 }
@@ -388,7 +388,7 @@ function attachAvatarPickerListeners(formId) {
 
     if (emojiInput) {
         emojiInput.addEventListener('input', () => {
-            const segments = [..._graphemeSegmenter.segment(emojiInput.value)];
+            const segments = _graphemeSegmenter ? [..._graphemeSegmenter.segment(emojiInput.value)] : [{ segment: emojiInput.value.charAt(0) }];
             if (segments.length > 0) {
                 selectEmoji(segments[0].segment);
                 emojiInput.blur();
@@ -547,7 +547,7 @@ if (profileSwitcherBtn) {
                 const all = await resp.json();
                 otherProfiles = all.filter(p => !currentProfile || p.id !== currentProfile.id);
             }
-        } catch {}
+        } catch(e) {}
 
         const profileItems = otherProfiles.map(p => {
             const display = p.avatar_emoji || escapeHtml(p.name.charAt(0).toUpperCase());
@@ -670,7 +670,7 @@ async function showSettingsModal() {
         if (profilesResp.ok) {
             allProfiles = await profilesResp.json();
         }
-    } catch {}
+    } catch(e) {}
 
     const overlay = document.createElement('div');
     overlay.className = 'pin-modal';
@@ -842,7 +842,7 @@ async function showSettingsModal() {
                     const err = await resp.json();
                     nativeAlert(err.detail || 'Failed to create profile');
                 }
-            } catch {
+            } catch(e) {
                 nativeAlert('Failed to create profile');
             }
         });
@@ -880,7 +880,7 @@ async function checkFavoriteStatus(videoId) {
             const data = await resp.json();
             updateFavoriteButton(data.is_favorite);
         }
-    } catch {}
+    } catch(e) {}
 }
 
 function updateFavoriteButton(isFavorite) {
@@ -909,7 +909,7 @@ async function toggleFavorite() {
             updateFavoriteButton(false);
         } else {
             const itemType = favId.startsWith('RD') ? 'mix' : 'playlist';
-            const firstVideoId = queue.videos[0]?.id || currentVideoId;
+            const firstVideoId = (queue.videos[0] && queue.videos[0].id) || currentVideoId;
             const thumbnail = `https://img.youtube.com/vi/${firstVideoId}/hqdefault.jpg`;
             await fetch(`/api/profiles/favorites/${encodeURIComponent(favId)}`, {
                 method: 'POST',
@@ -991,5 +991,5 @@ async function restorePositionFromAPI(videoId) {
                 videoPlayer.currentTime = data.position;
             }
         }
-    } catch {}
+    } catch(e) {}
 }

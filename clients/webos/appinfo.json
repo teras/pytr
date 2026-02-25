@@ -1,0 +1,19 @@
+{
+    "id": "com.pytr.tv",
+    "version": "1.0.0",
+    "vendor": "PYTR",
+    "type": "web",
+    "main": "index.html",
+    "title": "PYTR",
+    "icon": "icon.png",
+    "largeIcon": "largeIcon.png",
+    "bgColor": "#111111",
+    "resolution": "1920x1080",
+    "disableBackHistoryAPI": true,
+    "serviceList": [
+        {
+            "name": "com.pytr.tv.service",
+            "description": "PYTR Discovery Service"
+        }
+    ]
+}

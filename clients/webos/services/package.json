@@ -1,0 +1,6 @@
+{
+    "name": "com.pytr.tv.service",
+    "version": "1.0.0",
+    "description": "PYTR server discovery service",
+    "main": "service.js"
+}

@@ -1,0 +1,11 @@
+{
+    "id": "com.pytr.tv.service",
+    "description": "PYTR server discovery via UDP broadcast",
+    "services": [
+        {
+            "name": "com.pytr.tv.service",
+            "description": "PYTR Discovery Service",
+            "assistantRecovery": false
+        }
+    ]
+}

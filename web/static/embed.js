@@ -33,10 +33,10 @@
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    const _langNames = new Intl.DisplayNames(['en'], { type: 'language' });
+    const _langNames = typeof Intl.DisplayNames === 'function' ? new Intl.DisplayNames(['en'], { type: 'language' }) : null;
     function langName(code) {
-        try { return _langNames.of(code); }
-        catch { return code.toUpperCase(); }
+        try { return _langNames ? _langNames.of(code) : code.toUpperCase(); }
+        catch(e) { return code.toUpperCase(); }
     }
 
     function showError(msg) {

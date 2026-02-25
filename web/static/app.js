@@ -290,12 +290,12 @@ window.addEventListener('pagehide', () => {
 });
 
 window.addEventListener('popstate', (e) => {
-    if (e.state?.view === 'video') {
+    if (e.state && e.state.view === 'video') {
         document.title = e.state.title ? `${e.state.title} - PYTR` : 'PYTR';
         showVideoView();
         playVideo(e.state.videoId, e.state.title, e.state.channel, e.state.duration);
         if (e.state.playlistId) {
-            if (_queue?.playlistId === e.state.playlistId) {
+            if (_queue && _queue.playlistId === e.state.playlistId) {
                 const idx = _queue.videos.findIndex(v => v.id === e.state.videoId);
                 if (idx !== -1) _queue.currentIndex = idx;
                 _renderQueue();
@@ -303,7 +303,7 @@ window.addEventListener('popstate', (e) => {
                 _loadQueue(e.state.videoId, e.state.playlistId);
             }
         }
-    } else if (e.state?.view === 'channel') {
+    } else if (e.state && e.state.view === 'channel') {
         document.title = e.state.channelName ? `${e.state.channelName} - PYTR` : 'PYTR';
         showListView();
         if (e.state.tab === 'playlists') {
@@ -311,7 +311,7 @@ window.addEventListener('popstate', (e) => {
         } else {
             loadChannelVideos(e.state.channelId, e.state.channelName);
         }
-    } else if (e.state?.view === 'search') {
+    } else if (e.state && e.state.view === 'search') {
         document.title = e.state.query ? `${e.state.query} - PYTR` : 'PYTR';
         showListView();
         if (listViewCache && listViewCache.query === e.state.query) {
@@ -321,13 +321,13 @@ window.addEventListener('popstate', (e) => {
         }
     } else {
         document.title = 'PYTR';
-        if (e.state?.view === 'history') {
+        if (e.state && e.state.view === 'history') {
             showListView();
             loadHistory();
-        } else if (e.state?.view === 'favorites') {
+        } else if (e.state && e.state.view === 'favorites') {
             showListView();
             loadFavorites();
-        } else if (e.state?.view === 'channels') {
+        } else if (e.state && e.state.view === 'channels') {
             showListView();
             loadChannels();
         } else {
@@ -941,7 +941,7 @@ async function playVideo(videoId, title, channel, duration) {
                         currentAudioLang = 'original';
                         populateAudioMenu(hlsAudioTracks, 'original');
                     }
-                } catch {}
+                } catch(e) {}
             }
         }
     } catch (err) {
@@ -1097,10 +1097,10 @@ function updateLiveBadge() {
 
 // ── Utils ───────────────────────────────────────────────────────────────────
 
-const _langNames = new Intl.DisplayNames(['en'], { type: 'language' });
+const _langNames = typeof Intl.DisplayNames === 'function' ? new Intl.DisplayNames(['en'], { type: 'language' }) : null;
 function langName(code) {
-    try { return _langNames.of(code); }
-    catch { return code.toUpperCase(); }
+    try { return _langNames ? _langNames.of(code) : code.toUpperCase(); }
+    catch(e) { return code.toUpperCase(); }
 }
 
 const _escapeDiv = document.createElement('div');
@@ -1200,7 +1200,7 @@ document.getElementById('logo-link').addEventListener('click', (e) => {
 });
 
 videoPlayer.addEventListener('error', () => {
-    console.log('Video error:', videoPlayer.error?.message);
+    console.log('Video error:', videoPlayer.error && videoPlayer.error.message);
 });
 
 // For non-DASH/HLS fallback: show resolution from video element

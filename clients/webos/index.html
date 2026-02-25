@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<!-- Copyright (c) 2026 Panayotis Katsaloulis -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1920, height=1080, initial-scale=1.0">
+    <title>PYTR</title>
+    <script src="webOSTVjs/webOSTV.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #111; color: #eee;
+            font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
+            width: 1920px; height: 1080px; overflow: hidden;
+        }
+        .container {
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            height: 100%; padding: 40px;
+        }
+        h1 { font-size: 64px; margin-bottom: 12px; color: #e33; font-weight: 700; }
+        .subtitle { font-size: 24px; color: #888; margin-bottom: 60px; }
+        .status { font-size: 22px; color: #aaa; margin-bottom: 40px; min-height: 30px; }
+        .status.error { color: #e55; }
+        .server-list {
+            list-style: none; width: 600px; max-height: 400px;
+            overflow-y: auto; margin-bottom: 40px;
+        }
+        .server-item, .manual-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 18px 28px; margin-bottom: 8px;
+            background: #222; border-radius: 8px; border: 3px solid transparent;
+            font-size: 24px; cursor: pointer; transition: border-color 0.15s, background 0.15s;
+        }
+        .server-item:focus, .manual-row:focus, .manual-row input:focus, .manual-row button:focus {
+            outline: none; border-color: #e33;
+        }
+        .server-item:focus, .server-item.focused { border-color: #e33; background: #2a1a1a; }
+        .server-item .name { font-weight: 600; }
+        .server-item .addr { color: #888; font-size: 20px; }
+        .divider { color: #555; font-size: 20px; margin: 20px 0; }
+        .manual-row { gap: 12px; }
+        .manual-row input {
+            flex: 1; background: #333; border: 2px solid #555; border-radius: 6px;
+            color: #eee; font-size: 24px; padding: 12px 16px;
+        }
+        .manual-row input:focus { border-color: #e33; }
+        .manual-row button {
+            background: #e33; color: #fff; border: none; border-radius: 6px;
+            font-size: 22px; padding: 12px 24px; cursor: pointer;
+            border: 3px solid transparent;
+        }
+        .manual-row button:focus { border-color: #fff; }
+        .spinner {
+            display: inline-block; width: 24px; height: 24px;
+            border: 3px solid #555; border-top-color: #e33; border-radius: 50%;
+            animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .hidden { display: none; }
+        .reset-link {
+            position: fixed; bottom: 30px; right: 40px;
+            color: #555; font-size: 18px; cursor: pointer;
+        }
+        .reset-link:focus { color: #e33; outline: none; }
+    </style>
+</head>
+<body>
+    <div class="container" id="setup-screen">
+        <h1>PYTR</h1>
+        <p class="subtitle">Connect to your PYTR server</p>
+        <p class="status" id="status"><span class="spinner"></span>Searching for servers...</p>
+
+        <ul class="server-list" id="server-list"></ul>
+
+        <p class="divider">or enter server address manually</p>
+
+        <div class="manual-row">
+            <input type="text" id="manual-ip" placeholder="192.168.1.100:8000" tabindex="0">
+            <button id="manual-btn" tabindex="0">Connect</button>
+        </div>
+    </div>
+
+    <div id="reset-link" class="reset-link hidden" tabindex="0">Change server</div>
+
+    <script>
+        (function () {
+            var STORAGE_KEY = 'pytr-server';
+            var saved = localStorage.getItem(STORAGE_KEY);
+
+            // If we have a saved server, redirect immediately
+            if (saved) {
+                activateTvMode();
+                window.location.replace(saved);
+                return;
+            }
+
+            var statusEl = document.getElementById('status');
+            var listEl = document.getElementById('server-list');
+            var manualInput = document.getElementById('manual-ip');
+            var manualBtn = document.getElementById('manual-btn');
+
+            // Start discovery via Luna service
+            discover();
+
+            function discover() {
+                statusEl.innerHTML = '<span class="spinner"></span>Searching for servers...';
+                statusEl.className = 'status';
+
+                if (window.webOS && window.webOS.service) {
+                    window.webOS.service.request('luna://com.pytr.tv.service', {
+                        method: 'discover',
+                        onSuccess: function (res) {
+                            if (res.servers && res.servers.length > 0) {
+                                showServers(res.servers);
+                            } else {
+                                statusEl.textContent = 'No servers found. Enter address manually.';
+                            }
+                        },
+                        onFailure: function () {
+                            statusEl.textContent = 'Discovery unavailable. Enter address manually.';
+                        }
+                    });
+                } else {
+                    // Running outside webOS (browser testing) — skip Luna
+                    statusEl.textContent = 'Not running on webOS. Enter address manually.';
+                }
+            }
+
+            function showServers(servers) {
+                statusEl.textContent = 'Found ' + servers.length + ' server' + (servers.length > 1 ? 's' : '') + ':';
+                listEl.innerHTML = '';
+                servers.forEach(function (srv) {
+                    var li = document.createElement('li');
+                    li.className = 'server-item';
+                    li.tabIndex = 0;
+                    li.innerHTML = '<span class="name">' + escHtml(srv.Name || 'PYTR Server') + '</span>' +
+                        '<span class="addr">' + escHtml(srv.Address) + '</span>';
+                    li.addEventListener('click', function () { connectTo(srv.Address); });
+                    li.addEventListener('keydown', function (e) {
+                        if (e.key === 'Enter') connectTo(srv.Address);
+                    });
+                    listEl.appendChild(li);
+                });
+                // Focus first server
+                var first = listEl.querySelector('.server-item');
+                if (first) first.focus();
+            }
+
+            manualBtn.addEventListener('click', manualConnect);
+            manualInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') manualConnect();
+            });
+
+            function manualConnect() {
+                var val = manualInput.value.trim();
+                if (!val) return;
+                // Add http:// if missing
+                if (!/^https?:\/\//.test(val)) val = 'http://' + val;
+                connectTo(val);
+            }
+
+            function connectTo(address) {
+                // Normalize: ensure http:// prefix
+                if (!/^https?:\/\//.test(address)) address = 'http://' + address;
+
+                statusEl.innerHTML = '<span class="spinner"></span>Connecting...';
+                statusEl.className = 'status';
+
+                // Validate server by hitting the boot endpoint
+                var timeout = setTimeout(function () {
+                    statusEl.textContent = 'Connection timed out. Check the address.';
+                    statusEl.className = 'status error';
+                }, 8000);
+
+                fetch(address + '/api/profiles/boot', { mode: 'cors' })
+                    .then(function (r) {
+                        clearTimeout(timeout);
+                        if (!r.ok) throw new Error('Bad response');
+                        return r.json();
+                    })
+                    .then(function () {
+                        localStorage.setItem(STORAGE_KEY, address);
+                        activateTvMode();
+                        window.location.replace(address);
+                    })
+                    .catch(function () {
+                        clearTimeout(timeout);
+                        statusEl.textContent = 'Could not connect to server. Check the address.';
+                        statusEl.className = 'status error';
+                    });
+            }
+
+            function activateTvMode() {
+                localStorage.setItem('tv-mode', '1');
+            }
+
+            function escHtml(s) {
+                var d = document.createElement('div');
+                d.textContent = s;
+                return d.innerHTML;
+            }
+
+            // "Change server" link — shown when redirecting to allow reset
+            document.getElementById('reset-link').addEventListener('click', function () {
+                localStorage.removeItem(STORAGE_KEY);
+                window.location.reload();
+            });
+            document.getElementById('reset-link').addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    localStorage.removeItem(STORAGE_KEY);
+                    window.location.reload();
+                }
+            });
+
+            // Handle WebOS back button (keyCode 461) on setup screen
+            document.addEventListener('keydown', function (e) {
+                if (e.keyCode === 461) {
+                    // On setup screen, back exits the app
+                    if (window.webOS && window.webOS.platformBack) {
+                        window.webOS.platformBack();
+                    }
+                }
+            });
+        })();
+    </script>
+</body>
+</html>

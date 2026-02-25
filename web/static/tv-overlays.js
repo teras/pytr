@@ -211,7 +211,7 @@
         searchInput.placeholder = 'Search...';
         searchInput.className = 'tv-overlay-item';
         const origSearch = document.getElementById('search-input');
-        if (origSearch?.value) searchInput.value = origSearch.value;
+        if (origSearch && origSearch.value) searchInput.value = origSearch.value;
         const searchBtn = document.createElement('button');
         searchBtn.textContent = '\u{1F50D}';
         searchBtn.className = 'tv-overlay-item tv-top-search-btn';
@@ -268,9 +268,10 @@
 
     function fillMeta(metaDiv) {
         metaDiv.innerHTML = '';
-        addMetaLine(metaDiv, 'tv-top-title', document.getElementById('video-title')?.textContent);
-        addMetaLine(metaDiv, 'tv-top-channel', document.getElementById('video-channel')?.textContent);
-        addMetaLine(metaDiv, 'tv-top-views', document.getElementById('video-meta')?.textContent);
+        var _el;
+        _el = document.getElementById('video-title'); addMetaLine(metaDiv, 'tv-top-title', _el ? _el.textContent : '');
+        _el = document.getElementById('video-channel'); addMetaLine(metaDiv, 'tv-top-channel', _el ? _el.textContent : '');
+        _el = document.getElementById('video-meta'); addMetaLine(metaDiv, 'tv-top-views', _el ? _el.textContent : '');
     }
 
     function refreshTopOverlayMeta() {
@@ -314,11 +315,11 @@
 
     function _waitForEvent(eventName, signal) {
         return new Promise((resolve, reject) => {
-            if (signal?.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
-            const onReady = () => { signal?.removeEventListener('abort', onAbort); resolve(); };
+            if (signal && signal.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
+            const onReady = () => { if (signal) signal.removeEventListener('abort', onAbort); resolve(); };
             const onAbort = () => { window.removeEventListener(eventName, onReady); reject(new DOMException('Aborted', 'AbortError')); };
             window.addEventListener(eventName, onReady, { once: true });
-            signal?.addEventListener('abort', onAbort, { once: true });
+            if (signal) signal.addEventListener('abort', onAbort, { once: true });
         });
     }
 
@@ -340,16 +341,16 @@
                 label: 'Queue',
                 active: () => {
                     const queue = typeof window._getQueue === 'function' ? window._getQueue() : null;
-                    if (queue?.videos?.length) return true;
+                    if (queue && queue.videos && queue.videos.length) return true;
                     return new URLSearchParams(location.search).has('list');
                 },
                 generate: async (signal) => {
                     let queue = typeof window._getQueue === 'function' ? window._getQueue() : null;
-                    if (!queue?.videos?.length) {
+                    if (!queue || !queue.videos || !queue.videos.length) {
                         await _waitForEvent('queue-ready', signal);
                         queue = typeof window._getQueue === 'function' ? window._getQueue() : null;
                     }
-                    if (!queue?.videos?.length) return null;
+                    if (!queue || !queue.videos || !queue.videos.length) return null;
                     const cards = queue.videos.map((v, i) => {
                         const card = document.createElement('div');
                         card.className = 'tv-overlay-item related-card tv-queue-card' + (i === queue.currentIndex ? ' active' : '');
@@ -389,7 +390,7 @@
                     const resp = await fetch(`/api/channel/${encodeURIComponent(chId)}/playlists`, { signal });
                     if (!resp.ok) return null;
                     const data = await resp.json();
-                    if (!data.results?.length) return null;
+                    if (!data.results || !data.results.length) return null;
                     _channelDataCache['playlists_' + chId] = data;
                     return _cardsFromApiData(data.results, data.cursor);
                 },
@@ -407,7 +408,7 @@
                     const resp = await fetch(`/api/channel/${encodeURIComponent(chId)}`, { signal });
                     if (!resp.ok) return null;
                     const data = await resp.json();
-                    if (!data.results?.length) return null;
+                    if (!data.results || !data.results.length) return null;
                     _channelDataCache['videos_' + chId] = data;
                     return _cardsFromApiData(data.results, data.cursor);
                 },
@@ -515,9 +516,9 @@
         try {
             const result = await def.generate(signal);
 
-            if (signal?.aborted || !placeholder.parentNode) return;
+            if ((signal && signal.aborted) || !placeholder.parentNode) return;
 
-            if (!result || !result.cards?.length) {
+            if (!result || !result.cards || !result.cards.length) {
                 const pIdx = bottomRows.indexOf(placeholder);
                 if (pIdx !== -1) bottomRows.splice(pIdx, 1);
                 placeholder.classList.remove('visible');
@@ -541,7 +542,7 @@
                 if (first) _tv.setFocus(first);
             }
         } catch (e) {
-            if (e?.name === 'AbortError') return;
+            if (e && e.name === 'AbortError') return;
             const pIdx = bottomRows.indexOf(placeholder);
             if (pIdx !== -1) bottomRows.splice(pIdx, 1);
             if (placeholder.parentNode) {
@@ -571,14 +572,14 @@
     }
 
     async function maybeLoadMoreInRow(row) {
-        const cursor = row?.dataset.cursor;
+        const cursor = row && row.dataset.cursor;
         if (!cursor || row.dataset.loading) return;
         row.dataset.loading = '1';
         try {
             const resp = await fetch(`/api/more?cursor=${encodeURIComponent(cursor)}`);
             if (!resp.ok) return;
             const data = await resp.json();
-            if (!data.results?.length) { delete row.dataset.cursor; return; }
+            if (!data.results || !data.results.length) { delete row.dataset.cursor; return; }
             const strip = row.querySelector('.tv-related-strip');
             const firstNew = createOverlayCard(data.results[0]);
             strip.appendChild(firstNew);
