@@ -50,6 +50,7 @@ from hls import router as hls_router
 from routes.video import router as video_router
 from routes.browse import router as browse_router
 from routes.profiles import router as profiles_router
+from routes.sponsorblock import router as sponsorblock_router
 
 app.include_router(auth_router)
 app.include_router(dash_router)
@@ -57,6 +58,7 @@ app.include_router(hls_router)
 app.include_router(video_router)
 app.include_router(browse_router)
 app.include_router(profiles_router)
+app.include_router(sponsorblock_router)
 
 if __name__ == "__main__":
     import uvicorn

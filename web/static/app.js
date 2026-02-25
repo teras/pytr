@@ -835,6 +835,7 @@ function stopPlayer() {
     subtitleTracks = [];
     failedSubtitles.clear();
     [...videoPlayer.querySelectorAll('track')].forEach(t => t.remove());
+    if (typeof resetSponsorBlock === 'function') resetSponsorBlock();
     currentVideoId = null;
     currentVideoChannelId = null;
     videoPlayer.removeAttribute('src');
@@ -944,6 +945,7 @@ async function playVideo(videoId, title, channel, duration) {
                 } catch(e) {}
             }
         }
+        if (typeof initSponsorBlock === 'function') initSponsorBlock(videoId);
     } catch (err) {
         console.error('Info fetch failed:', err);
         showPlayerError(title);
@@ -1178,6 +1180,7 @@ function restorePosition(videoId) {
 
 videoPlayer.addEventListener('timeupdate', () => {
     if (isLiveStream) { updateLiveBadge(); return; }
+    if (typeof checkSponsorBlock === 'function') checkSponsorBlock(videoPlayer.currentTime);
     if (!positionSaveTimer) {
         positionSaveTimer = setTimeout(() => {
             savePosition();

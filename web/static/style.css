@@ -2008,3 +2008,129 @@ body.tv-nav-active #video-grid {
     gap: 24px;
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
 }
+
+/* ── Edit Profile Tabs ───────────────────────────────────────────────────── */
+.edit-profile-tabs {
+    display: flex;
+    gap: 0;
+    margin: -16px -20px 12px;
+    border-bottom: 1px solid #333;
+}
+.edit-tab {
+    flex: 1;
+    background: none;
+    border: none;
+    color: #888;
+    padding: 10px 12px;
+    font-size: 14px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+}
+.edit-tab:hover {
+    color: #ccc;
+}
+.edit-tab.active {
+    color: #fff;
+    border-bottom-color: #e94040;
+}
+
+/* ── SponsorBlock Toast ──────────────────────────────────────────────────── */
+.sb-toast {
+    position: absolute;
+    bottom: 70px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    z-index: 50;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: auto;
+    white-space: nowrap;
+}
+.sb-toast-visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+.sb-toast-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.sb-toast-undo {
+    background: none;
+    border: 1px solid rgba(255,255,255,0.4);
+    color: #fff;
+    padding: 2px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    margin-left: 4px;
+}
+.sb-toast-undo:hover {
+    background: rgba(255,255,255,0.15);
+}
+
+/* ── SponsorBlock OSD markers ────────────────────────────────────────────── */
+.tv-osd-bar {
+    position: relative;
+}
+.sb-osd-marker {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    border-radius: 2px;
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+/* ── SponsorBlock Settings ───────────────────────────────────────────────── */
+.sb-settings {
+    margin: 4px 0;
+}
+.sb-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    margin-bottom: 6px;
+}
+.sb-toggle-row input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+}
+.sb-categories {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-left: 4px;
+}
+.sb-cat-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #ccc;
+}
+.sb-cat-row input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+}
+.sb-cat-row input[type="checkbox"]:disabled {
+    opacity: 0.4;
+}
+.sb-cat-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}

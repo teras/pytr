@@ -90,6 +90,7 @@
         osd.querySelector('.tv-osd-progress').style.width = pct + '%';
         osd.querySelector('.tv-osd-time').textContent = `${fmt(video.currentTime)} / ${fmt(video.duration)}`;
         osd.classList.add('visible');
+        if (_tv.refreshSbMarkers) _tv.refreshSbMarkers();
         clearTimeout(osdTimer);
         osdTimer = setTimeout(() => osd.classList.remove('visible'), OSD_TIMEOUT);
     }

@@ -1,6 +1,7 @@
 # Copyright (c) 2026 Panayotis Katsaloulis
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Profile management routes."""
+import json
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
@@ -65,6 +66,10 @@ class UpdatePasswordReq(BaseModel):
 
 class UpdateAllowEmbedReq(BaseModel):
     allow_embed: bool = False
+
+class UpdateSBPrefsReq(BaseModel):
+    enabled: bool = True
+    categories: list[str] = []
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -294,6 +299,17 @@ async def clear_followed_channels(profile_id: int = Depends(require_profile)):
 @router.get("/channels/{channel_id}/status")
 async def channel_follow_status(channel_id: str, profile_id: int = Depends(require_profile)):
     return {"is_following": db.is_following(profile_id, channel_id)}
+
+
+# ── SponsorBlock preferences (per-user) ───────────────────────────────────
+
+@router.put("/preferences/sponsorblock")
+async def update_sb_prefs(req: UpdateSBPrefsReq, profile_id: int = Depends(require_profile)):
+    valid_cats = {"sponsor", "intro", "outro", "selfpromo", "interaction", "preview", "filler", "music_offtopic"}
+    cats = [c for c in req.categories if c in valid_cats]
+    prefs = json.dumps({"enabled": req.enabled, "categories": cats})
+    db.update_sb_prefs(profile_id, prefs)
+    return {"ok": True}
 
 
 # ── Settings (admin only) ──────────────────────────────────────────────────

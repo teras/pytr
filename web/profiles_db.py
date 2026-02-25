@@ -104,6 +104,9 @@ def init_db():
         sess_cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
         if "last_ip" not in sess_cols:
             conn.execute("ALTER TABLE sessions ADD COLUMN last_ip TEXT")
+        # Migration: add sb_prefs to profiles if missing
+        if "sb_prefs" not in cols:
+            conn.execute("ALTER TABLE profiles ADD COLUMN sb_prefs TEXT NOT NULL DEFAULT '{}'")
         # Migration: add playlist/mix columns to favorites if missing
         fav_cols = [r[1] for r in conn.execute("PRAGMA table_info(favorites)").fetchall()]
         for col, typ, default in [
@@ -150,6 +153,7 @@ def get_profile(profile_id: int) -> dict | None:
         "is_admin": bool(r["is_admin"]),
         "preferred_quality": r["preferred_quality"],
         "subtitle_lang": r["subtitle_lang"],
+        "sb_prefs": r["sb_prefs"],
     }
 
 
@@ -177,6 +181,7 @@ def create_profile(name: str, pin: str | None = None, avatar_color: str = "#cc00
         "is_admin": bool(is_admin),
         "preferred_quality": 1080,
         "subtitle_lang": "off",
+        "sb_prefs": "{}",
     }
 
 
@@ -218,6 +223,7 @@ def update_profile(profile_id: int, name: str | None = None,
         "is_admin": bool(r["is_admin"]),
         "preferred_quality": r["preferred_quality"],
         "subtitle_lang": r["subtitle_lang"],
+        "sb_prefs": r["sb_prefs"],
     }
 
 
@@ -245,6 +251,11 @@ def update_preferences(profile_id: int, quality: int | None = None, subtitle_lan
             conn.execute("UPDATE profiles SET preferred_quality = ? WHERE id = ?", (quality, profile_id))
         if subtitle_lang is not None:
             conn.execute("UPDATE profiles SET subtitle_lang = ? WHERE id = ?", (subtitle_lang, profile_id))
+
+
+def update_sb_prefs(profile_id: int, prefs_json: str):
+    with _connect() as conn:
+        conn.execute("UPDATE profiles SET sb_prefs = ? WHERE id = ?", (prefs_json, profile_id))
 
 
 def save_position(profile_id: int, video_id: str, position: float,

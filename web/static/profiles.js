@@ -242,31 +242,55 @@ function showEditProfileForm() {
     if (!currentProfile) return;
 
     const hasPin = currentProfile.has_pin;
+    const hasSB = typeof buildSponsorBlockSettings === 'function';
     const modal = document.createElement('div');
     modal.className = 'pin-modal';
     modal.innerHTML = `
         <div class="pin-modal-content" style="max-width:380px">
-            <h3>Edit Profile</h3>
-            <form id="edit-profile-form" class="profile-form">
-                <input type="text" id="edit-profile-name" placeholder="Name" maxlength="30" value="${escapeAttr(currentProfile.name)}" required>
-                <p class="pin-error hidden" id="edit-profile-error"></p>
-                ${buildAvatarPickerHtml(currentProfile.avatar_color, currentProfile.avatar_emoji)}
-                <div class="edit-pin-section">
-                    <label class="edit-pin-label">
-                        <input type="checkbox" id="edit-pin-toggle" ${hasPin ? 'checked' : ''}>
-                        PIN lock
-                    </label>
-                    <input type="password" id="edit-pin-input" class="${hasPin ? '' : 'hidden'}" placeholder="${hasPin ? 'New PIN (leave empty to keep)' : '4-digit PIN'}" maxlength="4" pattern="[0-9]*" inputmode="numeric">
-                </div>
+            <div class="edit-profile-tabs">
+                <button type="button" class="edit-tab active" data-tab="profile">Profile</button>
+                ${hasSB ? '<button type="button" class="edit-tab" data-tab="sponsorblock">SponsorBlock</button>' : ''}
+            </div>
+            <div class="edit-tab-panel" data-panel="profile">
+                <form id="edit-profile-form" class="profile-form">
+                    <input type="text" id="edit-profile-name" placeholder="Name" maxlength="30" value="${escapeAttr(currentProfile.name)}" required>
+                    <p class="pin-error hidden" id="edit-profile-error"></p>
+                    ${buildAvatarPickerHtml(currentProfile.avatar_color, currentProfile.avatar_emoji)}
+                    <div class="edit-pin-section">
+                        <label class="edit-pin-label">
+                            <input type="checkbox" id="edit-pin-toggle" ${hasPin ? 'checked' : ''}>
+                            PIN lock
+                        </label>
+                        <input type="password" id="edit-pin-input" class="${hasPin ? '' : 'hidden'}" placeholder="${hasPin ? 'New PIN (leave empty to keep)' : '4-digit PIN'}" maxlength="4" pattern="[0-9]*" inputmode="numeric">
+                    </div>
+                    <div class="pin-actions">
+                        <button type="button" class="pin-cancel">Cancel</button>
+                        <button type="submit">Save</button>
+                    </div>
+                </form>
+            </div>
+            ${hasSB ? `<div class="edit-tab-panel hidden" data-panel="sponsorblock">
+                ${buildSponsorBlockSettings()}
                 <div class="pin-actions">
-                    <button type="button" class="pin-cancel">Cancel</button>
-                    <button type="submit">Save</button>
+                    <button type="button" class="pin-cancel">Close</button>
                 </div>
-            </form>
+            </div>` : ''}
         </div>
     `;
     document.body.appendChild(modal);
     attachAvatarPickerListeners('edit-profile-form');
+
+    // Tab switching
+    modal.querySelectorAll('.edit-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            modal.querySelectorAll('.edit-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            modal.querySelectorAll('.edit-tab-panel').forEach(p => p.classList.add('hidden'));
+            modal.querySelector(`[data-panel="${tab.dataset.tab}"]`).classList.remove('hidden');
+        });
+    });
+
+    if (hasSB) attachSponsorBlockSettingsListeners(modal);
 
     const pinToggle = modal.querySelector('#edit-pin-toggle');
     const pinInput = modal.querySelector('#edit-pin-input');
@@ -277,9 +301,11 @@ function showEditProfileForm() {
 
     const editForm = modal.querySelector('#edit-profile-form');
 
-    modal.querySelector('.pin-cancel').addEventListener('click', () => {
-        if (editForm._cleanupEmojiListener) editForm._cleanupEmojiListener();
-        modal.remove();
+    modal.querySelectorAll('.pin-cancel').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (editForm._cleanupEmojiListener) editForm._cleanupEmojiListener();
+            modal.remove();
+        });
     });
 
     editForm.addEventListener('submit', async (e) => {
@@ -989,7 +1015,10 @@ async function restorePositionFromAPI(videoId) {
             const data = await resp.json();
             if (data.position && data.position > 5) {
                 videoPlayer.currentTime = data.position;
+                return;
             }
         }
+        // No saved position — try SponsorBlock highlight as fallback
+        if (typeof seekToHighlight === 'function') seekToHighlight();
     } catch(e) {}
 }
