@@ -21,9 +21,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY web/ .
 
-# Copy pre-built TV client packages
-COPY clients/webos/pytr-tv.ipk clients/webos/pytr-tv.ipk
-COPY clients/android/pytr-tv.apk clients/android/pytr-tv.apk
+# Copy pre-built TV client packages (from build/ directory)
+COPY build/pytr-tv.ipk clients/webos/pytr-tv.ipk
+COPY build/pytr-tv.apk clients/android/pytr-tv.apk
 
 # Create writable directories
 ARG UID=1000

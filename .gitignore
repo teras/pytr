@@ -23,6 +23,9 @@ clients/android/local.properties
 *.aab
 *.jks
 
-# Keep pre-built TV client packages
-!clients/webos/pytr-tv.ipk
-!clients/android/pytr-tv.apk
+# Pre-built TV client packages (now built via build.sh)
+clients/webos/pytr-tv.ipk
+clients/android/pytr-tv.apk
+
+# Build output
+build/
