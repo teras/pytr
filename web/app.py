@@ -1,6 +1,7 @@
 # Copyright (c) 2026 Panayotis Katsaloulis
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """PYTR - Private YouTube Relay. FastAPI entry point."""
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -17,8 +18,12 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(app):
+    # Start background tasks
+    from helpers import webos_renewal_loop
+    renewal_task = asyncio.create_task(webos_renewal_loop())
     yield
-    # Shutdown: close httpx client
+    # Shutdown
+    renewal_task.cancel()
     from helpers import http_client
     await http_client.aclose()
     logging.getLogger(__name__).info("httpx client closed")
@@ -33,13 +38,14 @@ import profiles_db
 profiles_db.init_db()
 
 import helpers  # noqa: F401 — ensure cache dir + yt-dlp instance created on startup
-from helpers import maybe_cleanup
+from helpers import maybe_cleanup, maybe_long_cleanup
 from auth import buffer_session_ip
 
 
 @app.middleware("http")
 async def cleanup_middleware(request, call_next):
     maybe_cleanup()
+    maybe_long_cleanup()
     buffer_session_ip(request)
     return await call_next(request)
 
@@ -51,6 +57,7 @@ from routes.video import router as video_router
 from routes.browse import router as browse_router
 from routes.profiles import router as profiles_router
 from routes.sponsorblock import router as sponsorblock_router
+from routes.tv_setup import router as tv_setup_router, page_router as tv_setup_page_router
 
 app.include_router(auth_router)
 app.include_router(dash_router)
@@ -59,6 +66,8 @@ app.include_router(video_router)
 app.include_router(browse_router)
 app.include_router(profiles_router)
 app.include_router(sponsorblock_router)
+app.include_router(tv_setup_router)
+app.include_router(tv_setup_page_router)
 
 if __name__ == "__main__":
     import uvicorn

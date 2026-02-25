@@ -4,3 +4,4 @@ httpx
 yt-dlp
 python-multipart
 qrcode
+paramiko

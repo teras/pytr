@@ -1,8 +1,8 @@
 FROM python:3.12-slim
 
-# Install ffmpeg and dependencies for deno
+# Install ffmpeg, adb, and dependencies for deno
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg curl unzip && \
+    apt-get install -y --no-install-recommends ffmpeg curl unzip adb && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -21,10 +21,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY web/ .
 
-# Create writable cache directory (subtitle VTTs)
+# Copy pre-built TV client packages
+COPY clients/webos/pytr-tv.ipk clients/webos/pytr-tv.ipk
+COPY clients/android/pytr-tv.apk clients/android/pytr-tv.apk
+
+# Create writable directories
 ARG UID=1000
 ARG GID=1000
 RUN mkdir -p cache && chown ${UID}:${GID} cache
+# ADB needs a writable HOME/.android for keys and daemon
+ENV HOME=/app
+RUN mkdir -p /app/.android && chown ${UID}:${GID} /app/.android
 
 # Expose port
 EXPOSE 8000

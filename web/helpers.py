@@ -197,6 +197,65 @@ def _format_duration(seconds) -> str:
     return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
 
 
+# ── webOS Dev Mode auto-renewal (background task) ───────────────────────────
+
+_WEBOS_CHECK_INTERVAL = 3600   # check every 1 hour
+_WEBOS_RENEWAL_PERIOD = 86400  # renew once per 24 hours
+
+
+async def webos_renewal_loop():
+    """Background task: check hourly, renew each token once per 24h.
+
+    Tokens stored as JSON list in 'webos_dev_tokens' setting.
+    Each entry: {"token": "...", "name": "...", "last_renewed": epoch, "last_error": str|None}
+    last_renewed is persisted in DB, so survives server restarts.
+    If renewal fails, retries next check (1h) until successful.
+    """
+    import asyncio
+    import json
+
+    while True:
+        await asyncio.sleep(_WEBOS_CHECK_INTERVAL)
+        try:
+            import profiles_db
+            raw = profiles_db.get_setting("webos_dev_tokens")
+            if not raw:
+                continue
+            try:
+                tokens = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not tokens:
+                continue
+
+            now = time.time()
+            changed = False
+            for entry in tokens:
+                token = entry.get("token", "")
+                name = entry.get("name", "?")
+                if not token:
+                    continue
+                last = entry.get("last_renewed") or 0
+                if now - last < _WEBOS_RENEWAL_PERIOD:
+                    continue  # renewed recently, skip
+                url = f"https://developer.lge.com/secure/ResetDevModeSession.dev?sessionToken={token}"
+                try:
+                    resp = await http_client.get(url, timeout=15)
+                    log.info(f"webOS renewal [{name}]: {resp.status_code} {resp.text[:100]}")
+                    entry["last_renewed"] = now
+                    entry["last_error"] = None
+                    changed = True
+                except Exception as e:
+                    log.warning(f"webOS renewal [{name}] failed: {e}")
+                    entry["last_error"] = str(e)
+                    changed = True
+
+            if changed:
+                profiles_db.set_setting("webos_dev_tokens", json.dumps(tokens))
+        except Exception as e:
+            log.warning(f"webOS renewal loop error: {e}")
+
+
 def format_number(n):
     if n is None:
         return None

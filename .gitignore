@@ -20,6 +20,9 @@ clients/android/.gradle/
 clients/android/build/
 clients/android/app/build/
 clients/android/local.properties
-*.apk
 *.aab
 *.jks
+
+# Keep pre-built TV client packages
+!clients/webos/pytr-tv.ipk
+!clients/android/pytr-tv.apk
