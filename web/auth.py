@@ -391,7 +391,7 @@ LOGIN_PAGE = """<!DOCTYPE html>
                 const data = await res.json();
                 codeEl.textContent = data.code;
                 qrEl.innerHTML = data.qr_svg;
-                urlEl.textContent = location.origin + '/join';
+                urlEl.textContent = location.origin + '/link';
                 loginView.style.display = 'none';
                 pairView.style.display = 'block';
                 statusEl.textContent = 'Waiting for approval...';
@@ -622,8 +622,8 @@ async def pair_request(request: Request):
     }
 
     base_url = str(request.base_url).rstrip("/")
-    join_url = f"{base_url}/join?code={code}"
-    qr_svg = _generate_qr_svg(join_url)
+    link_url = f"{base_url}/link?code={code}"
+    qr_svg = _generate_qr_svg(link_url)
 
     return {"code": code, "qr_svg": qr_svg, "expires_in": _PAIR_TTL}
 
@@ -665,7 +665,7 @@ async def pair_status(code: str, request: Request, response: Response):
     return result
 
 
-JOIN_PAGE = """<!DOCTYPE html>
+LINK_PAGE = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -682,7 +682,7 @@ JOIN_PAGE = """<!DOCTYPE html>
             align-items: center;
             justify-content: center;
         }
-        .join-box {
+        .link-box {
             background-color: #1a1a1a;
             padding: 40px;
             border-radius: 16px;
@@ -736,7 +736,7 @@ JOIN_PAGE = """<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <div class="join-box">
+    <div class="link-box">
         <h2>Link a Device</h2>
         <p class="subtitle">Enter the code shown on the device you want to link</p>
         <input type="text" id="code-input" maxlength="6" placeholder="XXXXXX" autofocus>
@@ -851,16 +851,16 @@ JOIN_PAGE = """<!DOCTYPE html>
 </html>"""
 
 
-@router.get("/join")
-async def join_page(request: Request, code: str = ""):
+@router.get("/link")
+async def link_page(request: Request, code: str = ""):
     if not _get_password():
         return RedirectResponse(url="/", status_code=302)
     if not verify_session(request):
-        next_url = "/join"
+        next_url = "/link"
         if code:
             next_url += f"?code={quote(code, safe='')}"
         return RedirectResponse(url=f"/login?next={quote(next_url, safe='')}", status_code=302)
-    return HTMLResponse(JOIN_PAGE)
+    return HTMLResponse(LINK_PAGE)
 
 
 @router.post("/api/pair/approve")
