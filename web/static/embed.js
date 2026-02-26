@@ -5,6 +5,25 @@
 (function () {
     'use strict';
 
+    /** Set best available YouTube poster: maxresdefault → sddefault → hqdefault */
+    function setBestPoster(videoEl, videoId) {
+        const base = `https://img.youtube.com/vi/${videoId}`;
+        videoEl.poster = `${base}/hqdefault.jpg`;
+        const img = new Image();
+        img.onload = function() {
+            if (img.naturalWidth > 120) {
+                videoEl.poster = img.src;
+            } else {
+                const sd = new Image();
+                sd.onload = function() {
+                    if (sd.naturalWidth > 120) videoEl.poster = sd.src;
+                };
+                sd.src = `${base}/sddefault.jpg`;
+            }
+        };
+        img.src = `${base}/maxresdefault.jpg`;
+    }
+
     const video = document.getElementById('video');
     const qualityBtn = document.getElementById('quality-btn');
     const qualityMenu = document.getElementById('quality-menu');
@@ -272,7 +291,8 @@
         .then(r => { if (!r.ok) throw new Error('Video not found'); return r.json(); })
         .then(info => {
             document.title = info.title || 'PYTR';
-            video.poster = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+            // Try maxresdefault (HD, 16:9) with fallback chain
+            setBestPoster(video, videoId);
             loadSubtitles(info.subtitle_tracks || []);
 
             if (info.is_live && Hls.isSupported()) {

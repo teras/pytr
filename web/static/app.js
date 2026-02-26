@@ -2,6 +2,29 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // PYTR - Core: DOM refs, state, routing, player, quality selector, utils
 
+// ── Utilities ───────────────────────────────────────────────────────────────
+
+/** Set best available YouTube poster: maxresdefault → sddefault → hqdefault */
+function setBestPoster(videoEl, videoId) {
+    const base = `https://img.youtube.com/vi/${videoId}`;
+    videoEl.poster = `${base}/hqdefault.jpg`; // immediate low-res
+    const img = new Image();
+    img.onload = function() {
+        // YouTube returns a 120x90 placeholder when maxresdefault doesn't exist
+        if (img.naturalWidth > 120) {
+            videoEl.poster = img.src;
+        } else {
+            // try sddefault (640x480) as middle ground
+            const sd = new Image();
+            sd.onload = function() {
+                if (sd.naturalWidth > 120) videoEl.poster = sd.src;
+            };
+            sd.src = `${base}/sddefault.jpg`;
+        }
+    };
+    img.src = `${base}/maxresdefault.jpg`;
+}
+
 // ── DOM Elements ────────────────────────────────────────────────────────────
 
 // Views
@@ -861,7 +884,8 @@ async function playVideo(videoId, title, channel, duration) {
     relatedVideos.innerHTML = '';
 
     videoPlayer.dataset.expectedDuration = duration || 0;
-    videoPlayer.poster = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+    // Try maxresdefault (1280x720 HD, 16:9) with fallback chain
+    setBestPoster(videoPlayer, videoId);
 
     // Favorite button
     const favBtn = document.getElementById('favorite-btn');
