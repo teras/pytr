@@ -453,7 +453,8 @@ h1 {
 /* Shared dropdown menu styles (quality, audio, subtitle) */
 .quality-menu,
 .audio-menu,
-.subtitle-menu {
+.subtitle-menu,
+.summarize-menu {
     position: absolute;
     top: 100%;
     right: 0;
@@ -471,7 +472,8 @@ h1 {
 
 .quality-option,
 .audio-option,
-.subtitle-option {
+.subtitle-option,
+.summarize-option {
     padding: 8px 14px;
     font-size: 13px;
     color: #f1f1f1;
@@ -482,13 +484,15 @@ h1 {
 
 .quality-option:hover,
 .audio-option:hover,
-.subtitle-option:hover {
+.subtitle-option:hover,
+.summarize-option:hover {
     background-color: #303030;
 }
 
 .quality-option.selected,
 .audio-option.selected,
-.subtitle-option.selected {
+.subtitle-option.selected,
+.summarize-option.selected {
     background-color: #065fd4;
     color: #fff;
 }
@@ -876,11 +880,13 @@ h1 {
 
 
 .audio-menu,
-.subtitle-menu {
+.subtitle-menu,
+.summarize-menu {
     min-width: 160px;
 }
 
-#subtitle-btn-container {
+#subtitle-btn-container,
+#summarize-btn-container {
     position: relative;
 }
 
@@ -1783,6 +1789,10 @@ body.tv-nav-active #player-container {
 }
 
 body.tv-nav-active .video-sidebar {
+    display: none;
+}
+
+body.tv-nav-active #summarize-btn-container {
     display: none;
 }
 

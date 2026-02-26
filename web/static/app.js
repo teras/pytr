@@ -244,6 +244,7 @@ document.addEventListener('click', () => {
     qualityMenu.classList.add('hidden');
     audioMenu.classList.add('hidden');
     subtitleMenu.classList.add('hidden');
+    document.getElementById('summarize-menu').classList.add('hidden');
     const pm = document.getElementById('profile-menu');
     if (pm) pm.classList.add('hidden');
 });
@@ -943,6 +944,7 @@ async function playVideo(videoId, title, channel, duration) {
         }
 
         loadSubtitleTracks(videoId, info.subtitle_tracks || []);
+        updateSummarizeVisibility();
 
         if (info.is_live && Hls.isSupported()) {
             // Live stream: use HLS (DASH requires fixed duration)
@@ -1245,5 +1247,110 @@ videoPlayer.addEventListener('loadedmetadata', () => {
         qualityMenu.innerHTML = '';
     }
 });
+
+// ── Summarize Button ────────────────────────────────────────────────────────
+
+const summarizeBtnContainer = document.getElementById('summarize-btn-container');
+const summarizeBtn = document.getElementById('summarize-btn');
+const summarizeMenu = document.getElementById('summarize-menu');
+
+function parseVTT(vttText) {
+    return vttText
+        .replace(/^WEBVTT.*$/m, '')
+        .replace(/Kind:.*$/gm, '')
+        .replace(/Language:.*$/gm, '')
+        .replace(/^\d+$/gm, '')
+        .replace(/\d{2}:\d{2}[:\.][\d.]+ --> \d{2}:\d{2}[:\.][\d.]+.*$/gm, '')
+        .replace(/<[^>]+>/g, '')
+        .split('\n')
+        .map(l => l.trim())
+        .filter(Boolean)
+        .join('\n');
+}
+
+function getBestSubtitleLang() {
+    if (!subtitleTracks || subtitleTracks.length === 0) return null;
+    // Prefer active subtitle
+    const saved = localStorage.getItem('subtitle_lang');
+    if (saved && saved !== 'off') {
+        const match = subtitleTracks.find(t => t.lang === saved);
+        if (match) return match.lang;
+    }
+    // Prefer manual English over auto
+    const manualEn = subtitleTracks.find(t => (t.lang === 'en' || t.lang.startsWith('en-')) && !t.auto);
+    if (manualEn) return manualEn.lang;
+    const autoEn = subtitleTracks.find(t => (t.lang === 'en' || t.lang.startsWith('en-')));
+    if (autoEn) return autoEn.lang;
+    // Prefer any manual track
+    const manual = subtitleTracks.find(t => !t.auto);
+    if (manual) return manual.lang;
+    return subtitleTracks[0].lang;
+}
+
+async function getSummarizePrompt() {
+    const lang = getBestSubtitleLang();
+    if (!lang || !currentVideoId) return null;
+    try {
+        const resp = await fetch(`/api/subtitle/${currentVideoId}?lang=${encodeURIComponent(lang)}`);
+        if (!resp.ok) return null;
+        const vtt = await resp.text();
+        const text = parseVTT(vtt);
+        if (!text) return null;
+        return 'Summarize this: ' + text;
+    } catch (e) {
+        return null;
+    }
+}
+
+function updateSummarizeVisibility() {
+    const show = !document.body.classList.contains('tv-nav-active') && subtitleTracks && subtitleTracks.length > 0;
+    summarizeBtnContainer.classList.toggle('hidden', !show);
+}
+
+
+const summarizeOptions = [
+    { label: '📋 Copy to Clipboard', url: null },
+    { label: '🤖 Copy & open ChatGPT', url: 'https://chatgpt.com' },
+    { label: '🧠 Copy & open Claude', url: 'https://claude.ai' },
+    { label: '🔍 Copy & open Perplexity', url: 'https://www.perplexity.ai' },
+    { label: '⚡ Copy & open Z.ai', url: 'https://chat.z.ai' },
+];
+
+function renderSummarizeMenu() {
+    summarizeMenu.innerHTML = summarizeOptions.map((opt, i) =>
+        `<div class="summarize-option" data-idx="${i}">${escapeHtml(opt.label)}</div>`
+    ).join('');
+
+    summarizeMenu.querySelectorAll('.summarize-option').forEach(el => {
+        el.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            summarizeMenu.classList.add('hidden');
+            const opt = summarizeOptions[parseInt(el.dataset.idx)];
+            summarizeBtn.textContent = '📝 …';
+            summarizeBtn.disabled = true;
+            const prompt = await getSummarizePrompt();
+            summarizeBtn.textContent = '📝 AI';
+            summarizeBtn.disabled = false;
+            if (!prompt) {
+                nativeAlert('Could not fetch transcript.');
+                return;
+            }
+            navigator.clipboard.writeText(prompt).then(() => {
+                if (opt.url) window.open(opt.url, '_blank');
+            });
+        });
+    });
+}
+
+summarizeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    renderSummarizeMenu();
+    summarizeMenu.classList.toggle('hidden');
+    qualityMenu.classList.add('hidden');
+    audioMenu.classList.add('hidden');
+    subtitleMenu.classList.add('hidden');
+});
+
+summarizeMenu.addEventListener('click', (e) => e.stopPropagation());
 
 // Boot — called from index.html after all scripts load
