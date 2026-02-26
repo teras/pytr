@@ -169,8 +169,9 @@ function updateQualityHighlight(height) {
 
 qualityBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    qualityMenu.classList.toggle('hidden');
-    audioMenu.classList.add('hidden');
+    const wasOpen = !qualityMenu.classList.contains('hidden');
+    closeAllMenus();
+    if (!wasOpen) qualityMenu.classList.remove('hidden');
 });
 
 qualityMenu.addEventListener('click', (e) => e.stopPropagation());
@@ -179,8 +180,9 @@ qualityMenu.addEventListener('click', (e) => e.stopPropagation());
 
 audioBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    audioMenu.classList.toggle('hidden');
-    qualityMenu.classList.add('hidden');
+    const wasOpen = !audioMenu.classList.contains('hidden');
+    closeAllMenus();
+    if (!wasOpen) audioMenu.classList.remove('hidden');
 });
 
 audioMenu.addEventListener('click', (e) => e.stopPropagation());
@@ -240,14 +242,16 @@ function switchAudioLanguage(lang) {
     }
 }
 
-document.addEventListener('click', () => {
+function closeAllMenus() {
     qualityMenu.classList.add('hidden');
     audioMenu.classList.add('hidden');
     subtitleMenu.classList.add('hidden');
     document.getElementById('summarize-menu').classList.add('hidden');
     const pm = document.getElementById('profile-menu');
     if (pm) pm.classList.add('hidden');
-});
+}
+
+document.addEventListener('click', closeAllMenus);
 
 // ── Routing ─────────────────────────────────────────────────────────────────
 
@@ -1344,11 +1348,12 @@ function renderSummarizeMenu() {
 
 summarizeBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    renderSummarizeMenu();
-    summarizeMenu.classList.toggle('hidden');
-    qualityMenu.classList.add('hidden');
-    audioMenu.classList.add('hidden');
-    subtitleMenu.classList.add('hidden');
+    const wasOpen = !summarizeMenu.classList.contains('hidden');
+    closeAllMenus();
+    if (!wasOpen) {
+        renderSummarizeMenu();
+        summarizeMenu.classList.remove('hidden');
+    }
 });
 
 summarizeMenu.addEventListener('click', (e) => e.stopPropagation());

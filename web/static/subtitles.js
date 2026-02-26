@@ -173,8 +173,11 @@ function selectSubtitle(lang) {
 // Event listeners
 subtitleBtn.addEventListener('click', (e) => {
     e.stopPropagation();
+    const wasOpen = !subtitleMenu.classList.contains('hidden');
+    closeAllMenus();
+    if (!wasOpen) return;
     renderSubtitleMenu();
-    subtitleMenu.classList.toggle('hidden');
+    subtitleMenu.classList.remove('hidden');
 });
 
 subtitleMenu.addEventListener('click', (e) => e.stopPropagation());
