@@ -873,6 +873,8 @@ async function playVideo(videoId, title, channel, duration) {
     videoTitle.textContent = title || '';
     videoChannel.textContent = channel || '';
     videoChannel.href = '#';
+    const ytLink = document.getElementById('youtube-link');
+    if (ytLink) ytLink.href = `https://www.youtube.com/watch?v=${videoId}`;
     videoMeta.textContent = '';
     window.dispatchEvent(new Event('video-changed'));
     videoDescription.textContent = '';

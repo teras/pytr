@@ -383,6 +383,20 @@ h1 {
     flex: 1;
 }
 
+.youtube-link {
+    flex-shrink: 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: #f1f1f1;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.youtube-link:hover {
+    color: #aaa;
+    text-decoration: underline;
+}
+
 .video-info-row {
     display: flex;
     justify-content: space-between;
