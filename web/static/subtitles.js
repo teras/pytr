@@ -5,6 +5,16 @@
 let subtitleTracks = [];
 let failedSubtitles = new Set();
 
+function constrainCueViewport(track) {
+    if (!track || !track.cues) return;
+    for (const cue of track.cues) {
+        cue.size = 90;           // 90% width → 5% margin each side
+        cue.position = 5;        // start 5% from the left
+        cue.positionAlign = 'line-left';
+        cue.line = -3;           // a few lines up from the bottom edge
+    }
+}
+
 function loadSubtitleTracks(videoId, tracks) {
     [...videoPlayer.querySelectorAll('track')].forEach(t => t.remove());
     subtitleTracks = tracks || [];
@@ -65,6 +75,7 @@ function activateTrack(trackInfo) {
     el.src = `/api/subtitle/${currentVideoId}?lang=${encodeURIComponent(trackInfo.lang)}`;
 
     el.addEventListener('load', () => {
+        constrainCueViewport(el.track);
         updateSubtitleBtn(trackInfo.lang);
     });
     el.addEventListener('error', () => {
