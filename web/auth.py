@@ -221,6 +221,16 @@ async def require_profile(request: Request) -> int:
     return pid
 
 
+def _require_admin(request: Request):
+    """Check that current profile is admin."""
+    pid = get_profile_id(request)
+    if pid is None:
+        raise HTTPException(status_code=403, detail="No profile selected")
+    profile = profiles_db.get_profile(pid)
+    if not profile or not profile["is_admin"]:
+        raise HTTPException(status_code=403, detail="Admin required")
+
+
 # ── Login page HTML ──────────────────────────────────────────────────────────
 
 LOGIN_PAGE = """<!DOCTYPE html>
@@ -865,6 +875,7 @@ async def link_page(request: Request, code: str = ""):
 
 @router.post("/api/pair/approve")
 async def pair_approve(request: Request, body: dict, auth: bool = Depends(require_auth)):
+    _require_admin(request)
     code = body.get("code", "").upper()
     req = PAIRING_REQUESTS.get(code)
     if not req or req["expires_at"] < time.time():
@@ -878,6 +889,7 @@ async def pair_approve(request: Request, body: dict, auth: bool = Depends(requir
 
 @router.post("/api/pair/deny")
 async def pair_deny(request: Request, body: dict, auth: bool = Depends(require_auth)):
+    _require_admin(request)
     code = body.get("code", "").upper()
     req = PAIRING_REQUESTS.get(code)
     if not req or req["expires_at"] < time.time():
@@ -892,7 +904,8 @@ async def pair_deny(request: Request, body: dict, auth: bool = Depends(require_a
 
 
 @router.get("/auth/status")
-async def auth_status(auth: bool = Depends(require_auth)):
+async def auth_status(request: Request, auth: bool = Depends(require_auth)):
+    _require_admin(request)
     now = time.time()
     blocked = {
         ip: {

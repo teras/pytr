@@ -87,6 +87,7 @@ async def deploy(req: DeployReq, request: Request, auth: bool = Depends(require_
 
 @router.post("/cancel")
 async def cancel_deploy(request: Request, auth: bool = Depends(require_auth)):
+    _require_admin(request)
     key = _status_key(request)
     if key in _deploy_status and not _deploy_status[key].get("done"):
         _deploy_status[key]["cancelled"] = True
@@ -96,11 +97,13 @@ async def cancel_deploy(request: Request, auth: bool = Depends(require_auth)):
 @router.get("/has-key")
 async def has_key(ip: str, request: Request, auth: bool = Depends(require_auth)):
     """Check if we have a stored SSH key for this IP."""
+    _require_admin(request)
     return {"has_key": _load_stored_key(ip) is not None}
 
 
 @router.get("/status")
 async def status(request: Request, auth: bool = Depends(require_auth)):
+    _require_admin(request)
     key = _status_key(request)
     return _deploy_status.get(key, {"steps": [], "done": True, "error": None, "token": None})
 
