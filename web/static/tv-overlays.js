@@ -155,22 +155,33 @@
                 if (menuEl) {
                     const dropdown = document.createElement('div');
                     dropdown.className = 'tv-top-dropdown hidden';
-                    menuEl.querySelectorAll(optClass).forEach(opt => {
-                        const optClone = opt.cloneNode(true);
-                        optClone.classList.add('tv-overlay-item');
-                        optClone.addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            opt.click();
-                            dropdown.classList.add('hidden');
-                            setTimeout(() => { clone.textContent = el.textContent; }, 100);
+
+                    function populateDropdown() {
+                        dropdown.innerHTML = '';
+                        // Trigger the original button to populate the menu
+                        el.click();
+                        menuEl.querySelectorAll(optClass).forEach(opt => {
+                            const optClone = opt.cloneNode(true);
+                            optClone.classList.add('tv-overlay-item');
+                            optClone.addEventListener('click', (e) => {
+                                e.stopPropagation();
+                                opt.click();
+                                dropdown.classList.add('hidden');
+                                setTimeout(() => { clone.textContent = el.textContent; }, 100);
+                            });
+                            dropdown.appendChild(optClone);
                         });
-                        dropdown.appendChild(optClone);
-                    });
+                        // Hide the original menu that el.click() opened
+                        menuEl.classList.add('hidden');
+                    }
+
                     clone.addEventListener('click', (e) => {
                         e.stopPropagation();
                         if (topOverlay) topOverlay.querySelectorAll('.tv-top-dropdown').forEach(d => {
                             if (d !== dropdown) d.classList.add('hidden');
                         });
+                        const wasHidden = dropdown.classList.contains('hidden');
+                        if (wasHidden) populateDropdown();
                         dropdown.classList.toggle('hidden');
                     });
                     wrapper.appendChild(dropdown);

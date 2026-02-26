@@ -165,6 +165,17 @@
         const tvListEl = document.getElementById('tv-list');
         let selectedType = 'android';
 
+        function checkAuthError(resp) {
+            if (resp.status === 401 || resp.status === 403) {
+                document.querySelector('.setup-box').innerHTML =
+                    '<h1>Access Denied</h1>' +
+                    '<p style="color:#aaa;margin:16px 0">You need to be an admin to access TV Setup.</p>' +
+                    '<a href="/" style="color:#3ea6ff">Back to PYTR</a>';
+                return true;
+            }
+            return false;
+        }
+
         // TV type selection
         document.querySelectorAll('.tv-type-btn').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -202,6 +213,7 @@
             if (!ip || selectedType !== 'webos') { hasStoredKey = false; updatePassphraseUI(); return; }
             try {
                 const resp = await fetch(`/api/tv-setup/has-key?ip=${encodeURIComponent(ip)}`);
+                if (checkAuthError(resp)) return;
                 if (resp.ok) {
                     const data = await resp.json();
                     hasStoredKey = data.has_key;
@@ -241,6 +253,7 @@
             const pollInterval = setInterval(async () => {
                 try {
                     const resp = await fetch('/api/tv-setup/status');
+                    if (checkAuthError(resp)) { clearInterval(pollInterval); return; }
                     if (resp.ok) {
                         const data = await resp.json();
                         for (let i = lastStepCount; i < data.steps.length; i++)
@@ -257,11 +270,12 @@
                     body: JSON.stringify({ type: selectedType, ip, passphrase }),
                 });
                 clearInterval(pollInterval);
+                if (checkAuthError(resp)) return;
 
                 // Final status
                 try {
                     const sr = await fetch('/api/tv-setup/status');
-                    if (sr.ok) { const d = await sr.json(); for (let i = lastStepCount; i < d.steps.length; i++) addStep(d.steps[i].msg, false); }
+                    if (!checkAuthError(sr) && sr.ok) { const d = await sr.json(); for (let i = lastStepCount; i < d.steps.length; i++) addStep(d.steps[i].msg, false); }
                 } catch(e) {}
                 stepsEl.querySelectorAll('.step').forEach(s => { s.classList.remove('active'); s.classList.add('done'); });
 
@@ -343,6 +357,7 @@
         async function loadTvList() {
             try {
                 const resp = await fetch('/api/profiles/settings');
+                if (checkAuthError(resp)) return;
                 if (!resp.ok) return;
                 const data = await resp.json();
                 const tokens = data.webos_dev_tokens || [];
@@ -377,6 +392,7 @@
                         const name = row.querySelector('.tv-row-name').textContent;
                         if (!confirm(`Remove ${name}? Auto-renewal will stop for this TV.`)) return;
                         const resp = await fetch(`/api/profiles/settings/webos-token/${idx}`, { method: 'DELETE' });
+                        if (checkAuthError(resp)) return;
                         if (resp.ok) loadTvList();
                     });
                 });
