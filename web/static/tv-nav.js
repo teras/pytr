@@ -194,7 +194,7 @@
 
     // ── Back handler ─────────────────────────────────────────────────────────
     function handleBack() {
-        if (_tv.isTopOpen()) { _tv.hideTop(); return; }
+        if (_tv.isTopOpen()) { _tv.hideTop(); enterPlayerMode(); return; }
         if (_tv.isBottomOpen()) { _tv.hideBottom(); enterPlayerMode(); return; }
         if (playerMode) { exitPlayerMode(); history.back(); return; }
         const openMenu = getOpenMenu();
@@ -269,7 +269,7 @@
         // ── Escape in TV mode: exit TV if nothing else to close ──────────
         if (e.key === 'Escape') {
             e.preventDefault();
-            if (_tv.isTopOpen()) { _tv.hideTop(); return; }
+            if (_tv.isTopOpen()) { _tv.hideTop(); enterPlayerMode(); return; }
             if (_tv.isBottomOpen()) { _tv.hideBottom(); enterPlayerMode(); return; }
             const openMenu = getOpenMenu();
             if (openMenu) { closeMenu(openMenu); return; }
@@ -299,7 +299,7 @@
                     }
                 } else {
                     const result = _tv.navigateTopOverlay(arrow);
-                    if (result === 'exit') _tv.hideTop();
+                    if (result === 'exit') { _tv.hideTop(); enterPlayerMode(); }
                 }
                 return;
             }
@@ -336,16 +336,15 @@
             if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 if (isTvActive() && isVideoView()) {
-                    if (_tv.isBottomOpen()) _tv.hideBottom();
-                    else _tv.showTop(false);
+                    _tv.showTop(false);
                 } else { exitPlayerMode(); }
                 return;
             }
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
                 if (isTvActive() && isVideoView()) {
-                    if (_tv.isTopOpen()) _tv.hideTop();
-                    else _tv.showNextRow();
+                    _tv.hideTop();
+                    _tv.showNextRow();
                 } else { exitPlayerMode(); }
                 return;
             }

@@ -13,8 +13,10 @@
     let topRefreshInterval = null;
     let bottomOverlay = null;
     let bottomHideTimer = null;
+    let topIsAutoHide = false;
     let bottomRows = [];
     let bottomRowIdx = 0;
+    let bottomRowCursorIdx = {}; // defIdx → last focused item index
     let _channelDataCache = {};
     let _activeRowDefs = [];
     let _abortControllers = [];
@@ -73,13 +75,24 @@
         return 'handled';
     }
 
+    function _getRowDefIdx(row) { return row.dataset.defIdx; }
+
+    function _focusRowItem(row, preferIdx) {
+        const items = [...row.querySelectorAll(OVERLAY_FOCUSABLE)];
+        if (!items.length) return;
+        const target = items[Math.min(preferIdx, items.length - 1)];
+        _tv.setFocus(target);
+        target.scrollIntoView({ block: 'nearest', inline: 'center' });
+    }
+
     function navigateBottomOverlay(dir) {
         if (!bottomRows.length) return false;
         const cur = _tv.getCurrentEl();
         const curRow = bottomRows.find(r => r.contains(cur));
-        if (!curRow) { _tv.setFocus(bottomRows[0].querySelector(OVERLAY_FOCUSABLE)); return true; }
+        if (!curRow) { _focusRowItem(bottomRows[0], bottomRowCursorIdx[_getRowDefIdx(bottomRows[0])] || 0); return true; }
         const rowItems = [...curRow.querySelectorAll(OVERLAY_FOCUSABLE)];
         const idx = rowItems.indexOf(cur);
+        if (idx >= 0) bottomRowCursorIdx[_getRowDefIdx(curRow)] = idx;
 
         if (dir === 'left') {
             if (idx > 0) { _tv.setFocus(rowItems[idx - 1]); rowItems[idx - 1].scrollIntoView({ block: 'nearest', inline: 'center' }); }
@@ -99,10 +112,7 @@
             showNextRow();
             if (rowIdx < bottomRows.length - 1) {
                 const nextRow = bottomRows[rowIdx + 1];
-                if (!nextRow.dataset.pending) {
-                    const nextItems = nextRow.querySelectorAll(OVERLAY_FOCUSABLE);
-                    if (nextItems.length) _tv.setFocus(nextItems[0]);
-                }
+                _focusRowItem(nextRow, bottomRowCursorIdx[_getRowDefIdx(nextRow)] || 0);
             }
             return true;
         }
@@ -110,8 +120,7 @@
             const rowIdx = bottomRows.indexOf(curRow);
             if (rowIdx > 0) {
                 const prevRow = bottomRows[rowIdx - 1];
-                const prevItems = prevRow.querySelectorAll(OVERLAY_FOCUSABLE);
-                if (prevItems.length) _tv.setFocus(prevItems[prevItems.length - 1]);
+                _focusRowItem(prevRow, bottomRowCursorIdx[_getRowDefIdx(prevRow)] || 0);
             }
             return hideBottomRow();
         }
@@ -123,9 +132,11 @@
     }
 
     function activeOverlay() {
-        const cur = _tv.getCurrentEl();
-        if (isOverlayOpen(topOverlay) && topOverlay.contains(cur)) return 'top';
-        if (isOverlayOpen(bottomOverlay) && bottomOverlay.contains(cur)) return 'bottom';
+        if (isOverlayOpen(topOverlay) && !topIsAutoHide) return 'top';
+        if (bottomOverlay && bottomOverlay.querySelector(OVERLAY_FOCUSABLE)) {
+            const cur = _tv.getCurrentEl();
+            if (isOverlayOpen(bottomOverlay) || (cur && bottomOverlay.contains(cur))) return 'bottom';
+        }
         return null;
     }
 
@@ -301,6 +312,7 @@
     }
 
     function showTop(autoHide) {
+        topIsAutoHide = !!autoHide;
         buildTopOverlay();
         clearTimeout(topOverlayTimer);
         clearInterval(topRefreshInterval);
@@ -319,6 +331,7 @@
     }
 
     function hideTop() {
+        topIsAutoHide = false;
         clearTimeout(topOverlayTimer);
         clearInterval(topRefreshInterval);
         topRefreshInterval = null;
@@ -503,7 +516,7 @@
         strip.className = 'tv-related-strip';
         for (let i = 0; i < 1; i++) {
             const card = document.createElement('div');
-            card.className = 'related-card tv-skeleton-card';
+            card.className = 'tv-overlay-item related-card tv-skeleton-card';
             card.innerHTML = '<div class="thumbnail-container"><div class="skeleton-text" style="width:100%;height:100%;margin:0;border-radius:0"></div></div><div class="related-info"><div class="skeleton-text"></div><div class="skeleton-text short"></div></div>';
             strip.appendChild(card);
         }
@@ -529,7 +542,29 @@
         bottomOverlay.appendChild(placeholder);
         bottomRows.push(placeholder);
         requestAnimationFrame(() => requestAnimationFrame(() => placeholder.classList.add('visible')));
+        if (!bottomOverlay.contains(_tv.getCurrentEl())) {
+            const first = placeholder.querySelector(OVERLAY_FOCUSABLE);
+            if (first) _tv.setFocus(first);
+        }
         _resolveRow(def, placeholder, controller.signal);
+    }
+
+    function _removeFailedRow(placeholder) {
+        const hadFocus = placeholder.contains(_tv.getCurrentEl());
+        const pIdx = bottomRows.indexOf(placeholder);
+        if (pIdx !== -1) bottomRows.splice(pIdx, 1);
+        if (placeholder.parentNode) {
+            placeholder.classList.remove('visible');
+            setTimeout(() => { if (placeholder.parentNode) placeholder.remove(); }, 300);
+        }
+        if (hadFocus) {
+            // Move focus to nearest remaining row, or back to player
+            for (let i = bottomRows.length - 1; i >= 0; i--) {
+                const item = bottomRows[i].querySelector(OVERLAY_FOCUSABLE);
+                if (item) { _tv.setFocus(item); return; }
+            }
+            _tv.enterPlayerMode();
+        }
     }
 
     async function _resolveRow(def, placeholder, signal) {
@@ -539,10 +574,7 @@
             if ((signal && signal.aborted) || !placeholder.parentNode) return;
 
             if (!result || !result.cards || !result.cards.length) {
-                const pIdx = bottomRows.indexOf(placeholder);
-                if (pIdx !== -1) bottomRows.splice(pIdx, 1);
-                placeholder.classList.remove('visible');
-                setTimeout(() => { if (placeholder.parentNode) placeholder.remove(); }, 300);
+                _removeFailedRow(placeholder);
                 return;
             }
 
@@ -557,18 +589,12 @@
             delete placeholder.dataset.pending;
             if (row.dataset.cursor) placeholder.dataset.cursor = row.dataset.cursor;
 
-            if (isOverlayOpen(bottomOverlay) && !bottomOverlay.contains(_tv.getCurrentEl())) {
-                const first = placeholder.querySelector(OVERLAY_FOCUSABLE);
-                if (first) _tv.setFocus(first);
+            if (bottomOverlay && !bottomOverlay.contains(_tv.getCurrentEl())) {
+                _focusRowItem(placeholder, bottomRowCursorIdx[placeholder.dataset.defIdx] || 0);
             }
         } catch (e) {
             if (e && e.name === 'AbortError') return;
-            const pIdx = bottomRows.indexOf(placeholder);
-            if (pIdx !== -1) bottomRows.splice(pIdx, 1);
-            if (placeholder.parentNode) {
-                placeholder.classList.remove('visible');
-                setTimeout(() => { if (placeholder.parentNode) placeholder.remove(); }, 300);
-            }
+            _removeFailedRow(placeholder);
         }
     }
 
@@ -625,6 +651,7 @@
         bottomOverlay = null;
         bottomRows = [];
         bottomRowIdx = 0;
+        bottomRowCursorIdx = {};
     }
 
     function resetOverlayState() {
