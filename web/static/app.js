@@ -4,6 +4,13 @@
 
 // ── Utilities ───────────────────────────────────────────────────────────────
 
+/** Append ?cookies=<mode> (or &cookies=<mode>) to a URL based on localStorage */
+function appendCookieParam(url) {
+    const mode = (typeof getCookieMode === 'function') ? getCookieMode() : (localStorage.getItem('cookieMode') || 'auto');
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}cookies=${mode}`;
+}
+
 /** Set best available YouTube poster: maxresdefault → sddefault → hqdefault */
 function setBestPoster(videoEl, videoId) {
     const base = `https://img.youtube.com/vi/${videoId}`;
@@ -237,7 +244,7 @@ function switchAudioLanguage(lang) {
         // Switch to HLS with selected audio (max 1080p)
         if (dashPlayer) { dashPlayer.destroy(); dashPlayer = null; }
         if (hlsPlayer) { hlsPlayer.destroy(); hlsPlayer = null; }
-        const manifestUrl = `/api/hls/master/${currentVideoId}?audio=${encodeURIComponent(lang)}`;
+        const manifestUrl = appendCookieParam(`/api/hls/master/${currentVideoId}?audio=${encodeURIComponent(lang)}`);
         startHlsPlayer(currentVideoId, manifestUrl);
     }
 }
@@ -910,7 +917,7 @@ async function playVideo(videoId, title, channel, duration) {
 
     // Fetch video info — determines player type
     try {
-        const resp = await fetch(`/api/info/${videoId}`);
+        const resp = await fetch(appendCookieParam(`/api/info/${videoId}`));
         const info = await resp.json();
 
         if (!resp.ok) {
@@ -960,7 +967,7 @@ async function playVideo(videoId, title, channel, duration) {
             badge.title = 'Click to jump to live';
             badge.addEventListener('click', seekToLiveEdge);
             document.querySelector('.video-title-row').appendChild(badge);
-            startHlsPlayer(videoId, `/api/hls/master/${videoId}?live=1`, true);
+            startHlsPlayer(videoId, appendCookieParam(`/api/hls/master/${videoId}?live=1`), true);
         } else {
             // Regular video: start with DASH (full quality, up to 4K)
             startDashPlayer(videoId);
@@ -1002,7 +1009,7 @@ function startDashPlayer(videoId) {
             retryAttempts: { MPD: 0 },
         },
     });
-    dashPlayer.initialize(videoPlayer, `/api/dash/${videoId}`, true);
+    dashPlayer.initialize(videoPlayer, appendCookieParam(`/api/dash/${videoId}`), true);
 
     dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
         _dashAutoRefreshed = false;

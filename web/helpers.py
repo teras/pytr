@@ -27,21 +27,60 @@ _BASE_YDL_OPTS = {
     'remote_components': ['ejs:github'],
 }
 
-# yt-dlp instance
-ydl_info: yt_dlp.YoutubeDL | None = None
+# yt-dlp instances: anonymous (always) + authenticated (only if cookies exist)
+ydl_info: yt_dlp.YoutubeDL | None = None       # anonymous — no cookies
+ydl_info_auth: yt_dlp.YoutubeDL | None = None   # authenticated — with cookies (or None)
 
 
 COOKIES_FILE = Path("data/cookies.txt")
 
+_AGE_RESTRICTED_PATTERNS = (
+    'sign in to confirm your age',
+    'age-restricted',
+    'age restricted',
+    'age_restricted',
+    'content warning',
+)
+
+_THROTTLE_PATTERNS = (
+    'sign in to confirm you',
+    'this video requires login',
+    'bot',
+)
+
+
+def _is_age_restricted(error_msg: str) -> bool:
+    """Check if error indicates genuinely age-restricted content."""
+    lower = error_msg.lower()
+    return any(p in lower for p in _AGE_RESTRICTED_PATTERNS)
+
+
+def _is_throttled(error_msg: str) -> bool:
+    """Check if error indicates YouTube bot/throttle detection."""
+    lower = error_msg.lower()
+    # Don't match throttle if it's actually age-restricted
+    if _is_age_restricted(error_msg):
+        return False
+    return any(p in lower for p in _THROTTLE_PATTERNS)
+
+
+# Global throttle cooldown: when YT throttles us, use cookies for 10 min
+_throttled_until: float = 0
+_THROTTLE_COOLDOWN = 600  # 10 minutes
+
 
 def init_ydl():
-    """(Re)create the global yt-dlp instance."""
-    global ydl_info
-    opts = dict(_BASE_YDL_OPTS)
+    """(Re)create the global yt-dlp instances."""
+    global ydl_info, ydl_info_auth
+    ydl_info = yt_dlp.YoutubeDL(dict(_BASE_YDL_OPTS))
     if COOKIES_FILE.is_file():
-        opts['cookiefile'] = str(COOKIES_FILE)
-    ydl_info = yt_dlp.YoutubeDL(opts)
-    log.info("yt-dlp instance created (cookies=%s)", COOKIES_FILE.name if COOKIES_FILE.is_file() else "none")
+        auth_opts = dict(_BASE_YDL_OPTS)
+        auth_opts['cookiefile'] = str(COOKIES_FILE)
+        ydl_info_auth = yt_dlp.YoutubeDL(auth_opts)
+        log.info("yt-dlp: anonymous + authenticated (%s) instances created", COOKIES_FILE.name)
+    else:
+        ydl_info_auth = None
+        log.info("yt-dlp: anonymous instance created (no cookies)")
 
 
 # Initialize on import
@@ -151,13 +190,29 @@ register_cleanup(make_cache_cleanup(_info_cache, _INFO_CACHE_TTL, "info"))
 _info_lock = threading.Lock()
 
 
-def get_video_info(video_id: str) -> dict:
+def invalidate_video_cache(video_id: str):
+    """Remove a video from the info cache (e.g. when CDN URLs expire)."""
+    _info_cache.pop(video_id, None)
+
+
+def get_video_info(video_id: str, cookie_mode: str = "auto") -> dict:
     """Get yt-dlp info dict for a video, with caching (5h TTL).
+
+    cookie_mode:
+      "off"  — anonymous only; raise on failure (show real error)
+      "auto" — anonymous first; auto-fallback to cookies on age-restriction
+               (cached per-video) or throttle (global 10min cooldown)
+      "on"   — always use cookies (if available)
 
     Thread-safe: ydl_info.extract_info() is not safe to call concurrently,
     so we serialize with a global lock (double-checked pattern).
     Failures are cached for 5 minutes to avoid hammering YouTube.
     """
+    global _throttled_until
+
+    if cookie_mode not in ("off", "auto", "on"):
+        cookie_mode = "auto"
+
     cached = _info_cache.get(video_id)
     if cached:
         age = time.time() - cached['created']
@@ -179,12 +234,54 @@ def get_video_info(video_id: str) -> dict:
                 return cached['info']
 
         url = _yt_url(video_id)
+        now = time.time()
+
+        # Determine which instance to try first
+        if cookie_mode == "on" and ydl_info_auth is not None:
+            use_auth_first = True
+        elif cookie_mode == "auto" and ydl_info_auth is not None:
+            # Use cookies upfront if: video is known age-restricted, or global throttle active
+            use_auth_first = (
+                (cached and cached.get('age_restricted'))
+                or now < _throttled_until
+            )
+        else:
+            use_auth_first = False
+
         try:
-            info = ydl_info.extract_info(url, download=False)
-            _info_cache[video_id] = {'info': info, 'created': time.time()}
+            if use_auth_first:
+                info = ydl_info_auth.extract_info(url, download=False)
+            else:
+                info = ydl_info.extract_info(url, download=False)
+            cache_entry = {'info': info, 'created': now}
+            if cached and cached.get('age_restricted'):
+                cache_entry['age_restricted'] = True  # preserve flag
+            _info_cache[video_id] = cache_entry
             return info
         except Exception as e:
-            _info_cache[video_id] = {'error': str(e), 'created': time.time()}
+            err_msg = str(e)
+
+            # In auto mode, fallback to cookies on age-restriction or throttle
+            if cookie_mode == "auto" and ydl_info_auth is not None and not use_auth_first:
+                should_retry = _is_age_restricted(err_msg) or _is_throttled(err_msg)
+                if should_retry:
+                    reason = "age-restricted" if _is_age_restricted(err_msg) else "throttled"
+                    try:
+                        log.info("%s %s — retrying with cookies", reason.capitalize(), video_id)
+                        info = ydl_info_auth.extract_info(url, download=False)
+                        cache_entry = {'info': info, 'created': now}
+                        if _is_age_restricted(err_msg):
+                            cache_entry['age_restricted'] = True  # remember per-video
+                        if _is_throttled(err_msg):
+                            _throttled_until = now + _THROTTLE_COOLDOWN
+                            log.info("Throttle cooldown active for %ds", _THROTTLE_COOLDOWN)
+                        _info_cache[video_id] = cache_entry
+                        return info
+                    except Exception as e2:
+                        _info_cache[video_id] = {'error': str(e2), 'created': now}
+                        raise
+
+            _info_cache[video_id] = {'error': err_msg, 'created': now}
             raise
 
 

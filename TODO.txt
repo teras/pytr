@@ -1,0 +1,57 @@
+PYTR — Architecture Notes & TODO
+=================================
+
+Section 1: yt-dlp usage (where we depend on it)
+------------------------------------------------
+
+| File              | Caller                      | What for                                          |
+|-------------------|-----------------------------|---------------------------------------------------|
+| helpers.py:43     | init_ydl()                  | Creates yt-dlp instance(s) on startup             |
+| helpers.py:183    | get_video_info()            | extract_info() -- metadata, formats, subtitle URLs|
+| routes/video.py:43| /api/info/{id}              | get_video_info() -> title/views/subs              |
+| routes/video.py:151| /api/stream-live/{id}      | get_video_info() -> progressive format URL        |
+| hls.py:170        | /api/hls/master/{id}        | get_video_info() -> HLS manifest URL              |
+| dash.py:139       | /api/dash/{id}              | get_video_info() -> DASH format URLs              |
+| extract-cookies.py| CLI tool (standalone)       | Uses yt-dlp to extract browser cookies            |
+
+Section 2: Cookie usage
+------------------------
+
+| Where                          | Cookie type  | Purpose                                   |
+|--------------------------------|-------------|-------------------------------------------|
+| helpers.py (ydl_info_auth)     | cookiefile  | Fed to extract_info() for age-restricted  |
+| helpers.py (ydl_info)          | NONE        | Anonymous instance, no cookies            |
+| All httpx calls                | NONE        | InnerTube, subtitles, HLS/DASH segments,  |
+|                                |             | container probes -- all cookie-free       |
+
+Cookie modes (per-profile, stored in DB + localStorage):
+  off  -- anonymous only; never send cookies; show real error on failure
+  auto -- anonymous first, auto-fallback to cookies if age-restricted (default)
+  on   -- always use cookies (if cookies.txt exists)
+
+Section 3: Video playback pipeline
+-----------------------------------
+
+1. Frontend -> /api/info/{id} -> get_video_info() -> yt-dlp extract_info()
+   Returns: title, formats, subtitle URLs, HLS manifest URL
+
+2. Streaming (tried in order by frontend):
+   a. DASH: /api/dash/{id} -> build MPD from format URLs
+      Segments: /api/videoplayback?url=... (passthrough, no cookies)
+   b. HLS: /api/hls/master/{id} -> fetch YouTube m3u8 -> rewrite URLs
+      Segments: /api/hls/segment?url=... (passthrough, no cookies)
+   c. Direct: /api/stream-live/{id} -> proxy progressive format 22/18
+
+3. Subtitles: /api/subtitle/{id}?lang=xx -> proxy VTT (no cookies)
+
+4. Container probing: container.py probe_ranges() -> range requests to CDN (no cookies)
+
+Section 4: Future tasks
+------------------------
+
+[ ] Multi-client identity rotation (SmartTube-style)
+    SmartTube tries ~12 YouTube client identities (WEB_EMBED, ANDROID_REEL, TV, etc.)
+    WEB_EMBEDDED_PLAYER bypasses most age gates without cookies.
+    ANDROID_REEL doesn't need PoToken.
+    Not now: yt-dlp handles nsig/PoToken via Deno; requires custom InnerTube
+    /player calls instead of yt-dlp; maintaining client versions is ongoing work.

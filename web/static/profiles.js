@@ -76,6 +76,9 @@ function applyProfilePrefs() {
     if (currentProfile.subtitle_lang) {
         localStorage.setItem('subtitle_lang', currentProfile.subtitle_lang);
     }
+    if (currentProfile.cookie_mode) {
+        localStorage.setItem('cookieMode', currentProfile.cookie_mode);
+    }
 }
 
 function updateProfileButton() {
@@ -595,6 +598,14 @@ if (profileSwitcherBtn) {
             <div class="profile-menu-item" data-action="edit-profile">Edit profile</div>
             ${isAdmin ? '<div class="profile-menu-item" data-action="settings">Options</div>' : ''}
             <div class="profile-menu-item" data-action="tv-mode">${document.body.classList.contains('tv-nav-active') ? 'Desktop Mode' : 'TV Mode'}</div>
+            <div class="cookie-toggle-row">
+                <span class="cookie-toggle-label">Cookies</span>
+                <div class="cookie-toggle-btns" data-action="cookie-toggle">
+                    <button class="cookie-btn${getCookieMode() === 'off' ? ' active' : ''}" data-mode="off">Off</button>
+                    <button class="cookie-btn${getCookieMode() === 'auto' ? ' active' : ''}" data-mode="auto">Auto</button>
+                    <button class="cookie-btn${getCookieMode() === 'on' ? ' active' : ''}" data-mode="on">On</button>
+                </div>
+            </div>
             <div class="profile-menu-divider"></div>
             <div class="profile-menu-item profile-menu-logout" data-action="logout">Logout ${escapeHtml(currentProfile.name)}</div>
         `;
@@ -633,6 +644,17 @@ if (profileSwitcherBtn) {
                 } else if (action === 'logout') {
                     window.location.href = '/logout';
                 }
+            });
+        });
+
+        // Cookie toggle buttons
+        profileMenu.querySelectorAll('.cookie-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const mode = btn.dataset.mode;
+                setCookieMode(mode);
+                profileMenu.querySelectorAll('.cookie-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
             });
         });
     });
@@ -881,6 +903,18 @@ async function showSettingsModal() {
     }
 
     showSettingsView();
+}
+
+// ── Cookie Mode ───────────────────────────────────────────────────────────
+
+function getCookieMode() {
+    return localStorage.getItem('cookieMode') || 'auto';
+}
+
+function setCookieMode(mode) {
+    if (!['off', 'auto', 'on'].includes(mode)) mode = 'auto';
+    localStorage.setItem('cookieMode', mode);
+    savePreference('cookie_mode', mode);
 }
 
 // ── Preference Saving ──────────────────────────────────────────────────────

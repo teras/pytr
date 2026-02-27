@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from auth import require_auth, require_auth_or_embed
 from container import probe_ranges
-from helpers import register_cleanup, make_cache_cleanup, get_video_info, http_client, is_youtube_url, VIDEO_ID_RE
+from helpers import register_cleanup, make_cache_cleanup, get_video_info, invalidate_video_cache, http_client, is_youtube_url, VIDEO_ID_RE
 
 log = logging.getLogger(__name__)
 
@@ -121,7 +121,7 @@ def _dedup_by_height(fmts: list) -> list:
 # ── DASH manifest endpoint ───────────────────────────────────────────────────
 
 @router.get("/api/dash/{video_id}")
-async def get_dash_manifest(video_id: str, auth: bool = Depends(require_auth_or_embed)):
+async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = Depends(require_auth_or_embed)):
     """Generate DASH MPD manifest with proxied URLs.
 
     Uses a single container type for video to avoid track-switching issues.
@@ -136,15 +136,17 @@ async def get_dash_manifest(video_id: str, auth: bool = Depends(require_auth_or_
                         headers={'Cache-Control': 'no-cache'})
 
     try:
-        info = await asyncio.to_thread(get_video_info, video_id)
+        info = await asyncio.to_thread(get_video_info, video_id, cookies)
     except Exception as e:
         err_msg = str(e)
+        import re
+        clean_msg = re.sub(r'^(?:ERROR:\s*)?\[youtube\]\s*[\w-]+:\s*', '', err_msg)
         if 'Sign in' in err_msg or 'bot' in err_msg:
             return JSONResponse(status_code=503, content={
                 'error': 'rate_limited',
-                'message': 'YouTube is temporarily blocking requests.',
+                'message': clean_msg or 'YouTube is temporarily blocking requests.',
             })
-        raise HTTPException(status_code=500, detail=err_msg)
+        raise HTTPException(status_code=500, detail=clean_msg or err_msg)
 
     duration = info.get('duration') or 0
 

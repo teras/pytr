@@ -254,6 +254,8 @@ async def _innertube_post(endpoint: str, body: dict) -> dict:
     """
     version = await _fetch_client_version()
     body.setdefault("context", _build_context(version))
+    body.setdefault("racyCheckOk", True)
+    body.setdefault("contentCheckOk", True)
     resp = await http_client.post(
         f"{_API_BASE}/{endpoint}",
         params={"prettyPrint": "false"},

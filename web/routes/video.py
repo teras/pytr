@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 
 from auth import require_auth, require_auth_or_embed
 from dash import proxy_range_request
-from helpers import CACHE_DIR, VIDEO_ID_RE, format_number, register_cleanup, make_cache_cleanup, get_video_info as _cached_info, http_client
+from helpers import CACHE_DIR, VIDEO_ID_RE, format_number, register_cleanup, make_cache_cleanup, get_video_info as _cached_info, invalidate_video_cache, http_client
 
 log = logging.getLogger(__name__)
 
@@ -36,11 +36,11 @@ register_cleanup(make_cache_cleanup(_subtitle_cache, _SUBTITLE_CACHE_TTL, "subti
 
 
 @router.get("/info/{video_id}")
-async def get_video_info(video_id: str, auth: bool = Depends(require_auth_or_embed)):
+async def get_video_info(video_id: str, cookies: str = "auto", auth: bool = Depends(require_auth_or_embed)):
     """Get video info (views, likes, etc.)"""
     _check_video_id(video_id)
     try:
-        info = await asyncio.to_thread(_cached_info, video_id)
+        info = await asyncio.to_thread(_cached_info, video_id, cookies)
 
         upload_date = info.get('upload_date', '')
         if upload_date and len(upload_date) == 8:
@@ -100,13 +100,13 @@ async def get_video_info(video_id: str, auth: bool = Depends(require_auth_or_emb
         }
     except Exception as e:
         err_msg = str(e)
+        # Clean up yt-dlp error prefix like "ERROR: [youtube] ID: "
+        clean_msg = re.sub(r'^(?:ERROR:\s*)?\[youtube\]\s*[\w-]+:\s*', '', err_msg)
         if 'Sign in' in err_msg or 'bot' in err_msg:
             return JSONResponse(status_code=503, content={
                 'error': 'rate_limited',
-                'message': 'YouTube is temporarily blocking requests. Try again later.',
+                'message': clean_msg or 'YouTube is temporarily blocking requests. Try again later.',
             })
-        # Clean up yt-dlp error prefix like "ERROR: [youtube] ID: "
-        clean_msg = re.sub(r'^(?:ERROR:\s*)?\[youtube\]\s*[\w-]+:\s*', '', err_msg)
         raise HTTPException(status_code=500, detail=clean_msg or err_msg)
 
 
@@ -144,11 +144,11 @@ async def get_subtitle(video_id: str, lang: str, auth: bool = Depends(require_au
 
 
 @router.get("/stream-live/{video_id}")
-async def stream_live(video_id: str, request: Request, auth: bool = Depends(require_auth_or_embed)):
+async def stream_live(video_id: str, request: Request, cookies: str = "auto", auth: bool = Depends(require_auth_or_embed)):
     """Fallback: proxy progressive format (22/18) with range requests."""
     _check_video_id(video_id)
     try:
-        info = await asyncio.to_thread(_cached_info, video_id)
+        info = await asyncio.to_thread(_cached_info, video_id, cookies)
 
         video_url = None
         filesize = None
