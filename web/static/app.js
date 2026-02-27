@@ -1259,7 +1259,7 @@ const summarizeBtn = document.getElementById('summarize-btn');
 const summarizeMenu = document.getElementById('summarize-menu');
 
 function parseVTT(vttText) {
-    return vttText
+    const lines = vttText
         .replace(/^WEBVTT.*$/m, '')
         .replace(/Kind:.*$/gm, '')
         .replace(/Language:.*$/gm, '')
@@ -1268,8 +1268,15 @@ function parseVTT(vttText) {
         .replace(/<[^>]+>/g, '')
         .split('\n')
         .map(l => l.trim())
-        .filter(Boolean)
-        .join('\n');
+        .filter(Boolean);
+    // Deduplicate consecutive identical lines (YouTube karaoke overlap)
+    const deduped = [];
+    for (const line of lines) {
+        if (deduped.length === 0 || line !== deduped[deduped.length - 1]) {
+            deduped.push(line);
+        }
+    }
+    return deduped.join('\n');
 }
 
 function getBestSubtitleLang() {

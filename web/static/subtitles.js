@@ -5,13 +5,15 @@
 let subtitleTracks = [];
 let failedSubtitles = new Set();
 
-function constrainCueViewport(track) {
+function constrainCueViewport(track, isAuto) {
     if (!track || !track.cues) return;
     for (const cue of track.cues) {
-        cue.size = 90;           // 90% width → 5% margin each side
-        cue.position = 5;        // start 5% from the left
-        cue.positionAlign = 'line-left';
-        cue.line = -3;           // a few lines up from the bottom edge
+        if (isAuto && cue.position === 0 && cue.align === 'start') {
+            // YouTube auto-captions set position:0% align:start — reset to defaults
+            cue.position = 'auto';
+            cue.align = 'center';
+            cue.line = -3;
+        }
     }
 }
 
@@ -75,7 +77,7 @@ function activateTrack(trackInfo) {
     el.src = `/api/subtitle/${currentVideoId}?lang=${encodeURIComponent(trackInfo.lang)}`;
 
     el.addEventListener('load', () => {
-        constrainCueViewport(el.track);
+        constrainCueViewport(el.track, trackInfo.auto);
         updateSubtitleBtn(trackInfo.lang);
     });
     el.addEventListener('error', () => {
@@ -162,6 +164,9 @@ function selectSubtitle(lang) {
     localStorage.setItem('subtitle_lang', lang || 'off');
     if (typeof savePreference === 'function') savePreference('subtitle_lang', lang || 'off');
     if (!lang) {
+        for (let i = 0; i < videoPlayer.textTracks.length; i++) {
+            videoPlayer.textTracks[i].mode = 'disabled';
+        }
         [...videoPlayer.querySelectorAll('track')].forEach(t => t.remove());
         updateSubtitleBtn(null);
         return;
@@ -175,9 +180,10 @@ subtitleBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     const wasOpen = !subtitleMenu.classList.contains('hidden');
     closeAllMenus();
-    if (!wasOpen) return;
-    renderSubtitleMenu();
-    subtitleMenu.classList.remove('hidden');
+    if (!wasOpen) {
+        renderSubtitleMenu();
+        subtitleMenu.classList.remove('hidden');
+    }
 });
 
 subtitleMenu.addEventListener('click', (e) => e.stopPropagation());
