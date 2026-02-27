@@ -179,11 +179,8 @@ async function selectProfile(id, pin) {
         updateProfileButton();
         profileOverlay.innerHTML = '';
         profileOverlay.classList.add('hidden');
-        // Always go to home (watch history) on profile select/switch
         stopPlayer();
-        history.replaceState({ view: 'history' }, '', '/');
-        showListView();
-        loadHistory();
+        handleInitialRoute();
         return true;
     } catch(e) {
         return false;
