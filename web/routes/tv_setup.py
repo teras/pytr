@@ -101,6 +101,76 @@ async def has_key(ip: str, request: Request, auth: bool = Depends(require_auth))
     return {"has_key": _load_stored_key(ip) is not None}
 
 
+class AndroidActionReq(BaseModel):
+    action: str = Field(..., pattern=r'^(remove-youtube)$')
+    ip: str = Field(..., min_length=1, max_length=45)
+
+
+@router.post("/android-action")
+async def android_action(req: AndroidActionReq, request: Request, auth: bool = Depends(require_auth)):
+    """Run ADB commands on a registered Android TV."""
+    _require_admin(request)
+    adb_path = shutil.which("adb")
+    if not adb_path:
+        raise HTTPException(status_code=500, detail="adb not found on server")
+
+    target = f"{req.ip}:5555"
+
+    async def _adb(*args, timeout=15):
+        proc = await asyncio.create_subprocess_exec(
+            adb_path, *args,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return (stdout.decode() + stderr.decode()).strip()
+
+    if req.action == "remove-youtube":
+        try:
+            await _adb("connect", target)
+            await asyncio.sleep(1)
+            results = []
+            for pkg in ("com.google.android.youtube", "com.google.android.youtube.tvmusic"):
+                r1 = await _adb("-s", target, "shell", "pm", "disable-user", "--user", "0", pkg)
+                r2 = await _adb("-s", target, "shell", "pm", "uninstall", "-k", "--user", "0", pkg)
+                results.append(f"{pkg}: {r1} / {r2}")
+            return {"ok": True, "details": results}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        finally:
+            await _adb("disconnect", target)
+
+    raise HTTPException(status_code=400, detail=f"Unknown action: {req.action}")
+
+
+@router.post("/renew-webos/{index}")
+async def renew_webos(index: int, request: Request, auth: bool = Depends(require_auth)):
+    """Manually trigger dev mode renewal for an LG TV."""
+    import json
+    from helpers import http_client
+    _require_admin(request)
+    tvs = _get_tvs()
+    if index < 0 or index >= len(tvs):
+        raise HTTPException(status_code=404, detail="TV not found")
+    entry = tvs[index]
+    if entry.get("type") != "webos":
+        raise HTTPException(status_code=400, detail="Not an LG TV")
+    token = entry.get("token", "")
+    if not token:
+        raise HTTPException(status_code=400, detail="No renewal token")
+    url = f"https://developer.lge.com/secure/ResetDevModeSession.dev?sessionToken={token}"
+    try:
+        resp = await http_client.get(url, timeout=15)
+        log.info(f"webOS manual renewal [{entry.get('name', '?')}]: {resp.status_code} {resp.text[:100]}")
+        entry["last_renewed"] = time.time()
+        entry["last_error"] = None
+        _save_tvs(tvs)
+        return {"ok": True}
+    except Exception as e:
+        entry["last_error"] = str(e)
+        _save_tvs(tvs)
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 @router.get("/status")
 async def status(request: Request, auth: bool = Depends(require_auth)):
     _require_admin(request)
@@ -108,10 +178,10 @@ async def status(request: Request, auth: bool = Depends(require_auth)):
     return _deploy_status.get(key, {"steps": [], "done": True, "error": None, "token": None})
 
 
-def _get_tokens() -> list:
-    """Load webos_dev_tokens from DB."""
+def _get_tvs() -> list:
+    """Load registered_tvs from DB."""
     import json
-    raw = profiles_db.get_setting("webos_dev_tokens")
+    raw = profiles_db.get_setting("registered_tvs")
     if not raw:
         return []
     try:
@@ -120,17 +190,17 @@ def _get_tokens() -> list:
         return []
 
 
-def _save_tokens(tokens: list):
-    """Save webos_dev_tokens to DB."""
+def _save_tvs(tvs: list):
+    """Save registered_tvs to DB."""
     import json
-    profiles_db.set_setting("webos_dev_tokens", json.dumps(tokens) if tokens else None)
+    profiles_db.set_setting("registered_tvs", json.dumps(tvs) if tvs else None)
 
 
 def _load_stored_key(ip: str):
-    """Load a stored SSH key for this IP from webos_dev_tokens."""
+    """Load a stored SSH key for this IP from registered_tvs."""
     import io
     import paramiko
-    for entry in _get_tokens():
+    for entry in _get_tvs():
         if entry.get("name") == ip and entry.get("ssh_key"):
             try:
                 return paramiko.RSAKey.from_private_key(io.StringIO(entry["ssh_key"]))
@@ -141,39 +211,40 @@ def _load_stored_key(ip: str):
 
 def _load_stored_passphrase(ip: str) -> str | None:
     """Load a stored passphrase for this IP."""
-    for entry in _get_tokens():
+    for entry in _get_tvs():
         if entry.get("name") == ip:
             return entry.get("passphrase")
     return None
 
 
 def _store_key(ip: str, pkey, token: str | None = None, passphrase: str | None = None):
-    """Store SSH key (and optionally token/passphrase) in webos_dev_tokens, keyed by IP."""
+    """Store SSH key (and optionally token/passphrase) in registered_tvs, keyed by IP."""
     import io
     buf = io.StringIO()
     pkey.write_private_key(buf)
     pem = buf.getvalue()
 
-    tokens = _get_tokens()
+    tvs = _get_tvs()
     # Find existing entry for this IP
-    for entry in tokens:
+    for entry in tvs:
         if entry.get("name") == ip:
             entry["ssh_key"] = pem
+            entry["type"] = "webos"
             if token:
                 entry["token"] = token
             if passphrase:
                 entry["passphrase"] = passphrase
-            _save_tokens(tokens)
+            _save_tvs(tvs)
             return
 
     # Create new entry
-    entry = {"name": ip, "ssh_key": pem}
+    entry = {"name": ip, "type": "webos", "ssh_key": pem}
     if token:
         entry["token"] = token
     if passphrase:
         entry["passphrase"] = passphrase
-    tokens.append(entry)
-    _save_tokens(tokens)
+    tvs.append(entry)
+    _save_tvs(tvs)
 
 
 async def _deploy_webos(ip: str, passphrase: str, add_step, is_cancelled) -> dict:
@@ -400,6 +471,13 @@ async def _deploy_android(ip: str, add_step, is_cancelled) -> dict:
         await _adb("-s", target, "shell", "am", "start", "-n", "com.pytr.tv/.SetupActivity")
 
         add_step("Done! App deployed successfully.")
+
+        # Auto-register this Android TV
+        tvs = _get_tvs()
+        if not any(t.get("name") == ip and t.get("type") == "android" for t in tvs):
+            tvs.append({"name": ip, "type": "android"})
+            _save_tvs(tvs)
+
         return {"ok": True}
     finally:
         await _adb("disconnect", target)

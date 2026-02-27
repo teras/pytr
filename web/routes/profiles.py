@@ -317,19 +317,20 @@ async def update_sb_prefs(req: UpdateSBPrefsReq, profile_id: int = Depends(requi
 @router.get("/settings")
 async def get_settings(request: Request, auth: bool = Depends(require_auth)):
     _require_admin(request)
-    raw = db.get_setting("webos_dev_tokens")
-    tokens = []
+    raw = db.get_setting("registered_tvs")
+    tvs = []
     if raw:
         try:
-            tokens = json.loads(raw)
+            tvs = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
             pass
     # Mask tokens for display (exclude ssh_key from response)
     masked = []
-    for t in tokens:
+    for t in tvs:
         tok = t.get("token", "")
         masked.append({
             "name": t.get("name", ""),
+            "type": t.get("type", "webos"),
             "has_key": bool(t.get("ssh_key")),
             "has_token": bool(tok),
             "token_masked": (tok[:6] + "..." + tok[-4:]) if len(tok) > 10 else ("***" if tok else ""),
@@ -338,7 +339,7 @@ async def get_settings(request: Request, auth: bool = Depends(require_auth)):
         })
     return {
         "allow_embed": db.get_setting("allow_embed") == "1",
-        "webos_dev_tokens": masked,
+        "registered_tvs": masked,
     }
 
 
@@ -376,40 +377,41 @@ class AddWebosTokenReq(BaseModel):
 async def add_webos_token(req: AddWebosTokenReq, request: Request,
                           auth: bool = Depends(require_auth)):
     _require_admin(request)
-    raw = db.get_setting("webos_dev_tokens")
-    tokens = []
+    raw = db.get_setting("registered_tvs")
+    tvs = []
     if raw:
         try:
-            tokens = json.loads(raw)
+            tvs = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
             pass
     token_val = req.token.strip()
     ip = req.name.strip()
     # Update existing entry for this IP (preserves ssh_key), or create new
     found = False
-    for t in tokens:
+    for t in tvs:
         if t.get("name") == ip:
             t["token"] = token_val
+            t["type"] = "webos"
             found = True
             break
     if not found:
-        tokens.append({"token": token_val, "name": ip})
-    db.set_setting("webos_dev_tokens", json.dumps(tokens))
+        tvs.append({"token": token_val, "name": ip, "type": "webos"})
+    db.set_setting("registered_tvs", json.dumps(tvs))
     return {"ok": True}
 
 
-@router.delete("/settings/webos-token/{index}")
-async def delete_webos_token(index: int, request: Request,
-                             auth: bool = Depends(require_auth)):
+@router.delete("/settings/registered-tv/{index}")
+async def delete_registered_tv(index: int, request: Request,
+                                auth: bool = Depends(require_auth)):
     _require_admin(request)
-    raw = db.get_setting("webos_dev_tokens")
-    tokens = []
+    raw = db.get_setting("registered_tvs")
+    tvs = []
     if raw:
         try:
-            tokens = json.loads(raw)
+            tvs = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
             pass
-    if 0 <= index < len(tokens):
-        tokens.pop(index)
-    db.set_setting("webos_dev_tokens", json.dumps(tokens) if tokens else None)
+    if 0 <= index < len(tvs):
+        tvs.pop(index)
+    db.set_setting("registered_tvs", json.dumps(tvs) if tvs else None)
     return {"ok": True}

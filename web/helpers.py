@@ -206,10 +206,11 @@ _WEBOS_RENEWAL_PERIOD = 86400  # renew once per 24 hours
 async def webos_renewal_loop():
     """Background task: check hourly, renew each token once per 24h.
 
-    Tokens stored as JSON list in 'webos_dev_tokens' setting.
-    Each entry: {"token": "...", "name": "...", "last_renewed": epoch, "last_error": str|None}
+    Tokens stored as JSON list in 'registered_tvs' setting.
+    Each entry: {"token": "...", "name": "...", "type": "L", "last_renewed": epoch, "last_error": str|None}
     last_renewed is persisted in DB, so survives server restarts.
     If renewal fails, retries next check (1h) until successful.
+    Only processes LG TVs (type == "L").
     """
     import asyncio
     import json
@@ -218,7 +219,7 @@ async def webos_renewal_loop():
         await asyncio.sleep(_WEBOS_CHECK_INTERVAL)
         try:
             import profiles_db
-            raw = profiles_db.get_setting("webos_dev_tokens")
+            raw = profiles_db.get_setting("registered_tvs")
             if not raw:
                 continue
             try:
@@ -231,6 +232,8 @@ async def webos_renewal_loop():
             now = time.time()
             changed = False
             for entry in tokens:
+                if entry.get("type") != "webos":
+                    continue  # skip non-LG TVs
                 token = entry.get("token", "")
                 name = entry.get("name", "?")
                 if not token:
@@ -251,7 +254,7 @@ async def webos_renewal_loop():
                     changed = True
 
             if changed:
-                profiles_db.set_setting("webos_dev_tokens", json.dumps(tokens))
+                profiles_db.set_setting("registered_tvs", json.dumps(tokens))
         except Exception as e:
             log.warning(f"webOS renewal loop error: {e}")
 

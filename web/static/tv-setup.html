@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PYTR - TV Setup</title>
+    <link rel="icon" type="image/svg+xml" href="/static/pytr.svg">
+    <link rel="stylesheet" href="/static/style.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -80,6 +82,17 @@
         .back-link { display: block; text-align: center; color: #666; text-decoration: none; margin-top: 24px; font-size: 14px; }
         .back-link:hover { color: #aaa; }
         .divider { border: none; border-top: 1px solid #303030; margin: 28px 0 8px; }
+        /* Page tabs */
+        .page-tabs { display: flex; gap: 0; margin-bottom: 24px; border-bottom: 2px solid #303030; }
+        .page-tab {
+            flex: 1; padding: 12px; text-align: center; cursor: pointer; color: #666;
+            font-size: 14px; font-weight: 500; border-bottom: 2px solid transparent; margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+        .page-tab:hover { color: #aaa; }
+        .page-tab.active { color: #f1f1f1; border-bottom-color: #cc0000; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
         /* Registered TVs */
         .tv-list-empty { color: #555; font-size: 13px; font-style: italic; }
         .tv-row {
@@ -93,11 +106,26 @@
         .tv-row-status { font-size: 11px; margin-top: 2px; }
         .tv-row-status.ok { color: #4caf50; }
         .tv-row-status.err { color: #ff4444; }
-        .tv-row-delete {
-            background: none; border: 1px solid #333; border-radius: 6px; color: #ff4444;
-            cursor: pointer; padding: 4px 10px; font-size: 13px; flex-shrink: 0;
+        .tv-row-menu { position: relative; flex-shrink: 0; }
+        .tv-row-menu-btn {
+            background: none; border: 1px solid #333; border-radius: 6px;
+            cursor: pointer; padding: 6px 10px; font-size: 18px; color: #aaa; line-height: 1;
         }
-        .tv-row-delete:hover { background: #2e1a1a; }
+        .tv-row-menu-btn:hover { background: #222; color: #f1f1f1; }
+        .tv-row-dropdown {
+            display: none; position: absolute; right: 0; top: 100%; margin-top: 4px;
+            background: #222; border: 1px solid #383838; border-radius: 8px;
+            min-width: 160px; z-index: 10; overflow: hidden;
+        }
+        .tv-row-dropdown.open { display: block; }
+        .tv-row-dropdown-item {
+            display: block; width: 100%; padding: 10px 14px; font-size: 13px;
+            background: none; border: none; color: #ddd; cursor: pointer; text-align: left;
+        }
+        .tv-row-dropdown-item:hover { background: #303030; }
+        .tv-row-dropdown-item:disabled { opacity: 0.5; cursor: not-allowed; }
+        .tv-row-dropdown-item.danger { color: #ff4444; }
+        .tv-row-dropdown-item.danger:hover { background: #2e1a1a; }
         .cancel-btn {
             width: 100%; padding: 12px; font-size: 14px; background: none; color: #ff4444;
             border: 1px solid #333; border-radius: 12px; cursor: pointer; margin-top: 12px; display: none;
@@ -111,52 +139,58 @@
         <h1>TV Setup</h1>
         <p class="subtitle">Deploy PYTR to your TV</p>
 
-        <form id="deploy-form">
-            <div class="tv-type-selector">
-                <div class="tv-type-btn active" data-type="android">
-                    <span class="tv-icon">📱</span>
-                    Android TV
-                </div>
-                <div class="tv-type-btn" data-type="webos">
-                    <span class="tv-icon">📺</span>
-                    LG (webOS)
-                </div>
-            </div>
-
-            <label for="tv-ip">TV IP Address</label>
-            <input type="text" id="tv-ip" placeholder="192.168.1.x" required autocomplete="off">
-
-            <div class="lg-only lg-passphrase" id="passphrase-group">
-                <label for="tv-passphrase">Dev Mode Passphrase</label>
-                <div style="position:relative">
-                    <input type="password" id="tv-passphrase" placeholder="Passphrase from Dev Mode app" autocomplete="off" style="padding-right:44px">
-                    <span id="toggle-pass" style="position:absolute;right:14px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:18px;color:#666;user-select:none">👁</span>
-                </div>
-                <p class="hint" id="passphrase-hint">Open the Developer Mode app on your LG TV, enable Key Server, and enter the passphrase shown.</p>
-            </div>
-
-            <button type="submit" id="deploy-btn">Deploy</button>
-        </form>
-
-        <div class="progress" id="progress">
-            <div id="steps"></div>
-            <button type="button" class="cancel-btn" id="cancel-btn">Cancel</button>
+        <div class="page-tabs">
+            <div class="page-tab active" data-tab="deploy">Deploy</div>
+            <div class="page-tab" data-tab="tvs">Registered TVs</div>
         </div>
 
-        <div class="result" id="result"></div>
+        <div class="tab-content active" id="tab-deploy">
+            <form id="deploy-form">
+                <div class="tv-type-selector">
+                    <div class="tv-type-btn active" data-type="android">
+                        <span class="tv-icon">📱</span>
+                        Android TV
+                    </div>
+                    <div class="tv-type-btn" data-type="webos">
+                        <span class="tv-icon">📺</span>
+                        LG (webOS)
+                    </div>
+                </div>
 
-        <!-- Registered LG TVs -->
-        <div class="lg-only" id="tv-section">
-            <hr class="divider">
-            <h2>Registered LG TVs</h2>
+                <label for="tv-ip">TV IP Address</label>
+                <input type="text" id="tv-ip" placeholder="192.168.1.x" required autocomplete="off">
+
+                <div class="lg-only lg-passphrase" id="passphrase-group">
+                    <label for="tv-passphrase">Dev Mode Passphrase</label>
+                    <div style="position:relative">
+                        <input type="password" id="tv-passphrase" placeholder="Passphrase from Dev Mode app" autocomplete="off" style="padding-right:44px">
+                        <span id="toggle-pass" style="position:absolute;right:14px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:18px;color:#666;user-select:none">👁</span>
+                    </div>
+                    <p class="hint" id="passphrase-hint">Open the Developer Mode app on your LG TV, enable Key Server, and enter the passphrase shown.</p>
+                </div>
+
+                <button type="submit" id="deploy-btn">Deploy</button>
+            </form>
+
+            <div class="progress" id="progress">
+                <div id="steps"></div>
+                <button type="button" class="cancel-btn" id="cancel-btn">Cancel</button>
+            </div>
+
+            <div class="result" id="result"></div>
+        </div>
+
+        <div class="tab-content" id="tab-tvs">
             <div id="tv-list"></div>
         </div>
 
         <a href="/" class="back-link">Back to PYTR</a>
     </div>
 
+    <script src="/static/utilities.js"></script>
     <script>
     (function() {
+        const esc = escapeHtml;
         const form = document.getElementById('deploy-form');
         const deployBtn = document.getElementById('deploy-btn');
         const progressEl = document.getElementById('progress');
@@ -176,6 +210,17 @@
             return false;
         }
 
+        // Page tabs
+        document.querySelectorAll('.page-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+                if (tab.dataset.tab === 'tvs') loadTvList();
+            });
+        });
+
         // TV type selection
         document.querySelectorAll('.tv-type-btn').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -183,10 +228,9 @@
                 btn.classList.add('active');
                 selectedType = btn.dataset.type;
                 const isLG = selectedType === 'webos';
-                document.querySelectorAll('.lg-only:not(.lg-passphrase)').forEach(el => el.classList.toggle('visible', isLG));
                 if (isLG) checkStoredKey();
                 else passphraseGroup.classList.remove('visible');
-                // Reset UI when switching tabs
+                // Reset UI when switching types
                 progressEl.classList.remove('visible');
                 resultEl.classList.remove('visible');
                 stepsEl.innerHTML = '';
@@ -341,11 +385,13 @@
                     document.getElementById('token-saved').style.display = 'block';
                     saveBtn.disabled = true;
                     saveBtn.textContent = 'Saved';
-                    loadTvList();
                 } else {
-                    alert('Failed to save token');
+                    nativeAlert('Failed to save token');
                 }
             });
+
+            // After Android deploy, auto-saved by backend — reload TV list
+            if (selectedType === 'android') loadTvList();
         }
 
         function showError(msg) {
@@ -360,43 +406,164 @@
                 if (checkAuthError(resp)) return;
                 if (!resp.ok) return;
                 const data = await resp.json();
-                const tokens = data.webos_dev_tokens || [];
-                if (!tokens.length) {
-                    tvListEl.innerHTML = '<p class="tv-list-empty">No LG TVs registered for auto-renewal.</p>';
+                const tvs = data.registered_tvs || [];
+                if (!tvs.length) {
+                    tvListEl.innerHTML = '<p class="tv-list-empty">No TVs registered.</p>';
                     return;
                 }
-                tvListEl.innerHTML = tokens.map((t, i) => {
+                tvListEl.innerHTML = tvs.map((t, i) => {
+                    const isLG = t.type === 'webos';
+                    const icon = isLG ? '📺' : '🤖';
                     let status = '';
-                    if (t.has_token) {
-                        if (t.last_error) status = `<div class="tv-row-status err">Renewal failed</div>`;
-                        else if (t.last_renewed) status = `<div class="tv-row-status ok">Last renewed ${timeAgo(t.last_renewed)}</div>`;
-                        else status = `<div class="tv-row-status" style="color:#666">Not yet renewed</div>`;
-                    } else {
-                        status = `<div class="tv-row-status" style="color:#666">SSH key only (no renewal token)</div>`;
+                    if (isLG) {
+                        if (t.has_token) {
+                            if (t.last_error) status = `<div class="tv-row-status err">Renewal failed</div>`;
+                            else if (t.last_renewed) status = `<div class="tv-row-status ok">Last renewed ${timeAgo(t.last_renewed)}</div>`;
+                            else status = `<div class="tv-row-status" style="color:#666">Not yet renewed</div>`;
+                        } else {
+                            status = `<div class="tv-row-status" style="color:#666">SSH key only (no renewal token)</div>`;
+                        }
                     }
+                    let menuItems = `<button class="tv-row-dropdown-item" data-action="redeploy" data-ip="${esc(t.name)}" data-type="${t.type}">Redeploy</button>`;
+                    if (isLG && t.has_token) menuItems += `<button class="tv-row-dropdown-item" data-action="renew" data-index="${i}">Renew dev mode</button>`;
+                    if (!isLG) menuItems += `<button class="tv-row-dropdown-item" data-action="remove-yt" data-ip="${esc(t.name)}">Remove YouTube</button>`;
+                    menuItems += `<button class="tv-row-dropdown-item danger" data-action="delete" data-index="${i}">Remove</button>`;
                     const tokenLine = t.token_masked ? `<div class="tv-row-token">${esc(t.token_masked)}</div>` : '';
                     return `<div class="tv-row">
+                        <div style="font-size:22px;flex-shrink:0">${icon}</div>
                         <div class="tv-row-info">
-                            <div class="tv-row-name">${esc(t.name || 'LG TV')}</div>
+                            <div class="tv-row-name">${esc(t.name || (isLG ? 'LG TV' : 'Android TV'))}</div>
                             ${tokenLine}
                             ${status}
                         </div>
-                        <button type="button" class="tv-row-delete" data-index="${i}">Remove</button>
+                        <div class="tv-row-menu">
+                            <button type="button" class="tv-row-menu-btn">⋮</button>
+                            <div class="tv-row-dropdown">${menuItems}</div>
+                        </div>
                     </div>`;
                 }).join('');
 
-                tvListEl.querySelectorAll('.tv-row-delete').forEach(btn => {
+                // Toggle dropdown menus
+                tvListEl.querySelectorAll('.tv-row-menu-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const dd = btn.nextElementSibling;
+                        const wasOpen = dd.classList.contains('open');
+                        closeAllDropdowns();
+                        if (!wasOpen) dd.classList.add('open');
+                    });
+                });
+
+                // Redeploy: switch to Deploy tab with IP and type pre-filled
+                tvListEl.querySelectorAll('[data-action="redeploy"]').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        closeAllDropdowns();
+                        const ip = btn.dataset.ip;
+                        const type = btn.dataset.type === 'webos' ? 'webos' : 'android';
+                        switchToDeployTab(type, ip);
+                    });
+                });
+
+                // Helper: show inline status on a TV row
+                function showRowStatus(btn, msg, isError) {
+                    const row = btn.closest('.tv-row');
+                    const info = row.querySelector('.tv-row-info');
+                    let statusEl = info.querySelector('.tv-row-status');
+                    if (!statusEl) { statusEl = document.createElement('div'); statusEl.className = 'tv-row-status'; info.appendChild(statusEl); }
+                    statusEl.className = 'tv-row-status ' + (isError ? 'err' : 'ok');
+                    statusEl.textContent = msg;
+                }
+
+                // Renew dev mode (LG)
+                tvListEl.querySelectorAll('[data-action="renew"]').forEach(btn => {
                     btn.addEventListener('click', async () => {
+                        closeAllDropdowns();
+                        const idx = btn.dataset.index;
+                        showRowStatus(btn, 'Renewing...', false);
+                        try {
+                            const resp = await fetch(`/api/tv-setup/renew-webos/${idx}`, { method: 'POST' });
+                            if (checkAuthError(resp)) return;
+                            if (resp.ok) {
+                                loadTvList();
+                            } else {
+                                const err = await resp.json().catch(() => ({ detail: 'Failed' }));
+                                showRowStatus(btn, err.detail, true);
+                            }
+                        } catch(e) {
+                            showRowStatus(btn, e.message, true);
+                        }
+                    });
+                });
+
+                // Remove YouTube (Android)
+                tvListEl.querySelectorAll('[data-action="remove-yt"]').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        closeAllDropdowns();
+                        const ip = btn.dataset.ip;
+                        if (!await nativeConfirm(`Remove YouTube apps from ${ip}?`)) return;
+                        showRowStatus(btn, 'Removing YouTube...', false);
+                        try {
+                            const resp = await fetch('/api/tv-setup/android-action', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ action: 'remove-youtube', ip }),
+                            });
+                            if (checkAuthError(resp)) return;
+                            if (resp.ok) {
+                                showRowStatus(btn, 'YouTube removed', false);
+                            } else {
+                                const err = await resp.json().catch(() => ({ detail: 'Failed' }));
+                                showRowStatus(btn, err.detail, true);
+                            }
+                        } catch(e) {
+                            showRowStatus(btn, e.message, true);
+                        }
+                    });
+                });
+
+                // Delete
+                tvListEl.querySelectorAll('[data-action="delete"]').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        closeAllDropdowns();
                         const idx = btn.dataset.index;
                         const row = btn.closest('.tv-row');
                         const name = row.querySelector('.tv-row-name').textContent;
-                        if (!confirm(`Remove ${name}? Auto-renewal will stop for this TV.`)) return;
-                        const resp = await fetch(`/api/profiles/settings/webos-token/${idx}`, { method: 'DELETE' });
+                        if (!await nativeConfirm(`Remove ${name}?`)) return;
+                        const resp = await fetch(`/api/profiles/settings/registered-tv/${idx}`, { method: 'DELETE' });
                         if (checkAuthError(resp)) return;
                         if (resp.ok) loadTvList();
                     });
                 });
             } catch(e) {}
+        }
+
+        function closeAllDropdowns() {
+            document.querySelectorAll('.tv-row-dropdown.open').forEach(d => d.classList.remove('open'));
+        }
+        document.addEventListener('click', closeAllDropdowns);
+
+        function switchToDeployTab(type, ip) {
+            // Switch to Deploy tab
+            document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelector('[data-tab="deploy"]').classList.add('active');
+            document.getElementById('tab-deploy').classList.add('active');
+            // Select TV type
+            document.querySelectorAll('.tv-type-btn').forEach(b => b.classList.remove('active'));
+            document.querySelector(`.tv-type-btn[data-type="${type}"]`).classList.add('active');
+            selectedType = type;
+            // Fill IP
+            ipInput.value = ip;
+            // Reset deploy UI
+            progressEl.classList.remove('visible');
+            resultEl.classList.remove('visible');
+            stepsEl.innerHTML = '';
+            deployBtn.disabled = false;
+            deployBtn.textContent = 'Deploy';
+            document.getElementById('cancel-btn').classList.remove('visible');
+            // Handle passphrase visibility for LG
+            if (type === 'webos') checkStoredKey();
+            else passphraseGroup.classList.remove('visible');
         }
 
         function timeAgo(epoch) {
@@ -407,11 +574,7 @@
             return Math.floor(diff / 86400) + 'd ago';
         }
 
-        function esc(str) {
-            const d = document.createElement('div');
-            d.textContent = str;
-            return d.innerHTML;
-        }
+        // esc = escapeHtml (from utilities.js)
 
         // Toggle passphrase visibility
         document.getElementById('toggle-pass').addEventListener('click', () => {
@@ -421,8 +584,7 @@
             document.getElementById('toggle-pass').style.opacity = isHidden ? '1' : '0.5';
         });
 
-        // Load on page open
-        loadTvList();
+        // Load TV list when switching to tab (handled by tab click handler)
     })();
     </script>
 </body>
