@@ -1743,65 +1743,10 @@ body.tv-nav-active *:focus {
     border-radius: 50%;
 }
 
-#player-container.tv-focus {
-    outline-offset: 4px;
-}
-
+#player-container.tv-focus,
 #player-container.tv-player-mode {
-    outline-color: #e94040;
-    box-shadow: 0 0 0 6px rgba(233, 64, 64, 0.3);
-}
-
-/* ── TV OSD overlay ───────────────────────────────────────────────────── */
-.tv-osd {
-    position: absolute;
-    bottom: 60px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    background: rgba(0, 0, 0, 0.8);
-    border-radius: 8px;
-    padding: 10px 20px;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    z-index: 100;
-    width: 80%;
-}
-
-.tv-osd.visible {
-    opacity: 1;
-}
-
-.tv-osd-icon {
-    font-size: 22px;
-    flex-shrink: 0;
-    width: 30px;
-    text-align: center;
-}
-
-.tv-osd-bar {
-    flex: 1;
-    height: 5px;
-    background: rgba(255, 255, 255, 0.25);
-    border-radius: 3px;
-    overflow: hidden;
-}
-
-.tv-osd-progress {
-    height: 100%;
-    background: #e94040;
-    border-radius: 3px;
-    transition: width 0.15s ease;
-}
-
-.tv-osd-time {
-    font-size: 13px;
-    color: #ddd;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
+    outline: none !important;
+    box-shadow: none !important;
 }
 
 /* ── TV Layout: Full 10-foot UI ──────────────────────────────────────────── */
@@ -2170,19 +2115,6 @@ body.tv-nav-active #video-grid {
     background: rgba(255,255,255,0.15);
 }
 
-/* ── SponsorBlock OSD markers ────────────────────────────────────────────── */
-.tv-osd-bar {
-    position: relative;
-}
-.sb-osd-marker {
-    position: absolute;
-    top: 0;
-    height: 100%;
-    border-radius: 2px;
-    opacity: 0.7;
-    pointer-events: none;
-}
-
 /* ── SponsorBlock Settings ───────────────────────────────────────────────── */
 .sb-settings {
     margin: 4px 0;
@@ -2224,4 +2156,217 @@ body.tv-nav-active #video-grid {
     height: 8px;
     border-radius: 50%;
     flex-shrink: 0;
+}
+
+/* ── Custom OSD (on-screen display) ───────────────────────────────────── */
+.tv-osd {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+    z-index: 40;
+}
+.tv-osd.visible {
+    opacity: 1;
+}
+.osd-play-icon {
+    font-size: 18px;
+    color: #fff;
+    flex-shrink: 0;
+    width: 24px;
+    text-align: center;
+    pointer-events: none;
+}
+.tv-osd-time {
+    font-size: 13px;
+    color: #ddd;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+    pointer-events: none;
+    user-select: none;
+}
+.tv-osd-bar {
+    flex: 1;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.25);
+    border-radius: 3px;
+    position: relative;
+    cursor: pointer;
+    pointer-events: auto;
+}
+.tv-osd-bar:hover {
+    height: 8px;
+}
+.tv-osd-progress {
+    height: 100%;
+    background: #e94040;
+    border-radius: 3px;
+    pointer-events: none;
+}
+
+/* ── OSD Right Controls (volume + expand) ────────────────────────────── */
+.osd-right-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    pointer-events: auto;
+    flex-shrink: 0;
+}
+body.tv-nav-active .osd-right-controls {
+    display: none;
+}
+.osd-ctrl-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    line-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background 0.15s;
+}
+.osd-ctrl-btn:hover {
+    background: rgba(255,255,255,0.15);
+}
+.osd-ctrl-btn svg {
+    display: block;
+}
+
+/* Volume wrap & popup */
+.osd-volume-wrap,
+.osd-expand-wrap {
+    position: relative;
+}
+.osd-volume-popup {
+    position: absolute;
+    bottom: calc(100% - 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(28,28,28,0.95);
+    border-radius: 8px;
+    padding: 14px 14px 22px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+.osd-volume-popup.open {
+    display: flex;
+}
+
+/* Vertical range slider */
+#osd-volume-slider {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    -webkit-appearance: none;
+    appearance: none;
+    width: 6px;
+    height: 100px;
+    background: rgba(255,255,255,0.25);
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+}
+#osd-volume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    cursor: pointer;
+    border: none;
+}
+#osd-volume-slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    cursor: pointer;
+    border: none;
+}
+#osd-volume-slider::-webkit-slider-runnable-track {
+    background: transparent;
+}
+#osd-volume-slider::-moz-range-track {
+    background: transparent;
+}
+
+/* Expand popup */
+.osd-expand-popup {
+    position: absolute;
+    bottom: calc(100% - 8px);
+    right: -12px;
+    background: rgba(28,28,28,0.95);
+    border-radius: 8px;
+    padding: 6px 0 14px;
+    display: none;
+    flex-direction: column;
+    min-width: 140px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+.osd-expand-popup.open {
+    display: flex;
+}
+.osd-expand-option {
+    background: none;
+    border: none;
+    color: #ddd;
+    font-size: 13px;
+    padding: 8px 16px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.osd-expand-option svg {
+    flex-shrink: 0;
+}
+.osd-expand-option:hover {
+    background: rgba(255,255,255,0.12);
+    color: #fff;
+}
+
+/* ── Theater Mode ────────────────────────────────────────────────────── */
+body.theater-mode .container {
+    max-width: 100%;
+    padding-left: 0;
+    padding-right: 0;
+}
+body.theater-mode #player-container {
+    border-radius: 0;
+    max-height: none;
+}
+body.theater-mode .video-page-layout {
+    grid-template-columns: 1fr;
+}
+body.theater-mode .video-details {
+    padding-left: 20px;
+    padding-right: 20px;
+}
+body.theater-mode .video-sidebar {
+    padding: 0 20px;
+}
+
+/* ── SponsorBlock OSD markers ─────────────────────────────────────────── */
+.sb-osd-marker {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    border-radius: 3px;
+    opacity: 0.85;
+    pointer-events: none;
+    z-index: 1;
 }

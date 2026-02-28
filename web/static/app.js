@@ -1172,7 +1172,7 @@ videoPlayer.addEventListener('timeupdate', () => {
         positionSaveTimer = setTimeout(() => {
             savePosition();
             positionSaveTimer = null;
-        }, 5000);
+        }, 2000);
     }
 });
 
@@ -1289,10 +1289,10 @@ function renderSummarizeMenu() {
             e.stopPropagation();
             summarizeMenu.classList.add('hidden');
             const opt = summarizeOptions[parseInt(el.dataset.idx)];
-            summarizeBtn.textContent = '📝 …';
+            summarizeBtn.textContent = 'TL;DW …';
             summarizeBtn.disabled = true;
             const prompt = await getSummarizePrompt();
-            summarizeBtn.textContent = '📝 AI';
+            summarizeBtn.textContent = 'TL;DW';
             summarizeBtn.disabled = false;
             if (!prompt) {
                 nativeAlert('Could not fetch transcript.');

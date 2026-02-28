@@ -20,13 +20,28 @@
         { menu: '#subtitle-menu', btn: '#subtitle-btn' },
     ];
 
-    const SEEK_SECONDS = 10;
-    const OSD_TIMEOUT = 1200;
+    const SEEK_STEPS = [10, 10, 10, 10, 10, 20, 20, 30, 30, 60];
+    const SEEK_REPEAT_MS = 500;
 
     let currentEl = null;
     let playerMode = false;
-    let osdTimer = null;
-    let osdEl = null;
+    let _osdTimer = null;
+    let _seekCount = 0;
+    let _seekDir = null;
+    let _seekResetTimer = null;
+
+    function progressiveSeek(video, dir) {
+        if (_seekDir !== dir) { _seekCount = 0; _seekDir = dir; }
+        const step = SEEK_STEPS[Math.min(_seekCount, SEEK_STEPS.length - 1)];
+        _seekCount++;
+        if (_seekResetTimer) clearTimeout(_seekResetTimer);
+        _seekResetTimer = setTimeout(() => { _seekCount = 0; _seekDir = null; }, SEEK_REPEAT_MS);
+        if (dir === 'right') {
+            video.currentTime = Math.min(video.duration || 0, video.currentTime + step);
+        } else {
+            video.currentTime = Math.max(0, video.currentTime - step);
+        }
+    }
 
     // ── Persistence & Toggle ───────────────────────────────────────────────
     const TV_KEY = 'tv-mode';
@@ -60,39 +75,6 @@
 
     function getVideo() {
         return document.getElementById('video-player');
-    }
-
-    // ── OSD ──────────────────────────────────────────────────────────────────
-    function ensureOsd() {
-        if (osdEl) return osdEl;
-        osdEl = document.createElement('div');
-        osdEl.className = 'tv-osd';
-        osdEl.innerHTML = '<div class="tv-osd-icon"></div><div class="tv-osd-bar"><div class="tv-osd-progress"></div></div><div class="tv-osd-time"></div>';
-        var pc = document.getElementById('player-container');
-        if (pc) pc.appendChild(osdEl);
-        return osdEl;
-    }
-
-    function fmt(s) {
-        if (!s || !isFinite(s)) return '0:00';
-        const h = Math.floor(s / 3600);
-        const m = Math.floor((s % 3600) / 60);
-        const sec = Math.floor(s % 60);
-        return h > 0 ? `${h}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}` : `${m}:${sec.toString().padStart(2, '0')}`;
-    }
-
-    function showOsd(icon) {
-        const video = getVideo();
-        if (!video) return;
-        const osd = ensureOsd();
-        const pct = video.duration ? (video.currentTime / video.duration) * 100 : 0;
-        osd.querySelector('.tv-osd-icon').textContent = icon;
-        osd.querySelector('.tv-osd-progress').style.width = pct + '%';
-        osd.querySelector('.tv-osd-time').textContent = `${fmt(video.currentTime)} / ${fmt(video.duration)}`;
-        osd.classList.add('visible');
-        if (_tv.refreshSbMarkers) _tv.refreshSbMarkers();
-        clearTimeout(osdTimer);
-        osdTimer = setTimeout(() => osd.classList.remove('visible'), OSD_TIMEOUT);
     }
 
     // ── Core focus management ────────────────────────────────────────────────
@@ -215,15 +197,15 @@
         switch (e.key) {
             case 'MediaPlayPause':
                 e.preventDefault(); video.paused ? video.play() : video.pause();
-                showOsd(video.paused ? '\u23F8' : '\u25B6'); return true;
+                showOsd(); return true;
             case 'MediaStop':
                 e.preventDefault(); video.pause(); history.back(); return true;
             case 'MediaFastForward': case 'MediaTrackNext':
                 e.preventDefault(); video.currentTime = Math.min(video.duration || 0, video.currentTime + 30);
-                showOsd('\u23E9'); return true;
+                showOsd(); return true;
             case 'MediaRewind': case 'MediaTrackPrevious':
                 e.preventDefault(); video.currentTime = Math.max(0, video.currentTime - 30);
-                showOsd('\u23EA'); return true;
+                showOsd(); return true;
         }
         return false;
     }
@@ -256,12 +238,31 @@
 
         const arrow = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' }[e.key];
 
-        // Not in TV mode → let browser handle everything except Escape
+        // Not in TV mode → handle seek/play keys on video, Escape for menus
         if (!isTvActive()) {
             if (e.key === 'Escape') {
-                // Escape closes menus even in desktop mode
                 const openMenu = getOpenMenu();
                 if (openMenu) { e.preventDefault(); closeMenu(openMenu); }
+            }
+            if (isVideoView()) {
+                const video = getVideo();
+                if (video) {
+                    if (e.key === 'ArrowLeft') {
+                        e.preventDefault();
+                        progressiveSeek(video, 'left');
+                        showOsd(); return;
+                    }
+                    if (e.key === 'ArrowRight') {
+                        e.preventDefault();
+                        progressiveSeek(video, 'right');
+                        showOsd(); return;
+                    }
+                    if (e.key === ' ' || e.key === 'Enter') {
+                        e.preventDefault();
+                        video.paused ? video.play() : video.pause();
+                        showOsd(); return;
+                    }
+                }
             }
             return;
         }
@@ -323,16 +324,6 @@
             const video = getVideo();
             if (!video) { exitPlayerMode(); return; }
 
-            if (e.key === 'ArrowLeft') {
-                e.preventDefault();
-                video.currentTime = Math.max(0, video.currentTime - SEEK_SECONDS);
-                showOsd('\u23EA'); return;
-            }
-            if (e.key === 'ArrowRight') {
-                e.preventDefault();
-                video.currentTime = Math.min(video.duration || 0, video.currentTime + SEEK_SECONDS);
-                showOsd('\u23E9'); return;
-            }
             if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 if (isTvActive() && isVideoView()) {
@@ -348,13 +339,27 @@
                 } else { exitPlayerMode(); }
                 return;
             }
+            if (e.key === 'Backspace' || e.key === 'BrowserBack' || e.key === 'XF86Back' || e.keyCode === 461) {
+                e.preventDefault(); handleBack(); return;
+            }
+
+            if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                progressiveSeek(video, 'left');
+                showOsd();
+                return;
+            }
+            if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                progressiveSeek(video, 'right');
+                showOsd();
+                return;
+            }
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 video.paused ? video.play() : video.pause();
-                showOsd(video.paused ? '\u23F8' : '\u25B6'); return;
-            }
-            if (e.key === 'Backspace' || e.key === 'BrowserBack' || e.key === 'XF86Back' || e.keyCode === 461) {
-                e.preventDefault(); handleBack(); return;
+                showOsd();
+                return;
             }
             return;
         }
@@ -383,10 +388,7 @@
                 if (currentEl.id === 'player-container') {
                     enterPlayerMode();
                     const video = getVideo();
-                    if (video) {
-                        video.paused ? video.play() : video.pause();
-                        showOsd(video.paused ? '\u23F8' : '\u25B6');
-                    }
+                    if (video) { video.paused ? video.play() : video.pause(); showOsd(); }
                     return;
                 }
                 currentEl.click();
@@ -429,6 +431,262 @@
         document.body.classList.add('tv-nav-active');
     }
 
+    // ── OSD (custom on-screen display) ──────────────────────────────────────
+    function formatTime(s) {
+        if (!isFinite(s)) return '0:00';
+        s = Math.floor(s);
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        const sec = s % 60;
+        return h > 0
+            ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+            : m + ':' + String(sec).padStart(2, '0');
+    }
+
+    function updateOsd() {
+        const video = getVideo();
+        const osd = document.getElementById('tv-osd');
+        if (!video || !osd) return;
+        const cur = video.currentTime || 0;
+        const dur = video.duration || 0;
+        document.getElementById('osd-current').textContent = formatTime(cur);
+        document.getElementById('osd-total').textContent = formatTime(dur);
+        const pct = dur > 0 ? (cur / dur) * 100 : 0;
+        document.getElementById('osd-progress').style.width = pct + '%';
+        const icon = document.getElementById('osd-play-icon');
+        if (icon) icon.innerHTML = video.paused ? '&#9654;' : '&#9646;&#9646;';
+    }
+
+    function isOsdPopupOpen() {
+        const vp = document.getElementById('osd-volume-popup');
+        const ep = document.getElementById('osd-expand-popup');
+        return (vp && vp.classList.contains('open')) || (ep && ep.classList.contains('open'));
+    }
+
+    function showOsd() {
+        const osd = document.getElementById('tv-osd');
+        if (!osd) return;
+        updateOsd();
+        osd.classList.add('visible');
+        if (_osdTimer) clearTimeout(_osdTimer);
+        if (!isOsdPopupOpen()) {
+            _osdTimer = setTimeout(() => {
+                if (!isOsdPopupOpen()) {
+                    osd.classList.remove('visible');
+                }
+                _osdTimer = null;
+            }, 2000);
+        }
+        // notify SponsorBlock to refresh markers
+        if (typeof window.refreshSbMarkers === 'function') window.refreshSbMarkers();
+    }
+
+    function hideOsd() {
+        const osd = document.getElementById('tv-osd');
+        if (osd) osd.classList.remove('visible');
+        if (_osdTimer) { clearTimeout(_osdTimer); _osdTimer = null; }
+    }
+
+    // Click-to-seek on progress bar
+    const osdBar = document.getElementById('osd-bar');
+    if (osdBar) {
+        osdBar.addEventListener('click', function (e) {
+            const video = getVideo();
+            if (!video || !video.duration) return;
+            const rect = osdBar.getBoundingClientRect();
+            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            video.currentTime = pct * video.duration;
+            showOsd();
+        });
+    }
+
+    // ── Volume control ────────────────────────────────────────────────────
+    const VOL_ICONS = {
+        loud: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>',
+        mid:  '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>',
+        low:  '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>',
+        mute: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>'
+    };
+    let _savedVolume = 1;
+
+    function volIcon(level) {
+        const svg = document.getElementById('osd-vol-icon');
+        if (svg) svg.innerHTML = VOL_ICONS[level];
+    }
+
+    function updateVolIcon(v) {
+        if (v === 0) volIcon('mute');
+        else if (v < 0.33) volIcon('low');
+        else if (v < 0.66) volIcon('mid');
+        else volIcon('loud');
+    }
+
+    const volSlider = document.getElementById('osd-volume-slider');
+    const volBtn = document.getElementById('osd-volume-btn');
+    const volPopup = document.getElementById('osd-volume-popup');
+    const volWrap = document.querySelector('.osd-volume-wrap');
+
+    // Show/hide volume popup on hover with grace period
+    let _volLeaveTimer = null;
+    if (volWrap && volPopup) {
+        volWrap.addEventListener('mouseenter', () => {
+            if (_volLeaveTimer) { clearTimeout(_volLeaveTimer); _volLeaveTimer = null; }
+            volPopup.classList.add('open');
+            showOsd();
+        });
+        volWrap.addEventListener('mouseleave', () => {
+            _volLeaveTimer = setTimeout(() => {
+                volPopup.classList.remove('open');
+                _volLeaveTimer = null;
+                showOsd();
+            }, 300);
+        });
+    }
+
+    if (volSlider) {
+        volSlider.addEventListener('input', () => {
+            const video = getVideo();
+            if (!video) return;
+            const val = parseInt(volSlider.value, 10) / 100;
+            video.volume = val;
+            video.muted = val === 0;
+            updateVolIcon(val);
+            showOsd();
+        });
+    }
+    if (volBtn) {
+        volBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const video = getVideo();
+            if (!video) return;
+            if (video.muted || video.volume === 0) {
+                video.muted = false;
+                video.volume = _savedVolume || 0.5;
+                if (volSlider) volSlider.value = Math.round(video.volume * 100);
+                updateVolIcon(video.volume);
+            } else {
+                _savedVolume = video.volume;
+                video.muted = true;
+                if (volSlider) volSlider.value = 0;
+                volIcon('mute');
+            }
+            showOsd();
+        });
+    }
+
+    // Sync slider when video loads
+    const _videoEl = getVideo();
+    if (_videoEl) {
+        _videoEl.addEventListener('volumechange', () => {
+            const v = _videoEl.muted ? 0 : _videoEl.volume;
+            if (volSlider) volSlider.value = Math.round(v * 100);
+            updateVolIcon(v);
+        });
+    }
+
+    // ── Expand menu (normal / theater / fullscreen — show 2 of 3) ──────
+    const expandBtn = document.getElementById('osd-expand-btn');
+    const expandPopup = document.getElementById('osd-expand-popup');
+    const expandWrap = document.querySelector('.osd-expand-wrap');
+    let _expandLeaveTimer = null;
+
+    // Pipeline: normal ↔ theater (2 options each), fullscreen → exit (returns to previous)
+    let _preFsMode = 'normal'; // remembers normal/theater before entering fullscreen
+
+    function updateExpandOptions() {
+        if (!expandPopup) return;
+        const isFs = !!document.fullscreenElement;
+        const isTheater = document.body.classList.contains('theater-mode');
+        expandPopup.querySelectorAll('.osd-expand-option').forEach(opt => {
+            const a = opt.dataset.action;
+            if (isFs) {
+                // In fullscreen: only show "Exit Fullscreen"
+                opt.style.display = a === 'exit-fs' ? '' : 'none';
+            } else if (isTheater) {
+                // In theater: show normal + fullscreen
+                opt.style.display = (a === 'normal' || a === 'fullscreen') ? '' : 'none';
+            } else {
+                // In normal: show theater + fullscreen
+                opt.style.display = (a === 'theater' || a === 'fullscreen') ? '' : 'none';
+            }
+        });
+    }
+
+    if (expandWrap && expandPopup) {
+        expandWrap.addEventListener('mouseenter', () => {
+            if (_expandLeaveTimer) { clearTimeout(_expandLeaveTimer); _expandLeaveTimer = null; }
+            updateExpandOptions();
+            expandPopup.classList.add('open');
+            showOsd();
+        });
+        expandWrap.addEventListener('mouseleave', () => {
+            _expandLeaveTimer = setTimeout(() => {
+                expandPopup.classList.remove('open');
+                _expandLeaveTimer = null;
+                showOsd();
+            }, 300);
+        });
+    }
+
+    // ESC or browser exit from fullscreen → restore previous mode
+    document.addEventListener('fullscreenchange', () => {
+        if (!document.fullscreenElement) {
+            // Returned from fullscreen — restore previous mode
+            if (_preFsMode === 'theater') {
+                document.body.classList.add('theater-mode');
+            } else {
+                document.body.classList.remove('theater-mode');
+            }
+        }
+    });
+
+    document.querySelectorAll('.osd-expand-option').forEach(opt => {
+        opt.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const action = opt.dataset.action;
+            const pc = document.getElementById('player-container');
+            if (action === 'normal') {
+                document.body.classList.remove('theater-mode');
+            } else if (action === 'theater') {
+                document.body.classList.add('theater-mode');
+            } else if (action === 'fullscreen') {
+                // Remember current mode before going fullscreen
+                _preFsMode = document.body.classList.contains('theater-mode') ? 'theater' : 'normal';
+                if (pc) pc.requestFullscreen().catch(() => {});
+            } else if (action === 'exit-fs') {
+                if (document.fullscreenElement) document.exitFullscreen();
+                // fullscreenchange handler restores _preFsMode
+            }
+            expandPopup.classList.remove('open');
+            showOsd();
+        });
+    });
+
+    // Mouse move on player-container → show OSD
+    const pcEl = document.getElementById('player-container');
+    if (pcEl) {
+        pcEl.addEventListener('mousemove', () => {
+            if (isVideoView()) showOsd();
+        });
+        // Click on video toggles play/pause + shows OSD
+        pcEl.addEventListener('click', (e) => {
+            if (e.target.closest('.tv-osd-bar') || e.target.closest('.sb-toast') || e.target.closest('.osd-right-controls')) return;
+            const video = getVideo();
+            if (!video || !isVideoView()) return;
+            video.paused ? video.play() : video.pause();
+            showOsd();
+        });
+    }
+
+    // Update OSD progress while visible
+    const videoEl = getVideo();
+    if (videoEl) {
+        videoEl.addEventListener('timeupdate', () => {
+            const osd = document.getElementById('tv-osd');
+            if (osd && osd.classList.contains('visible')) updateOsd();
+        });
+    }
+
     // ── Namespace exports ────────────────────────────────────────────────────
     _tv.setFocus = setFocus;
     _tv.getCurrentEl = () => currentEl;
@@ -436,4 +694,6 @@
     _tv.isVideoView = isVideoView;
     _tv.isTvActive = isTvActive;
     _tv.toggleTvMode = toggleTvMode;
+    _tv.showOsd = showOsd;
+    _tv.hideOsd = hideOsd;
 })();

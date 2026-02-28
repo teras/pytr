@@ -74,7 +74,6 @@
             const data = await resp.json();
             _segments = data.segments || [];
             _highlight = data.highlight || null;
-            _renderOsdMarkers();
         } catch (e) {}
     }
 
@@ -86,7 +85,6 @@
         _isAutoSeek = false;
         if (_skipTimer) { clearTimeout(_skipTimer); _skipTimer = null; }
         _dismissToast();
-        _clearOsdMarkers();
     }
 
     // ── Skip logic ───────────────────────────────────────────────────────────
@@ -202,39 +200,6 @@
         }
     }
 
-    // ── TV OSD markers ───────────────────────────────────────────────────────
-
-    function _renderOsdMarkers() {
-        _clearOsdMarkers();
-        const bar = document.querySelector('.tv-osd-bar');
-        if (!bar) return;
-        const video = document.getElementById('video-player');
-        if (!video || !video.duration) {
-            // Retry once duration is known
-            video && video.addEventListener('durationchange', function _retry() {
-                video.removeEventListener('durationchange', _retry);
-                _renderOsdMarkers();
-            });
-            return;
-        }
-        const dur = video.duration;
-        for (const seg of _segments) {
-            if (!_isCategoryEnabled(seg.category)) continue;
-            const left = (seg.segment[0] / dur) * 100;
-            const width = Math.max(((seg.segment[1] - seg.segment[0]) / dur) * 100, 0.3);
-            const marker = document.createElement('div');
-            marker.className = 'sb-osd-marker';
-            marker.style.left = left + '%';
-            marker.style.width = width + '%';
-            marker.style.background = CATEGORY_COLORS[seg.category] || '#888';
-            bar.appendChild(marker);
-        }
-    }
-
-    function _clearOsdMarkers() {
-        document.querySelectorAll('.sb-osd-marker').forEach(el => el.remove());
-    }
-
     // ── Timeupdate hook ──────────────────────────────────────────────────────
 
     function checkSponsorBlock(currentTime) {
@@ -323,6 +288,39 @@
         } catch (e) {}
     }
 
+    // ── OSD Markers ─────────────────────────────────────────────────────────
+
+    function _renderOsdMarkers() {
+        _clearOsdMarkers();
+        const bar = document.getElementById('osd-bar');
+        const video = document.getElementById('video-player');
+        if (!bar || !video || !video.duration || !_segments.length) return;
+        const dur = video.duration;
+        for (const seg of _segments) {
+            if (!_isCategoryEnabled(seg.category)) continue;
+            const start = seg.segment[0];
+            const end = seg.segment[1];
+            const left = (start / dur) * 100;
+            const width = ((end - start) / dur) * 100;
+            const marker = document.createElement('div');
+            marker.className = 'sb-osd-marker';
+            marker.style.left = left + '%';
+            marker.style.width = Math.max(width, 0.3) + '%';
+            marker.style.background = CATEGORY_COLORS[seg.category] || '#888';
+            bar.appendChild(marker);
+        }
+    }
+
+    function _clearOsdMarkers() {
+        const bar = document.getElementById('osd-bar');
+        if (!bar) return;
+        bar.querySelectorAll('.sb-osd-marker').forEach(el => el.remove());
+    }
+
+    function refreshSbMarkers() {
+        if (_segments.length && _prefs && _prefs.enabled) _renderOsdMarkers();
+    }
+
     // ── Public API ───────────────────────────────────────────────────────────
 
     window.initSponsorBlock = initSponsorBlock;
@@ -332,7 +330,6 @@
     window.seekToHighlight = seekToHighlight;
     window.buildSponsorBlockSettings = buildSponsorBlockSettings;
     window.attachSponsorBlockSettingsListeners = attachSponsorBlockSettingsListeners;
+    window.refreshSbMarkers = refreshSbMarkers;
 
-    // Expose for TV OSD marker refresh
-    if (window._tv) window._tv.refreshSbMarkers = _renderOsdMarkers;
 })();

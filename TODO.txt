@@ -49,6 +49,17 @@ Section 3: Video playback pipeline
 Section 4: Future tasks
 ------------------------
 
+[ ] Send cookies with subtitle fetch (routes/video.py:133)
+    http_client.get(sub_info['url']) sends no cookies → YouTube 429s.
+    Parse data/cookies.txt (Netscape format) and pass Cookie header.
+    See Section 2 above: all httpx calls are cookie-free — this is the first to fix.
+
+[ ] Fix auto-caption positioning without breaking karaoke (subtitles.js)
+    YouTube auto-VTT has align:start position:0% → sticks to left edge.
+    Current fix (commit d4476af) resets to align:center position:auto → kills
+    karaoke word-by-word reveal (<c> tags need align:start in Firefox).
+    Need CSS-based approach or only reset position without touching align.
+
 [ ] Multi-client identity rotation (SmartTube-style)
     SmartTube tries ~12 YouTube client identities (WEB_EMBED, ANDROID_REEL, TV, etc.)
     WEB_EMBEDDED_PLAYER bypasses most age gates without cookies.
