@@ -115,7 +115,11 @@ def _dedup_by_height(fmts: list) -> list:
             pass  # Keep existing SDR
         elif (fmt.get('tbr') or 0) > (existing.get('tbr') or 0):
             best[h] = fmt
-    return sorted(best.values(), key=lambda f: f.get('height', 0))
+    result = sorted(best.values(), key=lambda f: f.get('height', 0))
+    # Below HD (720p), keep only the highest resolution
+    hd = [f for f in result if f.get('height', 0) >= 720]
+    sd = [f for f in result if f.get('height', 0) < 720]
+    return ([sd[-1]] if sd else []) + hd
 
 
 # ── DASH manifest endpoint ───────────────────────────────────────────────────
@@ -162,7 +166,7 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
 
         if has_video and not has_audio:
             height = fmt.get('height') or 0
-            if height < 360 or fmt.get('ext') not in _VIDEO_EXTS:
+            if fmt.get('ext') not in _VIDEO_EXTS:
                 continue
             c = _container_of(fmt)
             video_by_container.setdefault(c, []).append(fmt)
