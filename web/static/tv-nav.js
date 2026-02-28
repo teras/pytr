@@ -12,7 +12,7 @@
     _tv.navigateTopOverlay = () => 'exit';
     _tv.navigateBottomOverlay = () => false;
 
-    const FOCUSABLE = '.video-card, .related-card, .queue-item, .player-btn, .filter-btn, .list-tab, .channel-tab, .profile-card, #search-input, #search-btn, #logo-link, #profile-switcher-btn, #player-container, .quality-option, .audio-option, .subtitle-option, .summarize-option, .profile-menu-item, .queue-toggle-area, .tv-top-home-btn';
+    const FOCUSABLE = '.video-card, .related-card, .queue-item, .player-btn, .filter-btn, .list-tab, .channel-tab, .profile-card, #search-input, #search-btn, #logo-link, #profile-switcher-btn, #player-container, .quality-option, .audio-option, .subtitle-option, .summarize-option, .profile-menu-item, .profile-menu-profile, .queue-toggle-area, .tv-top-home-btn';
 
     const MENU_SELECTORS = [
         { menu: '#quality-menu', btn: '#quality-btn' },
@@ -172,6 +172,11 @@
     function getOpenProfileMenu() {
         const menu = document.querySelector('.profile-menu');
         return menu && menu.offsetParent ? menu : null;
+    }
+
+    function closeProfileMenu() {
+        const btn = document.getElementById('profile-switcher-btn');
+        if (btn) { btn.click(); setFocus(btn); }
     }
 
     // ── Back handler ─────────────────────────────────────────────────────────
@@ -360,6 +365,26 @@
                 video.paused ? video.play() : video.pause();
                 showOsd();
                 return;
+            }
+            return;
+        }
+
+        // ── Profile menu navigation (constrained) ──────────────────────
+        const profMenu = getOpenProfileMenu();
+        if (profMenu && arrow) {
+            e.preventDefault();
+            const items = [...profMenu.querySelectorAll('.profile-menu-profile, .profile-menu-item')].filter(isVisible);
+            const idx = items.indexOf(currentEl);
+            if (arrow === 'up') {
+                if (idx > 0) { setFocus(items[idx - 1]); }
+                else { closeProfileMenu(); }
+            } else if (arrow === 'down') {
+                if (idx === -1) { if (items.length) setFocus(items[0]); }
+                else if (idx < items.length - 1) { setFocus(items[idx + 1]); }
+                else { closeProfileMenu(); }
+            } else {
+                // left/right close profile menu
+                closeProfileMenu();
             }
             return;
         }

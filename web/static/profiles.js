@@ -84,7 +84,7 @@ function applyProfilePrefs() {
 function updateProfileButton() {
     if (!currentProfile || !profileSwitcherBtn) return;
     const display = currentProfile.avatar_emoji || currentProfile.name.charAt(0).toUpperCase();
-    profileSwitcherBtn.innerHTML = `<span class="profile-avatar-small" style="background:${currentProfile.avatar_color};color:${emojiColor(currentProfile.avatar_color)}">${display}</span>`;
+    profileSwitcherBtn.innerHTML = `<span class="avatar-base profile-avatar-small" style="background:${currentProfile.avatar_color};color:${emojiColor(currentProfile.avatar_color)}">${display}</span>`;
     profileSwitcherBtn.classList.remove('hidden');
 }
 
@@ -97,7 +97,7 @@ function showProfileSelector(profiles) {
             <div class="profile-cards">
                 ${profiles.map(p => `
                     <div class="profile-card" data-id="${p.id}" data-has-pin="${p.has_pin}">
-                        <div class="profile-avatar" style="background:${p.avatar_color};color:${emojiColor(p.avatar_color)}">
+                        <div class="avatar-base profile-avatar" style="background:${p.avatar_color};color:${emojiColor(p.avatar_color)}">
                             ${p.avatar_emoji || escapeHtml(p.name.charAt(0).toUpperCase())}
                         </div>
                         <div class="profile-name">${escapeHtml(p.name)}</div>
@@ -587,25 +587,26 @@ if (profileSwitcherBtn) {
         const profileItems = otherProfiles.map(p => {
             const display = p.avatar_emoji || escapeHtml(p.name.charAt(0).toUpperCase());
             return `<div class="profile-menu-profile" data-id="${p.id}" data-has-pin="${p.has_pin}">
-                <span class="profile-menu-avatar" style="background:${p.avatar_color};color:${emojiColor(p.avatar_color)}">${display}</span>
+                <span class="avatar-base profile-menu-avatar" style="background:${p.avatar_color};color:${emojiColor(p.avatar_color)}">${display}</span>
                 <span>${escapeHtml(p.name)}</span>
             </div>`;
         }).join('');
 
+        const isTv = document.body.classList.contains('tv-nav-active');
         profileMenu.innerHTML = `
             ${profileItems}
             ${otherProfiles.length ? '<div class="profile-menu-divider"></div>' : ''}
-            <div class="profile-menu-item" data-action="edit-profile">Edit profile</div>
-            ${isAdmin ? '<div class="profile-menu-item" data-action="settings">Options</div>' : ''}
+            ${!isTv ? '<div class="profile-menu-item" data-action="edit-profile">Edit profile</div>' : ''}
+            ${isAdmin && !isTv ? '<div class="profile-menu-item" data-action="settings">Options</div>' : ''}
             <div class="profile-menu-item" data-action="tv-mode">${document.body.classList.contains('tv-nav-active') ? 'Desktop Mode' : 'TV Mode'}</div>
-            <div class="cookie-toggle-row">
+            ${!isTv ? `<div class="cookie-toggle-row">
                 <span class="cookie-toggle-label">Cookies</span>
                 <div class="cookie-toggle-btns" data-action="cookie-toggle">
                     <button class="cookie-btn${getCookieMode() === 'off' ? ' active' : ''}" data-mode="off">Off</button>
                     <button class="cookie-btn${getCookieMode() === 'auto' ? ' active' : ''}" data-mode="auto">Auto</button>
                     <button class="cookie-btn${getCookieMode() === 'on' ? ' active' : ''}" data-mode="on">On</button>
                 </div>
-            </div>
+            </div>` : ''}
             <div class="profile-menu-divider"></div>
             <div class="profile-menu-item profile-menu-logout" data-action="logout">Logout ${escapeHtml(currentProfile.name)}</div>
         `;
@@ -614,6 +615,12 @@ if (profileSwitcherBtn) {
         profileMenu.style.top = (rect.bottom + 4) + 'px';
         profileMenu.style.right = (window.innerWidth - rect.right) + 'px';
         profileMenu.classList.remove('hidden');
+
+        // Auto-focus first item in TV mode
+        if (isTv && window._tv) {
+            const firstItem = profileMenu.querySelector('.profile-menu-profile, .profile-menu-item');
+            if (firstItem) window._tv.setFocus(firstItem);
+        }
 
         // Profile switch click handlers
         profileMenu.querySelectorAll('.profile-menu-profile').forEach(item => {
@@ -741,7 +748,7 @@ async function showSettingsModal() {
                 const display = p.avatar_emoji || escapeHtml(p.name.charAt(0).toUpperCase());
                 const deleteBtn = !p.is_admin ? `<button type="button" class="settings-profile-delete" data-id="${p.id}" title="Delete">×</button>` : '';
                 return `<div class="settings-profile-row">
-                    <span class="profile-menu-avatar" style="background:${p.avatar_color};color:${emojiColor(p.avatar_color)}">${display}</span>
+                    <span class="avatar-base profile-menu-avatar" style="background:${p.avatar_color};color:${emojiColor(p.avatar_color)}">${display}</span>
                     <span class="settings-profile-name">${escapeHtml(p.name)}${p.is_admin ? ' <span class="settings-hint">(admin)</span>' : ''}</span>
                     ${deleteBtn}
                 </div>`;

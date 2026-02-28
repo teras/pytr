@@ -6,10 +6,29 @@
     box-sizing: border-box;
 }
 
+:root {
+    --color-bg-page: #0f0f0f;
+    --color-bg-surface: #1a1a1a;
+    --color-bg-elevated: #212121;
+    --color-bg-button: #303030;
+    --color-bg-button-hover: #3f3f3f;
+    --color-bg-hover: #252525;
+    --color-bg-input: #121212;
+    --color-text: #f1f1f1;
+    --color-text-muted: #aaa;
+    --color-text-subtle: #717171;
+    --color-accent: #3ea6ff;
+    --color-brand: #cc0000;
+    --color-danger: #ff4444;
+    --color-border: #3a3a3a;
+    --color-border-control: #303030;
+    --shadow-dropdown: 0 4px 12px rgba(0,0,0,0.4);
+}
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background-color: #0f0f0f;
-    color: #f1f1f1;
+    background-color: var(--color-bg-page);
+    color: var(--color-text);
     min-height: 100vh;
 }
 
@@ -34,7 +53,7 @@ header {
     padding: 0;
     background: none;
     border: none;
-    color: #f1f1f1;
+    color: var(--color-text);
     font-size: 13px;
     cursor: pointer;
     transition: background-color 0.2s;
@@ -46,15 +65,18 @@ header {
     opacity: 0.8;
 }
 
-.profile-avatar-small {
+.avatar-base {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    border-radius: 50%;
+    line-height: 1;
+}
+
+.profile-avatar-small {
     width: 46px;
     height: 46px;
-    border-radius: 50%;
     font-size: 30px;
-    line-height: 1;
     font-weight: 600;
     color: #fff;
 }
@@ -76,26 +98,26 @@ h1 {
     flex: 1;
     padding: 12px 16px;
     font-size: 16px;
-    border: 1px solid #303030;
+    border: 1px solid var(--color-border-control);
     border-radius: 20px;
-    background-color: #121212;
-    color: #f1f1f1;
+    background-color: var(--color-bg-input);
+    color: var(--color-text);
     outline: none;
 }
 
 #search-input:focus {
-    border-color: #3ea6ff;
+    border-color: var(--color-accent);
 }
 
 #search-input::placeholder {
-    color: #717171;
+    color: var(--color-text-subtle);
 }
 
 #search-btn {
     padding: 12px 24px;
     font-size: 16px;
-    background-color: #303030;
-    color: #f1f1f1;
+    background-color: var(--color-bg-button);
+    color: var(--color-text);
     border: none;
     border-radius: 20px;
     cursor: pointer;
@@ -103,7 +125,7 @@ h1 {
 }
 
 #search-btn:hover {
-    background-color: #3f3f3f;
+    background-color: var(--color-bg-button-hover);
 }
 
 /* List Header (for channel pages) */
@@ -117,7 +139,7 @@ h1 {
 #list-header h2 {
     font-size: 1.4rem;
     font-weight: 500;
-    color: #f1f1f1;
+    color: var(--color-text);
 }
 
 /* Shared tab bar (channel tabs, list tabs) */
@@ -166,7 +188,7 @@ h1 {
 }
 
 #clear-list-btn:hover {
-    color: #ff4444;
+    color: var(--color-danger);
     background-color: rgba(255, 68, 68, 0.1);
 }
 
@@ -174,14 +196,14 @@ h1 {
 .channel-link {
     font-size: 14px;
     font-weight: 500;
-    color: #f1f1f1;
+    color: var(--color-text);
     text-decoration: none;
     display: inline-block;
     cursor: pointer;
 }
 
 .channel-link:hover {
-    color: #aaa;
+    color: var(--color-text-muted);
     text-decoration: underline;
 }
 
@@ -193,7 +215,7 @@ h1 {
 }
 
 .video-card {
-    background-color: #1a1a1a;
+    background-color: var(--color-bg-surface);
     border-radius: 12px;
     overflow: hidden;
     cursor: pointer;
@@ -205,7 +227,7 @@ h1 {
 
 .video-card:hover {
     transform: translateY(-4px);
-    background-color: #252525;
+    background-color: var(--color-bg-hover);
 }
 
 .thumbnail-container {
@@ -248,11 +270,11 @@ h1 {
 
 .channel {
     font-size: 13px;
-    color: #aaa;
+    color: var(--color-text-muted);
 }
 
 .video-published {
-    color: #717171;
+    color: var(--color-text-subtle);
 }
 
 #live-badge {
@@ -260,8 +282,8 @@ h1 {
     font-weight: 700;
     padding: 4px 12px;
     border-radius: 4px;
-    border: 2px solid #ff4444;
-    color: #ff4444;
+    border: 2px solid var(--color-danger);
+    color: var(--color-danger);
     background: transparent;
     cursor: pointer;
     flex-shrink: 0;
@@ -269,9 +291,9 @@ h1 {
 }
 
 #live-badge.live-edge {
-    background: #ff4444;
+    background: var(--color-danger);
     color: #fff;
-    border-color: #ff4444;
+    border-color: var(--color-danger);
 }
 
 #live-badge.live-behind {
@@ -281,7 +303,7 @@ h1 {
 }
 
 .duration.live {
-    background-color: #cc0000;
+    background-color: var(--color-brand);
     color: #fff;
     font-weight: 600;
 }
@@ -329,8 +351,8 @@ h1 {
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    border: 3px solid #ff4444;
-    color: #ff4444;
+    border: 3px solid var(--color-danger);
+    color: var(--color-danger);
     font-size: 28px;
     font-weight: 700;
     display: flex;
@@ -353,8 +375,8 @@ h1 {
     padding: 8px 24px;
     font-size: 14px;
     font-weight: 500;
-    background-color: #303030;
-    color: #f1f1f1;
+    background-color: var(--color-bg-button);
+    color: var(--color-text);
     border: none;
     border-radius: 20px;
     cursor: pointer;
@@ -362,7 +384,7 @@ h1 {
 }
 
 .player-error-retry:hover {
-    background-color: #3f3f3f;
+    background-color: var(--color-bg-button-hover);
 }
 
 .video-details {
@@ -387,13 +409,13 @@ h1 {
     flex-shrink: 0;
     font-size: 14px;
     font-weight: 500;
-    color: #f1f1f1;
+    color: var(--color-text);
     text-decoration: none;
     white-space: nowrap;
 }
 
 .youtube-link:hover {
-    color: #aaa;
+    color: var(--color-text-muted);
     text-decoration: underline;
 }
 
@@ -412,7 +434,7 @@ h1 {
 
 #video-meta {
     font-size: 13px;
-    color: #aaa;
+    color: var(--color-text-muted);
     margin-top: 8px;
 }
 
@@ -442,7 +464,7 @@ h1 {
 }
 
 .player-btn:hover:not(:disabled) {
-    background-color: #303030;
+    background-color: var(--color-bg-button);
 }
 
 .player-btn:disabled {
@@ -459,15 +481,15 @@ h1 {
     top: 100%;
     right: 0;
     margin-top: 4px;
-    background-color: #212121;
-    border: 1px solid #3a3a3a;
+    background-color: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
     padding: 6px 0;
     min-width: 120px;
     max-height: 320px;
     overflow-y: auto;
     z-index: 100;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    box-shadow: var(--shadow-dropdown);
 }
 
 .quality-option,
@@ -476,7 +498,7 @@ h1 {
 .summarize-option {
     padding: 8px 14px;
     font-size: 13px;
-    color: #f1f1f1;
+    color: var(--color-text);
     cursor: pointer;
     transition: background-color 0.15s;
     white-space: nowrap;
@@ -486,7 +508,7 @@ h1 {
 .audio-option:hover,
 .subtitle-option:hover,
 .summarize-option:hover {
-    background-color: #303030;
+    background-color: var(--color-bg-button);
 }
 
 .quality-option.selected,
@@ -500,7 +522,7 @@ h1 {
 .video-description {
     margin-bottom: 16px;
     padding: 12px 16px;
-    background-color: #1a1a1a;
+    background-color: var(--color-bg-surface);
     border-radius: 12px;
     font-size: 14px;
     line-height: 1.6;
@@ -510,7 +532,7 @@ h1 {
 }
 
 .video-description a {
-    color: #3ea6ff;
+    color: var(--color-accent);
     text-decoration: none;
 }
 
@@ -519,7 +541,7 @@ h1 {
 }
 
 .video-description .timestamp-link {
-    color: #3ea6ff;
+    color: var(--color-accent);
     cursor: pointer;
     font-weight: 500;
 }
@@ -536,7 +558,7 @@ h1 {
 .video-sidebar h3 {
     font-size: 14px;
     font-weight: 500;
-    color: #aaa;
+    color: var(--color-text-muted);
     margin-bottom: 16px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -588,7 +610,7 @@ h1 {
 
 .related-card .related-channel {
     font-size: 12px;
-    color: #aaa;
+    color: var(--color-text-muted);
     margin-bottom: 2px;
 }
 
@@ -658,10 +680,10 @@ h1 {
     display: flex;
     align-items: center;
     gap: 0;
-    background: #1a1a1a;
+    background: var(--color-bg-surface);
     border-radius: 8px;
     overflow: hidden;
-    border: 1px solid #303030;
+    border: 1px solid var(--color-border-control);
 }
 
 .filter-btn {
@@ -677,8 +699,8 @@ h1 {
 }
 
 .filter-btn.active {
-    background: #303030;
-    color: #f1f1f1;
+    background: var(--color-bg-button);
+    color: var(--color-text);
 }
 
 .filter-btn:hover:not(.active) {
@@ -688,8 +710,8 @@ h1 {
 /* Queue Section */
 #queue-section {
     margin-bottom: 20px;
-    background: #1a1a1a;
-    border: 1px solid #303030;
+    background: var(--color-bg-surface);
+    border: 1px solid var(--color-border-control);
     border-radius: 12px;
     overflow: hidden;
 }
@@ -697,8 +719,8 @@ h1 {
 .queue-header {
     display: flex;
     align-items: stretch;
-    background: #212121;
-    border-bottom: 1px solid #303030;
+    background: var(--color-bg-elevated);
+    border-bottom: 1px solid var(--color-border-control);
 }
 
 .queue-toggle-area {
@@ -719,7 +741,7 @@ h1 {
 .queue-header h3 {
     font-size: 13px;
     font-weight: 500;
-    color: #f1f1f1;
+    color: var(--color-text);
     margin: 0;
     text-transform: none;
     letter-spacing: 0;
@@ -746,14 +768,14 @@ h1 {
     justify-content: center;
     padding: 0 14px;
     cursor: pointer;
-    color: #aaa;
+    color: var(--color-text-muted);
     font-size: 18px;
     transition: all 0.15s;
     flex-shrink: 0;
 }
 
 .queue-close-area:hover {
-    background: #303030;
+    background: var(--color-bg-button);
     color: #fff;
 }
 
@@ -783,7 +805,7 @@ h1 {
 
 .queue-item.active {
     background: #272727;
-    border-left: 3px solid #cc0000;
+    border-left: 3px solid var(--color-brand);
     padding-left: 5px;
 }
 
@@ -796,7 +818,7 @@ h1 {
 }
 
 .queue-item.active .queue-item-index {
-    color: #cc0000;
+    color: var(--color-brand);
     font-weight: 600;
 }
 
@@ -823,7 +845,7 @@ h1 {
     font-size: 12px;
     font-weight: 500;
     line-height: 1.3;
-    color: #f1f1f1;
+    color: var(--color-text);
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
@@ -841,7 +863,7 @@ h1 {
     display: flex;
     gap: 0;
     margin-bottom: 20px;
-    border-bottom: 1px solid #303030;
+    border-bottom: 1px solid var(--color-border-control);
 }
 
 .channel-tab,
@@ -864,8 +886,8 @@ h1 {
 
 .channel-tab.active,
 .list-tab.active {
-    color: #f1f1f1;
-    border-bottom-color: #f1f1f1;
+    color: var(--color-text);
+    border-bottom-color: var(--color-text);
 }
 
 .channel-tab:hover:not(.active),
@@ -908,13 +930,13 @@ h1 {
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: #252525;
+    background-color: var(--color-bg-hover);
 }
 
 .loading-card .loading-spinner {
     width: 40px;
     height: 40px;
-    border: 3px solid #303030;
+    border: 3px solid var(--color-border-control);
     border-top-color: #ff0000;
     border-radius: 50%;
     animation: spin 1s linear infinite;
@@ -922,7 +944,7 @@ h1 {
 
 .skeleton-text {
     height: 14px;
-    background: linear-gradient(90deg, #252525 25%, #303030 50%, #252525 75%);
+    background: linear-gradient(90deg, var(--color-bg-hover) 25%, var(--color-bg-button) 50%, var(--color-bg-hover) 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
     border-radius: 4px;
@@ -942,11 +964,11 @@ h1 {
 #no-results {
     text-align: center;
     padding: 60px 20px;
-    color: #717171;
+    color: var(--color-text-subtle);
 }
 
 .error {
-    color: #ff4444;
+    color: var(--color-danger);
     text-align: center;
     padding: 40px;
 }
@@ -965,7 +987,7 @@ h1 {
 .loading-more .loading-spinner {
     width: 30px;
     height: 30px;
-    border: 3px solid #303030;
+    border: 3px solid var(--color-border-control);
     border-top-color: #ff0000;
     border-radius: 50%;
     animation: spin 1s linear infinite;
@@ -978,7 +1000,7 @@ h1 {
     left: 0;
     right: 0;
     bottom: 0;
-    background-color: #0f0f0f;
+    background-color: var(--color-bg-page);
     z-index: 9999;
     display: flex;
     align-items: center;
@@ -995,7 +1017,7 @@ h1 {
     font-size: 2rem;
     font-weight: 500;
     margin-bottom: 40px;
-    color: #f1f1f1;
+    color: var(--color-text);
 }
 
 .profile-cards {
@@ -1019,61 +1041,28 @@ h1 {
 }
 
 .profile-card:hover {
-    background-color: #1a1a1a;
+    background-color: var(--color-bg-surface);
     transform: scale(1.05);
 }
 
 .profile-avatar {
     width: 120px;
     height: 120px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     font-size: 70px;
-    line-height: 1;
     font-weight: 600;
-}
-
-.profile-avatar-add {
-    background-color: #303030 !important;
-    font-size: 48px;
-    font-weight: 300;
 }
 
 .profile-name {
     font-size: 14px;
-    color: #aaa;
+    color: var(--color-text-muted);
 }
 
 .profile-pin-icon {
     font-size: 10px;
-    color: #717171;
+    color: var(--color-text-subtle);
     background: #272727;
     padding: 2px 6px;
     border-radius: 4px;
-}
-
-.profile-delete-btn {
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    border: none;
-    background: #ff4444;
-    color: #fff;
-    font-size: 14px;
-    cursor: pointer;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-}
-
-.profile-card:hover .profile-delete-btn {
-    display: flex;
 }
 
 /* PIN Modal */
@@ -1091,7 +1080,7 @@ h1 {
 }
 
 .pin-modal-content {
-    background: #1a1a1a;
+    background: var(--color-bg-surface);
     padding: 30px;
     border-radius: 16px;
     text-align: center;
@@ -1111,20 +1100,20 @@ h1 {
     font-size: 24px;
     text-align: center;
     letter-spacing: 8px;
-    border: 1px solid #303030;
+    border: 1px solid var(--color-border-control);
     border-radius: 8px;
-    background: #121212;
-    color: #f1f1f1;
+    background: var(--color-bg-input);
+    color: var(--color-text);
     outline: none;
     margin-bottom: 12px;
 }
 
 .pin-input:focus {
-    border-color: #3ea6ff;
+    border-color: var(--color-accent);
 }
 
 .pin-error {
-    color: #ff4444;
+    color: var(--color-danger);
     font-size: 13px;
     margin-bottom: 12px;
 }
@@ -1145,17 +1134,17 @@ h1 {
 }
 
 .pin-cancel {
-    background: #303030;
-    color: #f1f1f1;
+    background: var(--color-bg-button);
+    color: var(--color-text);
 }
 
 .pin-cancel:hover {
-    background: #3f3f3f;
+    background: var(--color-bg-button-hover);
 }
 
 .pin-submit,
 .pin-actions button[type="submit"] {
-    background: #cc0000;
+    background: var(--color-brand);
     color: #fff;
 }
 
@@ -1177,21 +1166,21 @@ h1 {
 .profile-form input[type="password"] {
     padding: 12px 16px;
     font-size: 16px;
-    border: 1px solid #303030;
+    border: 1px solid var(--color-border-control);
     border-radius: 12px;
-    background: #121212;
-    color: #f1f1f1;
+    background: var(--color-bg-input);
+    color: var(--color-text);
     outline: none;
 }
 
 .profile-form input:focus {
-    border-color: #3ea6ff;
+    border-color: var(--color-accent);
 }
 
 .profile-form button[type="submit"] {
     padding: 12px;
     font-size: 16px;
-    background: #cc0000;
+    background: var(--color-brand);
     color: #fff;
     border: none;
     border-radius: 12px;
@@ -1220,7 +1209,7 @@ h1 {
 }
 
 .edit-pin-label input[type="checkbox"] {
-    accent-color: #cc0000;
+    accent-color: var(--color-brand);
     width: 16px;
     height: 16px;
 }
@@ -1274,17 +1263,17 @@ h1 {
 }
 
 .emoji-picker-wrap emoji-picker {
-    --background: #1a1a1a;
-    --border-color: #3a3a3a;
-    --button-active-background: #303030;
-    --button-hover-background: #252525;
-    --input-border-color: #3a3a3a;
-    --input-font-color: #f1f1f1;
-    --input-placeholder-color: #717171;
-    --category-font-color: #717171;
-    --indicator-color: #cc0000;
-    --outline-color: #3ea6ff;
-    --text-color: #f1f1f1;
+    --background: var(--color-bg-surface);
+    --border-color: var(--color-border);
+    --button-active-background: var(--color-bg-button);
+    --button-hover-background: var(--color-bg-hover);
+    --input-border-color: var(--color-border);
+    --input-font-color: var(--color-text);
+    --input-placeholder-color: var(--color-text-subtle);
+    --category-font-color: var(--color-text-subtle);
+    --indicator-color: var(--color-brand);
+    --outline-color: var(--color-accent);
+    --text-color: var(--color-text);
     --num-columns: 8;
     height: 300px;
 }
@@ -1324,8 +1313,8 @@ h1 {
     left: 50%;
     transform: translateX(-50%);
     margin-top: 10px;
-    background: #1a1a1a;
-    border: 1px solid #3a3a3a;
+    background: var(--color-bg-surface);
+    border: 1px solid var(--color-border);
     border-radius: 12px;
     padding: 12px;
     z-index: 10001;
@@ -1344,15 +1333,15 @@ h1 {
     padding: 6px;
     border: none;
     border-radius: 6px;
-    background: #303030;
-    color: #f1f1f1;
+    background: var(--color-bg-button);
+    color: var(--color-text);
     font-size: 13px;
     cursor: pointer;
     transition: background 0.15s;
 }
 
 .color-picker-done:hover {
-    background: #3f3f3f;
+    background: var(--color-bg-button-hover);
 }
 
 .color-swatch-custom {
@@ -1398,29 +1387,29 @@ h1 {
 /* Profile Dropdown Menu */
 .profile-menu {
     position: fixed;
-    background: #212121;
-    border: 1px solid #3a3a3a;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
     padding: 6px 0;
     min-width: 180px;
     z-index: 200;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    box-shadow: var(--shadow-dropdown);
 }
 
 .profile-menu-item {
     padding: 10px 16px;
     font-size: 14px;
-    color: #f1f1f1;
+    color: var(--color-text);
     cursor: pointer;
     transition: background-color 0.15s;
 }
 
 .profile-menu-item:hover {
-    background: #303030;
+    background: var(--color-bg-button);
 }
 
 .profile-menu-logout:hover {
-    color: #ff4444;
+    color: var(--color-danger);
 }
 
 .profile-menu-profile {
@@ -1431,29 +1420,24 @@ h1 {
     cursor: pointer;
     transition: background-color 0.15s;
     font-size: 14px;
-    color: #f1f1f1;
+    color: var(--color-text);
 }
 
 .profile-menu-profile:hover {
-    background: #303030;
+    background: var(--color-bg-button);
 }
 
 .profile-menu-avatar {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
     width: 32px;
     height: 32px;
-    border-radius: 50%;
     font-size: 18px;
-    line-height: 1;
     color: #fff;
     flex-shrink: 0;
 }
 
 .profile-menu-divider {
     height: 1px;
-    background: #3a3a3a;
+    background: var(--color-border);
     margin: 4px 0;
 }
 
@@ -1496,24 +1480,24 @@ h1 {
 }
 
 .cookie-btn.active {
-    background: #cc0000;
+    background: var(--color-brand);
     color: #fff;
 }
 
 /* Options modal */
 .settings-label {
     font-size: 14px;
-    color: #aaa;
+    color: var(--color-text-muted);
     text-align: left;
 }
 
 .settings-hint {
-    color: #717171;
+    color: var(--color-text-subtle);
     font-size: 12px;
 }
 
 .wizard-subtitle {
-    color: #717171;
+    color: var(--color-text-subtle);
     font-size: 14px;
     margin-bottom: 12px;
     text-align: center;
@@ -1567,13 +1551,13 @@ h1 {
 }
 
 .settings-profile-row:hover {
-    background: #252525;
+    background: var(--color-bg-hover);
 }
 
 .settings-profile-name {
     flex: 1;
     font-size: 14px;
-    color: #f1f1f1;
+    color: var(--color-text);
     text-align: left;
 }
 
@@ -1595,7 +1579,7 @@ h1 {
 }
 
 .settings-profile-delete:hover {
-    background: #ff4444;
+    background: var(--color-danger);
     color: #fff;
 }
 
@@ -1605,7 +1589,7 @@ h1 {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #252525;
+    background: var(--color-bg-hover);
     border-radius: 50%;
     margin: 12px auto 0;
     width: 40%;
@@ -1629,23 +1613,10 @@ h1 {
     text-align: center;
 }
 
-/* Follow Button on channel page — matches player-btn / favorite-btn style */
+/* Follow Button on channel page — extends .player-btn */
 .channel-follow-btn {
-    padding: 4px 10px;
     font-size: 13px;
-    font-weight: 500;
-    background-color: #272727;
-    color: #fff;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.2s;
-    white-space: nowrap;
     flex-shrink: 0;
-}
-
-.channel-follow-btn:hover {
-    background-color: #303030;
 }
 
 .channel-follow-btn.following {
@@ -1821,23 +1792,23 @@ body.tv-nav-active .video-details {
     border: 1px solid #505050;
     border-radius: 20px;
     background: rgba(18, 18, 18, 0.9);
-    color: #f1f1f1;
+    color: var(--color-text);
     outline: none;
 }
 
 .tv-top-search input:focus {
-    border-color: #3ea6ff;
+    border-color: var(--color-accent);
 }
 
 .tv-top-search input::placeholder {
-    color: #717171;
+    color: var(--color-text-subtle);
 }
 
 .tv-top-search button {
     padding: 10px 20px;
     font-size: 16px;
-    background: #303030;
-    color: #f1f1f1;
+    background: var(--color-bg-button);
+    color: var(--color-text);
     border: none;
     border-radius: 20px;
     cursor: pointer;
@@ -1891,8 +1862,8 @@ body.tv-nav-active .video-details {
     top: 100%;
     left: 0;
     margin-top: 4px;
-    background: #212121;
-    border: 1px solid #3a3a3a;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
     padding: 6px 0;
     min-width: 120px;
@@ -1902,25 +1873,6 @@ body.tv-nav-active .video-details {
     box-shadow: 0 4px 12px rgba(0,0,0,0.6);
 }
 
-.tv-exit-btn {
-    margin-left: 12px;
-    padding: 6px 14px;
-    font-size: 12px;
-    font-weight: 500;
-    background: transparent;
-    color: #888;
-    border: 1px solid #555;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.tv-exit-btn:hover,
-.tv-exit-btn.tv-focus {
-    color: #f1f1f1;
-    border-color: #999;
-    background: rgba(255, 255, 255, 0.1);
-}
 
 .tv-top-meta {
     flex: 1;
@@ -1931,7 +1883,7 @@ body.tv-nav-active .video-details {
 .tv-top-meta .tv-top-title {
     font-size: 15px;
     font-weight: 500;
-    color: #f1f1f1;
+    color: var(--color-text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1939,13 +1891,13 @@ body.tv-nav-active .video-details {
 
 .tv-top-meta .tv-top-channel {
     font-size: 13px;
-    color: #aaa;
+    color: var(--color-text-muted);
     margin-top: 2px;
 }
 
 .tv-top-meta .tv-top-views {
     font-size: 12px;
-    color: #717171;
+    color: var(--color-text-subtle);
     margin-top: 1px;
 }
 
@@ -1968,7 +1920,7 @@ body.tv-nav-active .video-details {
 
 .tv-related-overlay h3 {
     font-size: 14px;
-    color: #aaa;
+    color: var(--color-text-muted);
     margin-bottom: 12px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -1986,7 +1938,7 @@ body.tv-nav-active .video-details {
     padding: 0;
     border-radius: 8px;
     overflow: hidden;
-    background: #1a1a1a;
+    background: var(--color-bg-surface);
 }
 
 .tv-related-strip .related-card .thumbnail-container {
@@ -2006,7 +1958,7 @@ body.tv-nav-active .video-details {
 }
 
 .tv-queue-card.active {
-    outline: 2px solid #cc0000;
+    outline: 2px solid var(--color-brand);
     outline-offset: -2px;
 }
 
@@ -2034,7 +1986,7 @@ body.tv-nav-active .video-details {
     padding: 0;
     border-radius: 8px;
     overflow: hidden;
-    background: #1a1a1a;
+    background: var(--color-bg-surface);
     pointer-events: none;
 }
 
@@ -2247,18 +2199,21 @@ body.tv-nav-active .osd-right-controls {
 .osd-expand-wrap {
     position: relative;
 }
-.osd-volume-popup {
+.osd-volume-popup,
+.osd-expand-popup {
     position: absolute;
     bottom: calc(100% - 8px);
-    left: 50%;
-    transform: translateX(-50%);
     background: rgba(28,28,28,0.95);
     border-radius: 8px;
-    padding: 14px 14px 22px;
     display: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+.osd-volume-popup {
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 14px 14px 22px;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
 }
 .osd-volume-popup.open {
     display: flex;
@@ -2303,16 +2258,10 @@ body.tv-nav-active .osd-right-controls {
 
 /* Expand popup */
 .osd-expand-popup {
-    position: absolute;
-    bottom: calc(100% - 8px);
     right: -12px;
-    background: rgba(28,28,28,0.95);
-    border-radius: 8px;
     padding: 6px 0 14px;
-    display: none;
     flex-direction: column;
     min-width: 140px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
 }
 .osd-expand-popup.open {
     display: flex;

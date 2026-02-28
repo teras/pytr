@@ -258,7 +258,7 @@ async function _renderFollowButton(channelId, channelName, avatarUrl) {
 
     const btn = document.createElement('button');
     btn.id = 'channel-follow-btn';
-    btn.className = 'channel-follow-btn';
+    btn.className = 'player-btn channel-follow-btn';
 
     // Check current status
     try {

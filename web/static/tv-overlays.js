@@ -194,6 +194,11 @@
                         const wasHidden = dropdown.classList.contains('hidden');
                         if (wasHidden) populateDropdown();
                         dropdown.classList.toggle('hidden');
+                        // Auto-focus first item when opening
+                        if (wasHidden) {
+                            const firstItem = dropdown.querySelector('.tv-overlay-item');
+                            if (firstItem) _tv.setFocus(firstItem);
+                        }
                     });
                     wrapper.appendChild(dropdown);
                 }
@@ -211,12 +216,6 @@
             }
         }
 
-        // Exit TV mode button
-        const exitBtn = document.createElement('button');
-        exitBtn.className = 'tv-overlay-item tv-exit-btn';
-        exitBtn.textContent = 'Exit TV Mode';
-        exitBtn.addEventListener('click', () => { hideTop(); _tv.toggleTvMode(); });
-        btnContainer.appendChild(exitBtn);
     }
 
     function buildTopOverlay() {
@@ -659,11 +658,51 @@
         _computeActiveRows();
     }
 
+    // ── Dropdown navigation (vertical menus inside top overlay) ─────────────
+
+    function closeDropdown(dropdown) {
+        dropdown.classList.add('hidden');
+        const wrapper = dropdown.closest('.tv-top-menu-wrapper');
+        const btn = wrapper ? wrapper.querySelector('.tv-overlay-item') : null;
+        if (btn) _tv.setFocus(btn);
+    }
+
+    function navigateDropdown(dropdown, dir) {
+        const items = [...dropdown.querySelectorAll('.tv-overlay-item')];
+        if (!items.length) { closeDropdown(dropdown); return 'handled'; }
+        const cur = _tv.getCurrentEl();
+        const idx = items.indexOf(cur);
+        if (dir === 'up') {
+            if (idx <= 0) { closeDropdown(dropdown); }
+            else { _tv.setFocus(items[idx - 1]); }
+            return 'handled';
+        }
+        if (dir === 'down') {
+            if (idx >= items.length - 1) { closeDropdown(dropdown); }
+            else { _tv.setFocus(items[idx + 1]); }
+            return 'handled';
+        }
+        // left/right close dropdown
+        closeDropdown(dropdown);
+        return 'handled';
+    }
+
+    function navigateTopOverlayWrapped(dir) {
+        const cur = _tv.getCurrentEl();
+        if (cur) {
+            const dropdown = cur.closest('.tv-top-dropdown');
+            if (dropdown && !dropdown.classList.contains('hidden')) {
+                return navigateDropdown(dropdown, dir);
+            }
+        }
+        return navigateOverlay(topOverlay, dir);
+    }
+
     // ── Namespace exports ────────────────────────────────────────────────────
     _tv.showTop = showTop;
     _tv.hideTop = hideTop;
     _tv.isTopOpen = () => isOverlayOpen(topOverlay);
-    _tv.navigateTopOverlay = (dir) => navigateOverlay(topOverlay, dir);
+    _tv.navigateTopOverlay = navigateTopOverlayWrapped;
     _tv.showNextRow = showNextRow;
     _tv.hideBottom = hideBottom;
     _tv.hideBottomRow = hideBottomRow;
