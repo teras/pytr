@@ -303,6 +303,13 @@ function showVideoView() {
 }
 
 function navigateToVideo(videoId, title, channel, duration) {
+    // Remote mode: send command to target instead of playing locally
+    if (typeof _remoteMode !== 'undefined' && _remoteMode && typeof _pairedDeviceName !== 'undefined' && _pairedDeviceName) {
+        if (typeof _remotePlayVideo === 'function') {
+            _remotePlayVideo(videoId, title, channel, duration);
+            return;
+        }
+    }
     cacheListView();
     history.pushState({ view: 'video', videoId, title, channel, duration }, '', `/watch?v=${videoId}`);
     document.title = title ? `${title} - PYTR` : 'PYTR';
@@ -880,10 +887,6 @@ function stopPlayer() {
     const errOverlay = playerContainer.querySelector('.player-error-overlay');
     if (errOverlay) errOverlay.remove();
     if (!isLiveStream) savePosition();
-    if (positionSaveTimer) {
-        clearTimeout(positionSaveTimer);
-        positionSaveTimer = null;
-    }
     videoPlayer.pause();
     if (dashPlayer) {
         try { dashPlayer.destroy(); } catch(e) { console.warn('dash destroy error:', e); }
@@ -1193,11 +1196,10 @@ function langName(code) {
 
 // ── Playback Position ───────────────────────────────────────────────────────
 
-let positionSaveTimer = null;
-
 function savePosition() {
-    if (typeof savePositionToAPI === 'function') {
-        savePositionToAPI();
+    // Send state via WebSocket — server saves position to DB
+    if (_wsConnected && currentVideoId) {
+        _broadcastPlayerState();
     }
 }
 
@@ -1210,12 +1212,7 @@ function restorePosition(videoId) {
 videoPlayer.addEventListener('timeupdate', () => {
     if (isLiveStream) { updateLiveBadge(); return; }
     if (typeof checkSponsorBlock === 'function') checkSponsorBlock(videoPlayer.currentTime);
-    if (!positionSaveTimer) {
-        positionSaveTimer = setTimeout(() => {
-            savePosition();
-            positionSaveTimer = null;
-        }, 2000);
-    }
+    // Position saving is handled by _broadcastPlayerState (throttled 1x/sec via WS)
 });
 
 // ── Event Listeners ─────────────────────────────────────────────────────────
@@ -1358,5 +1355,159 @@ summarizeBtn.addEventListener('click', (e) => {
 });
 
 summarizeMenu.addEventListener('click', (e) => e.stopPropagation());
+
+// ── WebSocket (Remote Control) ───────────────────────────────────────────────
+
+let _ws = null;
+let _wsReconnectTimer = null;
+let _wsStateThrottle = null;
+let _wsConnected = false;
+
+function connectWebSocket() {
+    if (_ws && (_ws.readyState === WebSocket.OPEN || _ws.readyState === WebSocket.CONNECTING)) return;
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    _ws = new WebSocket(`${proto}//${location.host}/api/ws`);
+
+    _ws.onopen = () => {
+        _wsConnected = true;
+        if (_wsReconnectTimer) { clearTimeout(_wsReconnectTimer); _wsReconnectTimer = null; }
+        console.log('WebSocket connected');
+        if (typeof _onWsReconnected === 'function') _onWsReconnected();
+    };
+
+    _ws.onclose = () => {
+        _wsConnected = false;
+        _ws = null;
+        if (typeof _onWsDisconnected === 'function') _onWsDisconnected();
+        // Auto-reconnect after 5s
+        if (!_wsReconnectTimer) {
+            _wsReconnectTimer = setTimeout(() => { _wsReconnectTimer = null; connectWebSocket(); }, 5000);
+        }
+    };
+
+    _ws.onerror = () => { /* onclose will fire */ };
+
+    _ws.onmessage = (event) => {
+        try {
+            const msg = JSON.parse(event.data);
+            _handleWsMessage(msg);
+        } catch (e) {
+            console.warn('WS message parse error:', e);
+        }
+    };
+}
+
+function wsSend(data) {
+    if (_ws && _ws.readyState === WebSocket.OPEN) {
+        _ws.send(JSON.stringify(data));
+    }
+}
+
+function _handleWsMessage(msg) {
+    const type = msg.type;
+
+    if (type === 'command') {
+        _handleRemoteCommand(msg);
+    } else if (type === 'remote_connected') {
+        _showRemoteToast(`Remote connected: ${msg.remote_name}`);
+    } else if (type === 'remote_disconnected') {
+        _showRemoteToast('Remote disconnected');
+    } else if (type === 'state' && typeof _handleRemoteState === 'function') {
+        _handleRemoteState(msg);
+    } else if (type === 'paired' && typeof _handlePaired === 'function') {
+        _handlePaired(msg);
+    } else if (type === 'target_disconnected' && typeof _handleTargetDisconnected === 'function') {
+        _handleTargetDisconnected();
+    } else if (type === 'error') {
+        console.warn('WS error:', msg.message);
+        if (typeof _handleRemoteError === 'function') _handleRemoteError(msg.message);
+    }
+}
+
+function _handleRemoteCommand(msg) {
+    const action = msg.action;
+    if (action === 'play') {
+        // Navigate to the video and play it
+        const videoId = msg.videoId;
+        const title = msg.title || '';
+        const channel = msg.channel || '';
+        const duration = msg.duration || 0;
+        const startTime = msg.startTime || 0;
+        if (videoId) {
+            if (currentVideoId !== videoId) {
+                cacheListView();
+                const qs = msg.playlistId ? `v=${videoId}&list=${msg.playlistId}` : `v=${videoId}`;
+                history.pushState({ view: 'video', videoId, title, channel, duration }, '', `/watch?${qs}`);
+                document.title = title ? `${title} - PYTR` : 'PYTR';
+                showVideoView();
+            }
+            // Always (re)play — handles both new video and reviving a dead stream
+            playVideo(videoId, title, channel, duration, startTime);
+            if (msg.playlistId) {
+                _loadQueue(videoId, msg.playlistId);
+            }
+        }
+    } else if (action === 'pause') {
+        videoPlayer.pause();
+    } else if (action === 'resume') {
+        videoPlayer.play();
+    } else if (action === 'seek') {
+        if (typeof msg.time === 'number') videoPlayer.currentTime = msg.time;
+    } else if (action === 'volume') {
+        if (typeof msg.level === 'number') videoPlayer.volume = Math.max(0, Math.min(1, msg.level));
+    } else if (action === 'queue_next') {
+        if (typeof _queue !== 'undefined' && _queue && typeof _playQueueItem === 'function') {
+            _playQueueItem(_queue.currentIndex + 1);
+        }
+    } else if (action === 'queue_prev') {
+        if (typeof _queue !== 'undefined' && _queue && typeof _playQueueItem === 'function') {
+            _playQueueItem(_queue.currentIndex - 1);
+        }
+    }
+}
+
+function _broadcastPlayerState() {
+    if (!_wsConnected || !currentVideoId) return;
+    wsSend({
+        type: 'state',
+        videoId: currentVideoId,
+        title: videoTitle.textContent || '',
+        channel: videoChannel.textContent || '',
+        thumbnail: `https://img.youtube.com/vi/${currentVideoId}/hqdefault.jpg`,
+        currentTime: videoPlayer.currentTime || 0,
+        duration: videoPlayer.duration || 0,
+        paused: videoPlayer.paused,
+        volume: videoPlayer.volume,
+        ended: videoPlayer.ended,
+    });
+}
+
+function _throttledBroadcast() {
+    if (_wsStateThrottle) return;
+    _broadcastPlayerState();
+    _wsStateThrottle = setTimeout(() => { _wsStateThrottle = null; }, 1000);
+}
+
+// Hook into player events for state broadcasting
+videoPlayer.addEventListener('timeupdate', _throttledBroadcast);
+videoPlayer.addEventListener('pause', () => _broadcastPlayerState());
+videoPlayer.addEventListener('play', () => _broadcastPlayerState());
+videoPlayer.addEventListener('ended', () => _broadcastPlayerState());
+videoPlayer.addEventListener('seeked', () => _broadcastPlayerState());
+
+let _remoteToastTimer = null;
+function _showRemoteToast(text) {
+    let el = document.getElementById('remote-toast');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'remote-toast';
+        el.className = 'remote-toast';
+        document.body.appendChild(el);
+    }
+    el.textContent = text;
+    el.classList.add('visible');
+    if (_remoteToastTimer) clearTimeout(_remoteToastTimer);
+    _remoteToastTimer = setTimeout(() => el.classList.remove('visible'), 4000);
+}
 
 // Boot — called from index.html after all scripts load

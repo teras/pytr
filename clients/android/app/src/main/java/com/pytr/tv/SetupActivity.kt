@@ -15,6 +15,7 @@ class SetupActivity : Activity() {
     private lateinit var serverList: ListView
     private lateinit var discoveryStatus: TextView
     private lateinit var addressInput: EditText
+    private lateinit var deviceNameInput: EditText
     private lateinit var connectButton: Button
     private lateinit var errorText: TextView
 
@@ -35,8 +36,12 @@ class SetupActivity : Activity() {
         discoveryStatus = findViewById(R.id.discoveryStatus)
         serverList = findViewById(R.id.serverList)
         addressInput = findViewById(R.id.addressInput)
+        deviceNameInput = findViewById(R.id.deviceNameInput)
         connectButton = findViewById(R.id.connectButton)
         errorText = findViewById(R.id.errorText)
+
+        // Pre-fill device name from preferences
+        deviceNameInput.setText(PreferenceHelper.getDeviceName(this))
 
         adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, servers)
         serverList.adapter = adapter
@@ -89,6 +94,8 @@ class SetupActivity : Activity() {
                 connectButton.isEnabled = true
                 connectButton.setText(R.string.connect)
                 if (success) {
+                    val name = deviceNameInput.text.toString().trim().ifEmpty { "Android TV" }
+                    PreferenceHelper.setDeviceName(this, name)
                     PreferenceHelper.setServerUrl(this, url)
                     launchMain(url)
                 } else {

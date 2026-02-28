@@ -121,6 +121,9 @@ def init_db():
         ]:
             if col not in fav_cols:
                 conn.execute(f"ALTER TABLE favorites ADD COLUMN {col} {typ} DEFAULT {default}")
+        # Migration: add device_name to sessions if missing
+        if "device_name" not in sess_cols:
+            conn.execute("ALTER TABLE sessions ADD COLUMN device_name TEXT NOT NULL DEFAULT ''")
 
 
 def list_profiles() -> list[dict]:
@@ -551,6 +554,80 @@ def cleanup_expired_sessions():
         cur = conn.execute("DELETE FROM sessions WHERE expiry < ?", (now,))
         if cur.rowcount:
             log.info(f"Cleaned {cur.rowcount} expired sessions")
+
+
+def update_session_device_name(token: str, name: str):
+    with _connect() as conn:
+        conn.execute("UPDATE sessions SET device_name = ? WHERE token = ?", (name, token))
+
+
+def get_online_sessions(profile_id: int, exclude_token: str | None = None) -> list[dict]:
+    """Get non-expired sessions for a profile, optionally excluding one token."""
+    now = time.time()
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT token, profile_id, device_name FROM sessions "
+            "WHERE profile_id = ? AND expiry > ?",
+            (profile_id, now),
+        ).fetchall()
+    results = []
+    for r in rows:
+        if exclude_token and r["token"] == exclude_token:
+            continue
+        results.append({"token": r["token"], "profile_id": r["profile_id"],
+                        "device_name": r["device_name"]})
+    return results
+
+
+def parse_device_name(user_agent: str) -> str:
+    """Parse User-Agent into a human-readable device name."""
+    if not user_agent:
+        return "Unknown Device"
+    ua = user_agent.lower()
+
+    # TV clients
+    if "webos" in ua or "lg " in ua or "lgtv" in ua:
+        return "LG TV (WebOS)"
+    if "android tv" in ua or "adt-" in ua or "aftn" in ua or "aftm" in ua:
+        return "Android TV"
+    if "tizen" in ua or "samsung" in ua and "smart-tv" in ua:
+        return "Samsung TV"
+
+    # Mobile devices
+    if "iphone" in ua:
+        return "iPhone"
+    if "ipad" in ua:
+        return "iPad"
+    if "android" in ua and "mobile" in ua:
+        return "Android Phone"
+    if "android" in ua:
+        return "Android Tablet"
+
+    # Desktop browsers
+    import re
+    os_name = "Unknown"
+    if "windows" in ua:
+        os_name = "Windows"
+    elif "mac os" in ua or "macintosh" in ua:
+        os_name = "Mac"
+    elif "linux" in ua:
+        os_name = "Linux"
+    elif "cros" in ua:
+        os_name = "ChromeOS"
+
+    browser = "Browser"
+    if "edg/" in ua or "edge/" in ua:
+        browser = "Edge"
+    elif "firefox/" in ua:
+        browser = "Firefox"
+    elif "opr/" in ua or "opera/" in ua:
+        browser = "Opera"
+    elif "chrome/" in ua and "chromium" not in ua:
+        browser = "Chrome"
+    elif "safari/" in ua and "chrome" not in ua:
+        browser = "Safari"
+
+    return f"{browser} on {os_name}"
 
 
 def _register_long_cleanup():

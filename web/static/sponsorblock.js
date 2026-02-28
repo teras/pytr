@@ -85,6 +85,7 @@
         _isAutoSeek = false;
         if (_skipTimer) { clearTimeout(_skipTimer); _skipTimer = null; }
         _dismissToast();
+        _clearOsdMarkers();
     }
 
     // ── Skip logic ───────────────────────────────────────────────────────────

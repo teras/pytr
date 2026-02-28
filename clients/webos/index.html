@@ -74,6 +74,12 @@
 
         <ul class="server-list" id="server-list"></ul>
 
+        <p class="divider">Device Name</p>
+
+        <div class="manual-row">
+            <input type="text" id="device-name" placeholder="LG TV" tabindex="0" value="">
+        </div>
+
         <p class="divider">or enter server address manually</p>
 
         <div class="manual-row">
@@ -87,6 +93,7 @@
     <script>
         (function () {
             var STORAGE_KEY = 'pytr-server';
+            var DEVICE_NAME_KEY = 'pytr-device-name';
             var saved = localStorage.getItem(STORAGE_KEY);
 
             // If we have a saved server, redirect immediately
@@ -100,6 +107,10 @@
             var listEl = document.getElementById('server-list');
             var manualInput = document.getElementById('manual-ip');
             var manualBtn = document.getElementById('manual-btn');
+            var deviceNameInput = document.getElementById('device-name');
+
+            // Pre-fill device name from storage
+            deviceNameInput.value = localStorage.getItem(DEVICE_NAME_KEY) || 'LG TV';
 
             // Start discovery via Luna service
             discover();
@@ -181,6 +192,8 @@
                         return r.json();
                     })
                     .then(function () {
+                        var dname = deviceNameInput.value.trim() || 'LG TV';
+                        localStorage.setItem(DEVICE_NAME_KEY, dname);
                         localStorage.setItem(STORAGE_KEY, address);
                         activateTvMode();
                         window.location.replace(address);

@@ -108,6 +108,7 @@ from routes.browse import router as browse_router
 from routes.profiles import router as profiles_router
 from routes.sponsorblock import router as sponsorblock_router
 from routes.tv_setup import router as tv_setup_router, page_router as tv_setup_page_router
+from routes.remote import router as remote_router
 
 app.include_router(auth_router)
 app.include_router(dash_router)
@@ -118,6 +119,7 @@ app.include_router(profiles_router)
 app.include_router(sponsorblock_router)
 app.include_router(tv_setup_router)
 app.include_router(tv_setup_page_router)
+app.include_router(remote_router)
 
 if __name__ == "__main__":
     import uvicorn

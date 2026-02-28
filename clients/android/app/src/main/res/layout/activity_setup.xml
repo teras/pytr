@@ -37,6 +37,28 @@
         android:focusable="true"
         android:focusableInTouchMode="true" />
 
+    <!-- Device name -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:layout_marginBottom="8dp"
+        android:text="Device Name"
+        android:textColor="@color/text_secondary"
+        android:textSize="14sp" />
+
+    <EditText
+        android:id="@+id/deviceNameInput"
+        android:layout_width="400dp"
+        android:layout_height="48dp"
+        android:background="@color/card_bg"
+        android:hint="Android TV"
+        android:inputType="text"
+        android:padding="12dp"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_secondary"
+        android:textSize="16sp" />
+
     <!-- Manual entry section -->
     <TextView
         android:layout_width="wrap_content"

@@ -54,6 +54,7 @@ async function checkProfile() {
             profileOverlay.innerHTML = '';
             profileOverlay.classList.add('hidden');
             handleInitialRoute();
+            if (typeof connectWebSocket === 'function') connectWebSocket();
         } else if (data.state === 'profile-select') {
             const profiles = data.profiles;
             if (profiles.length === 1) {
@@ -184,6 +185,7 @@ async function selectProfile(id, pin) {
         profileOverlay.classList.add('hidden');
         stopPlayer();
         handleInitialRoute();
+        if (typeof connectWebSocket === 'function') connectWebSocket();
         return true;
     } catch(e) {
         return false;
@@ -598,6 +600,7 @@ if (profileSwitcherBtn) {
             ${otherProfiles.length ? '<div class="profile-menu-divider"></div>' : ''}
             ${!isTv ? '<div class="profile-menu-item" data-action="edit-profile">Edit profile</div>' : ''}
             ${isAdmin && !isTv ? '<div class="profile-menu-item" data-action="settings">Options</div>' : ''}
+            ${!isTv ? '<div class="profile-menu-item" data-action="remote-control">Remote Control</div>' : ''}
             <div class="profile-menu-item" data-action="tv-mode">${document.body.classList.contains('tv-nav-active') ? 'Desktop Mode' : 'TV Mode'}</div>
             ${!isTv ? `<div class="cookie-toggle-row">
                 <span class="cookie-toggle-label">Cookies</span>
@@ -646,6 +649,8 @@ if (profileSwitcherBtn) {
                     showEditProfileForm();
                 } else if (action === 'settings') {
                     showSettingsModal();
+                } else if (action === 'remote-control') {
+                    if (typeof enterRemoteMode === 'function') enterRemoteMode();
                 } else if (action === 'tv-mode') {
                     if (typeof window.toggleTvMode === 'function') window.toggleTvMode();
                 } else if (action === 'logout') {
@@ -1021,38 +1026,8 @@ async function toggleFavorite() {
     }
 }
 
-// ── Position Save/Restore via API ──────────────────────────────────────────
-
-async function savePositionToAPI() {
-    if (!currentProfile || !currentVideoId || !videoPlayer.currentTime) return;
-    const dur = videoPlayer.duration || 0;
-    // Don't save if near the end
-    if (dur > 0 && (videoPlayer.currentTime > dur - 30 || videoPlayer.currentTime / dur > 0.95)) {
-        // Save position 0 to clear it
-        fetch('/api/profiles/position', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ video_id: currentVideoId, position: 0 }),
-        }).catch(() => {});
-        return;
-    }
-    if (videoPlayer.currentTime > 5) {
-        const title = videoTitle.textContent || '';
-        const channel = videoChannel.textContent || '';
-        const thumbnail = videoPlayer.poster || '';
-        const duration = parseInt(videoPlayer.dataset.expectedDuration) || 0;
-        fetch('/api/profiles/position', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                video_id: currentVideoId,
-                position: parseFloat(videoPlayer.currentTime.toFixed(1)),
-                title, channel, thumbnail, duration,
-                duration_str: formatDuration(duration),
-            }),
-        }).catch(() => {});
-    }
-}
+// ── Position Restore via API ───────────────────────────────────────────────
+// Position saving is handled by WebSocket state broadcast (see app.js / remote.py)
 
 async function restorePositionFromAPI(videoId) {
     if (!currentProfile) return;

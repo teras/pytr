@@ -140,6 +140,8 @@ def get_session(request: Request) -> tuple[str, dict]:
 
     # Create new persistent session
     token, session = profiles_db.create_session()
+    ua = request.headers.get("user-agent", "")
+    profiles_db.update_session_device_name(token, profiles_db.parse_device_name(ua))
     return token, session
 
 
@@ -595,6 +597,8 @@ async def do_login(request: Request, response: Response, password: str = Form(de
         clear_failures(ip)
         token, session = profiles_db.create_session()
         profiles_db.update_session_ip(token, ip)
+        ua = request.headers.get("user-agent", "")
+        profiles_db.update_session_device_name(token, profiles_db.parse_device_name(ua))
 
         response = RedirectResponse(url=redirect_to, status_code=302)
         response.set_cookie(
@@ -643,12 +647,22 @@ async def pair_request(request: Request):
     code = _generate_pair_code()
     token, session = profiles_db.create_session()
 
+    # Accept optional device_name (e.g. from TV clients)
+    device_name = ""
+    try:
+        body = await request.json()
+        device_name = body.get("device_name", "")
+    except Exception:
+        pass
+
     PAIRING_REQUESTS[code] = {
         "created_at": now,
         "expires_at": now + _PAIR_TTL,
         "requester_ip": ip,
         "status": "pending",
         "session_token": token,
+        "user_agent": request.headers.get("user-agent", ""),
+        "device_name": device_name,
     }
 
     base_url = str(request.base_url).rstrip("/")
@@ -903,6 +917,12 @@ async def pair_approve(request: Request, body: dict, auth: bool = Depends(requir
     if req["status"] != "pending":
         raise HTTPException(status_code=400, detail="Code already used")
     req["status"] = "approved"
+    # Set device name from requester's stored UA (or custom name if provided)
+    device_name = req.get("device_name") or ""
+    if not device_name:
+        device_name = profiles_db.parse_device_name(req.get("user_agent", ""))
+    if device_name:
+        profiles_db.update_session_device_name(req["session_token"], device_name)
     log.info(f"Pairing approved for code {code} (requester IP: {req['requester_ip']})")
     return {"status": "approved"}
 

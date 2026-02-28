@@ -54,11 +54,14 @@ class MainActivity : Activity() {
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
-                // Inject TV mode activation
+                // Inject TV mode activation and device name
+                val deviceName = PreferenceHelper.getDeviceName(this@MainActivity)
+                    .replace("'", "\\'").replace("\\", "\\\\")
                 view.evaluateJavascript(
                     """
                     (function() {
                         localStorage.setItem('tv-mode', '1');
+                        localStorage.setItem('pytr-device-name', '$deviceName');
                         document.body.classList.add('tv-nav-active');
                         // Trigger tv-nav.js initialization if it checks on load
                         window.dispatchEvent(new Event('storage'));

@@ -7,6 +7,7 @@ import android.content.Context
 object PreferenceHelper {
     private const val PREFS_NAME = "pytr_prefs"
     private const val KEY_SERVER_URL = "server_url"
+    private const val KEY_DEVICE_NAME = "device_name"
 
     fun getServerUrl(context: Context): String? {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -24,6 +25,18 @@ object PreferenceHelper {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .remove(KEY_SERVER_URL)
+            .apply()
+    }
+
+    fun getDeviceName(context: Context): String {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_DEVICE_NAME, "Android TV") ?: "Android TV"
+    }
+
+    fun setDeviceName(context: Context, name: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_DEVICE_NAME, name)
             .apply()
     }
 }

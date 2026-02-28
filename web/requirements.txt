@@ -1,5 +1,6 @@
 fastapi
 uvicorn
+websockets
 httpx
 yt-dlp
 python-multipart
