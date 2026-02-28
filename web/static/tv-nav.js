@@ -457,24 +457,13 @@
     }
 
     // ── OSD (custom on-screen display) ──────────────────────────────────────
-    function formatTime(s) {
-        if (!isFinite(s)) return '0:00';
-        s = Math.floor(s);
-        const h = Math.floor(s / 3600);
-        const m = Math.floor((s % 3600) / 60);
-        const sec = s % 60;
-        return h > 0
-            ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
-            : m + ':' + String(sec).padStart(2, '0');
-    }
-
     function updateOsd() {
         const video = getVideo();
         const osd = document.getElementById('tv-osd');
         if (!video || !osd) return;
         const cur = video.currentTime || 0;
         const dur = video.duration || 0;
-        document.getElementById('osd-current').textContent = formatTime(cur);
+        document.getElementById('osd-current').innerHTML = formatTime(cur, dur);
         document.getElementById('osd-total').textContent = formatTime(dur);
         const pct = dur > 0 ? (cur / dur) * 100 : 0;
         document.getElementById('osd-progress').style.width = pct + '%';

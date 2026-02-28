@@ -2152,6 +2152,9 @@ body.tv-nav-active #video-grid {
     pointer-events: none;
     user-select: none;
 }
+.time-pad {
+    visibility: hidden;
+}
 .tv-osd-bar {
     flex: 1;
     height: 5px;
@@ -2467,12 +2470,13 @@ body.theater-mode .video-sidebar {
     border-top: 1px solid #333;
     display: flex;
     flex-direction: column;
-    padding: 8px 12px 6px;
-    gap: 6px;
+    padding: 10px 12px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    gap: 8px;
     z-index: 1000;
 }
 body.remote-mode {
-    padding-bottom: 90px;
+    padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px));
 }
 body.remote-mode header {
     position: sticky;
@@ -2492,8 +2496,8 @@ body.remote-mode header {
     gap: 10px;
 }
 .rmp-thumb-wrap {
-    width: 48px;
-    height: 36px;
+    width: 56px;
+    height: 42px;
     flex-shrink: 0;
     border-radius: 4px;
     overflow: hidden;
@@ -2509,7 +2513,7 @@ body.remote-mode header {
     min-width: 0;
 }
 .rmp-title {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     color: #f1f1f1;
     white-space: nowrap;
@@ -2517,7 +2521,7 @@ body.remote-mode header {
     text-overflow: ellipsis;
 }
 .rmp-channel {
-    font-size: 11px;
+    font-size: 12px;
     color: #888;
     white-space: nowrap;
     overflow: hidden;
@@ -2525,45 +2529,65 @@ body.remote-mode header {
 }
 /* Row 2: play/pause + time + seek bar + time */
 .rmp-row-seek {
-    gap: 8px;
+    gap: 10px;
 }
 .rmp-time {
-    font-size: 11px;
+    font-size: 12px;
     color: #888;
     font-family: monospace;
     white-space: nowrap;
 }
 .rmp-bar {
     flex: 1;
-    height: 4px;
-    background: #333;
-    border-radius: 2px;
+    height: 44px;
+    display: flex;
+    align-items: center;
     cursor: pointer;
     position: relative;
     min-width: 40px;
+    -webkit-tap-highlight-color: transparent;
 }
-.rmp-bar:hover {
+.rmp-bar-track {
+    width: 100%;
     height: 6px;
+    background: #333;
+    border-radius: 3px;
+    overflow: hidden;
 }
 .rmp-bar-fill {
     height: 100%;
     background: #cc0000;
-    border-radius: 2px;
+    border-radius: 3px;
     width: 0%;
     transition: width 0.1s linear;
+    pointer-events: none;
+}
+.rmp-icon {
+    width: 36px;
+    height: 36px;
+    fill: currentColor;
+    display: block;
 }
 .rmp-btn {
     background: none;
     border: none;
     color: #f1f1f1;
-    font-size: 18px;
     cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 4px;
+    padding: 8px;
+    border-radius: 50%;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 48px;
+    min-height: 48px;
+    -webkit-tap-highlight-color: transparent;
 }
 .rmp-btn:hover {
     background: #333;
+}
+.rmp-btn:active {
+    background: #444;
 }
 /* Header disconnect button (next to profile switcher) */
 .remote-disconnect-wrap {
@@ -2603,14 +2627,8 @@ body.remote-mode header {
 
 /* Mobile responsive mini-player */
 @media (max-width: 600px) {
-    .remote-mini-player {
-        padding: 6px 8px 4px;
-    }
-    body.remote-mode {
-        padding-bottom: 80px;
-    }
     .rmp-thumb-wrap {
-        width: 40px;
-        height: 30px;
+        width: 48px;
+        height: 36px;
     }
 }

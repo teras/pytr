@@ -4,6 +4,26 @@
 
 // ── Utilities ───────────────────────────────────────────────────────────────
 
+/** Format seconds as M:SS, MM:SS, H:MM:SS etc.
+ *  Pass refSec (e.g. duration) to pad current time to match its width.
+ *  Returns HTML — use innerHTML to set. Hidden padding uses same chars
+ *  as the duration format for pixel-perfect width matching. */
+function formatTime(s, refS) {
+    if (!isFinite(s)) return '0:00';
+    s = Math.floor(s);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    const natural = h > 0
+        ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+        : m + ':' + String(sec).padStart(2, '0');
+    if (refS === undefined || !isFinite(refS)) return natural;
+    const ref = formatTime(Math.floor(refS));
+    if (natural.length >= ref.length) return natural;
+    const pad = ref.substring(0, ref.length - natural.length);
+    return '<span class="time-pad">' + pad + '</span>' + natural;
+}
+
 /** Append ?cookies=<mode> (or &cookies=<mode>) to a URL based on localStorage */
 function appendCookieParam(url) {
     const mode = (typeof getCookieMode === 'function') ? getCookieMode() : (localStorage.getItem('cookieMode') || 'auto');

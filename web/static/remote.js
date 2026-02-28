@@ -214,10 +214,10 @@ function _createMiniPlayer() {
             </div>
         </div>
         <div class="rmp-row rmp-row-seek">
-            <button class="rmp-btn rmp-play-btn" title="Play/Pause">⏯</button>
+            <button class="rmp-btn rmp-play-btn" title="Play/Pause"><svg class="rmp-icon" viewBox="0 0 24 24"><polygon points="8,5 19,12 8,19"/></svg></button>
             <div class="rmp-time rmp-current">0:00</div>
             <div class="rmp-bar">
-                <div class="rmp-bar-fill"></div>
+                <div class="rmp-bar-track"><div class="rmp-bar-fill"></div></div>
             </div>
             <div class="rmp-time rmp-duration">0:00</div>
         </div>
@@ -261,7 +261,7 @@ function _createMiniPlayer() {
         const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
         const fill = _remoteMiniPlayer.querySelector('.rmp-bar-fill');
         fill.style.width = (pct * 100) + '%';
-        _remoteMiniPlayer.querySelector('.rmp-current').textContent = _formatTime(pct * _remoteState.duration);
+        _remoteMiniPlayer.querySelector('.rmp-current').innerHTML = formatTime(pct * _remoteState.duration, _remoteState.duration);
     };
 
     const onMouseMove = (e) => onMove(e.clientX);
@@ -331,16 +331,18 @@ function _updateMiniPlayer() {
     _remoteMiniPlayer.querySelector('.rmp-channel').textContent = s.channel || '';
 
     if (!_remoteSeeking) {
-        _remoteMiniPlayer.querySelector('.rmp-current').textContent = _formatTime(s.currentTime || 0);
+        _remoteMiniPlayer.querySelector('.rmp-current').innerHTML = formatTime(s.currentTime || 0, s.duration);
         const pct = s.duration > 0 ? ((s.currentTime || 0) / s.duration) * 100 : 0;
         _remoteMiniPlayer.querySelector('.rmp-bar-fill').style.width = pct + '%';
     }
-    _remoteMiniPlayer.querySelector('.rmp-duration').textContent = _formatTime(s.duration || 0);
+    _remoteMiniPlayer.querySelector('.rmp-duration').textContent = formatTime(s.duration || 0);
 
     const playBtn = _remoteMiniPlayer.querySelector('.rmp-play-btn');
     // If no fresh state from target, assume player is dead → show play icon
     const isPaused = !_remoteHasFreshState || s.paused;
-    playBtn.textContent = isPaused ? '▶' : '⏸';
+    playBtn.innerHTML = isPaused
+        ? '<svg class="rmp-icon" viewBox="0 0 24 24"><polygon points="8,5 19,12 8,19"/></svg>'
+        : '<svg class="rmp-icon" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>';
 }
 
 // ── Header disconnect button ────────────────────────────────────────────────
@@ -409,15 +411,6 @@ function _scheduleRepair() {
             wsSend({ type: 'pair', device_id: _pairedDeviceId });
         }
     }, 5000);
-}
-
-function _formatTime(sec) {
-    sec = Math.floor(sec);
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    const s = sec % 60;
-    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 function _deviceIcon(name) {
