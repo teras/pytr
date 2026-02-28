@@ -1,6 +1,7 @@
 # Copyright (c) 2026 Panayotis Katsaloulis
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Authentication: sessions, brute-force protection, login/logout routes, device pairing."""
+import asyncio
 import io
 import logging
 import secrets
@@ -11,7 +12,7 @@ from urllib.parse import quote, urlparse
 
 import qrcode
 import qrcode.image.svg
-from fastapi import APIRouter, HTTPException, Request, Response, Depends, Form
+from fastapi import APIRouter, HTTPException, Query, Request, Response, Depends, Form
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from helpers import register_cleanup
@@ -478,12 +479,31 @@ async def index(request: Request):
 
 @router.get("/embed/{video_id}")
 @router.get("/v/{video_id}")
-@router.get("/shorts/{video_id}")
-@router.get("/live/{video_id}")
 async def embed_page(video_id: str):
     if profiles_db.get_setting("allow_embed") != "1":
         raise HTTPException(status_code=403, detail="Embed access is disabled")
     return FileResponse("static/embed.html")
+
+
+@router.get("/shorts/{video_id}")
+@router.get("/live/{video_id}")
+async def shorts_live_redirect(request: Request, video_id: str):
+    qs = f"v={video_id}"
+    t = request.query_params.get("t")
+    if t:
+        qs += f"&t={t}"
+    return RedirectResponse(url=f"/watch?{qs}", status_code=302)
+
+
+@router.get("/playlist")
+async def playlist_redirect(list: str = Query(...)):
+    import yt_dlp
+    with yt_dlp.YoutubeDL({"extract_flat": True, "quiet": True, "playlistend": 1}) as ydl:
+        info = await asyncio.to_thread(ydl.extract_info, f"https://www.youtube.com/playlist?list={list}", download=False)
+    entries = info.get("entries", [])
+    if entries:
+        return RedirectResponse(url=f"/watch?v={entries[0]['id']}&list={list}", status_code=302)
+    raise HTTPException(status_code=404, detail="Playlist not found or empty")
 
 
 @router.get("/watch")

@@ -67,6 +67,16 @@ videoDescription.addEventListener('click', (e) => {
     if (videoPlayer.paused) videoPlayer.play();
 });
 
+// Internal PYTR link click handler (delegated) — YouTube URLs in descriptions
+videoDescription.addEventListener('click', (e) => {
+    const link = e.target.closest('a[data-internal="1"]');
+    if (!link) return;
+    e.preventDefault();
+    // Push the internal URL and let handleInitialRoute parse all params
+    history.pushState(null, '', link.getAttribute('href'));
+    handleInitialRoute();
+});
+
 // Quality selector
 const qualitySelector = document.getElementById('quality-selector');
 const qualityBtn = document.getElementById('quality-btn');
@@ -98,10 +108,22 @@ let preferredQuality = parseInt(localStorage.getItem('preferredQuality')) || 108
 let currentActiveHeight = 0;
 // Quality list: [{height, bandwidth, qualityIndex}]
 let videoQualities = [];
-let pendingSeek = null; // {time, play} — set during audio language switch
+let pendingSeek = null; // {time, play} — set during audio language switch or t= param
 let isLiveStream = false; // true when playing a live stream
 let liveRetried = false; // true after one recovery attempt
 let _dashAutoRefreshed = false; // prevent DASH error → playVideo loop
+
+// Parse YouTube t= param: "120", "2m30s", "1h2m30s"
+function parseYouTubeTime(t) {
+    if (!t) return 0;
+    if (/^\d+$/.test(t)) return parseInt(t, 10);
+    let sec = 0;
+    const h = t.match(/(\d+)h/), m = t.match(/(\d+)m/), s = t.match(/(\d+)s/);
+    if (h) sec += parseInt(h[1], 10) * 3600;
+    if (m) sec += parseInt(m[1], 10) * 60;
+    if (s) sec += parseInt(s[1], 10);
+    return sec;
+}
 
 // ── Quality Selector ────────────────────────────────────────────────────────
 
@@ -380,11 +402,30 @@ function handleInitialRoute() {
     if (path === '/watch' && params.get('v')) {
         const videoId = params.get('v');
         const listId = params.get('list');
+        const startTime = parseYouTubeTime(params.get('t') || params.get('start'));
+        const index = parseInt(params.get('index'), 10);
         const url = listId ? `/watch?v=${videoId}&list=${listId}` : `/watch?v=${videoId}`;
         history.replaceState({ view: 'video', videoId, title: '', channel: '', duration: 0, playlistId: listId || undefined }, '', url);
         showVideoView();
-        playVideo(videoId, '', '', 0);
-        if (listId) _loadQueue(videoId, listId);
+        if (listId && index > 0) {
+            // Have a playlist index — load queue first, then play the correct video
+            _loadQueue(videoId, listId);
+            window.addEventListener('queue-ready', () => {
+                if (_queue && _queue.videos[index]) {
+                    const target = _queue.videos[index];
+                    _queue.currentIndex = index;
+                    _renderQueue();
+                    playVideo(target.id, target.title || '', '', 0, startTime);
+                    history.replaceState({ view: 'video', videoId: target.id, title: target.title || '', channel: '', duration: 0, playlistId: listId }, '', `/watch?v=${target.id}&list=${listId}`);
+                } else {
+                    // Index out of range — fall back to the video from the URL
+                    playVideo(videoId, '', '', 0, startTime);
+                }
+            }, { once: true });
+        } else {
+            playVideo(videoId, '', '', 0, startTime);
+            if (listId) _loadQueue(videoId, listId);
+        }
     } else if (path.startsWith('/@')) {
         const rest = path.slice(2); // remove /@
         const isPlaylists = rest.endsWith('/playlists');
@@ -878,9 +919,10 @@ function stopPlayer() {
     videoPlayer.load();
 }
 
-async function playVideo(videoId, title, channel, duration) {
+async function playVideo(videoId, title, channel, duration, startTime) {
     stopPlayer();
     currentVideoId = videoId;
+    if (startTime > 0) pendingSeek = { time: startTime, play: true };
 
     videoTitle.textContent = title || '';
     videoChannel.textContent = channel || '';

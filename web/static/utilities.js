@@ -12,13 +12,37 @@ function escapeAttr(text) {
     return text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// ── YouTube URL → internal PYTR link conversion ────────────────────────────
+
+function youtubeToInternalLink(url) {
+    try {
+        const u = new URL(url);
+        let videoId = null;
+        if (u.hostname === 'youtu.be') {
+            videoId = u.pathname.slice(1);
+        } else if ((u.hostname === 'www.youtube.com' || u.hostname === 'youtube.com' || u.hostname === 'm.youtube.com') && u.pathname === '/watch') {
+            videoId = u.searchParams.get('v');
+        }
+        if (!videoId) return null;
+        // For youtu.be, video ID is in the path — move it to ?v= and keep all other params
+        if (u.hostname === 'youtu.be') {
+            u.searchParams.set('v', videoId);
+        }
+        return `/watch?${u.searchParams.toString()}`;
+    } catch { return null; }
+}
+
 // ── Text linkification ──────────────────────────────────────────────────────
 
 function linkifyText(text) {
     const escaped = escapeHtml(text);
-    // First linkify URLs
+    // First linkify URLs, converting YouTube links to internal PYTR links
     let result = escaped.replace(/(https?:\/\/[^\s<]+)/g, (match) => {
         const href = match.replace(/&quot;/g, '%22').replace(/&#39;/g, '%27').replace(/&amp;/g, '&');
+        const pytrLink = youtubeToInternalLink(href);
+        if (pytrLink) {
+            return `<a href="${pytrLink}" data-internal="1">${match}</a>`;
+        }
         return `<a href="${href}" target="_blank" rel="noopener">${match}</a>`;
     });
     // Then parse timestamps (0:00, 1:23, 1:23:45) — but not inside <a> tags
