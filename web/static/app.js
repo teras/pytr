@@ -220,7 +220,7 @@ qualityBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     const wasOpen = !qualityMenu.classList.contains('hidden');
     closeAllMenus();
-    if (!wasOpen) qualityMenu.classList.remove('hidden');
+    if (!wasOpen) { qualityMenu.classList.remove('hidden'); positionMenu(qualityMenu); }
 });
 
 qualityMenu.addEventListener('click', (e) => e.stopPropagation());
@@ -231,7 +231,7 @@ audioBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     const wasOpen = !audioMenu.classList.contains('hidden');
     closeAllMenus();
-    if (!wasOpen) audioMenu.classList.remove('hidden');
+    if (!wasOpen) { audioMenu.classList.remove('hidden'); positionMenu(audioMenu); }
 });
 
 audioMenu.addEventListener('click', (e) => e.stopPropagation());
@@ -298,6 +298,16 @@ function closeAllMenus() {
     document.getElementById('summarize-menu').classList.add('hidden');
     const pm = document.getElementById('profile-menu');
     if (pm) pm.classList.add('hidden');
+    document.querySelectorAll('.drop-up').forEach(el => el.classList.remove('drop-up'));
+}
+
+function positionMenu(menu) {
+    menu.classList.remove('drop-up');
+    const rect = menu.parentElement.getBoundingClientRect();
+    const menuHeight = menu.offsetHeight;
+    if (rect.bottom + menuHeight + 8 > window.innerHeight) {
+        menu.classList.add('drop-up');
+    }
 }
 
 document.addEventListener('click', closeAllMenus);
@@ -982,6 +992,9 @@ async function playVideo(videoId, title, channel, duration, startTime) {
 
     // Fetch video info — determines player type
     try {
+        // Start SponsorBlock fetch early (in parallel with info)
+        if (typeof initSponsorBlock === 'function') initSponsorBlock(videoId);
+
         const resp = await fetch(appendCookieParam(`/api/info/${videoId}`));
         const info = await resp.json();
 
@@ -1052,7 +1065,6 @@ async function playVideo(videoId, title, channel, duration, startTime) {
                 } catch(e) {}
             }
         }
-        if (typeof initSponsorBlock === 'function') initSponsorBlock(videoId);
     } catch (err) {
         console.error('Info fetch failed:', err);
         showPlayerError(title);
@@ -1371,6 +1383,7 @@ summarizeBtn.addEventListener('click', (e) => {
     if (!wasOpen) {
         renderSummarizeMenu();
         summarizeMenu.classList.remove('hidden');
+        positionMenu(summarizeMenu);
     }
 });
 

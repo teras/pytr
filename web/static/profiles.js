@@ -110,6 +110,14 @@ function showProfileSelector(profiles) {
     `;
     profileOverlay.classList.remove('hidden');
 
+    // Auto-focus first profile card in TV mode
+    if (document.body.classList.contains('tv-nav-active')) {
+        const firstCard = profileOverlay.querySelector('.profile-card');
+        if (firstCard && typeof window._tvSetFocus === 'function') {
+            window._tvSetFocus(firstCard);
+        }
+    }
+
     // Card click handlers
     profileOverlay.querySelectorAll('.profile-card[data-id]').forEach(card => {
         card.addEventListener('click', () => {
@@ -183,6 +191,7 @@ async function selectProfile(id, pin) {
         updateProfileButton();
         profileOverlay.innerHTML = '';
         profileOverlay.classList.add('hidden');
+        if (document.activeElement) document.activeElement.blur();
         stopPlayer();
         handleInitialRoute();
         if (typeof connectWebSocket === 'function') connectWebSocket();
@@ -654,7 +663,17 @@ if (profileSwitcherBtn) {
                 } else if (action === 'tv-mode') {
                     if (typeof window.toggleTvMode === 'function') window.toggleTvMode();
                 } else if (action === 'logout') {
-                    window.location.href = '/logout';
+                    if (document.body.classList.contains('tv-nav-active')) {
+                        localStorage.removeItem('tv-mode');
+                        localStorage.removeItem('pytr-device-name');
+                        localStorage.removeItem('pytr-server');
+                        fetch('/logout-api', { method: 'POST' }).finally(() => {
+                            window.location.href = 'pytr://setup';
+                            setTimeout(() => { window.location.href = '/login'; }, 300);
+                        });
+                    } else {
+                        window.location.href = '/logout';
+                    }
                 }
             });
         });

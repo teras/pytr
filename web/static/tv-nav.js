@@ -468,7 +468,9 @@
         const pct = dur > 0 ? (cur / dur) * 100 : 0;
         document.getElementById('osd-progress').style.width = pct + '%';
         const icon = document.getElementById('osd-play-icon');
-        if (icon) icon.innerHTML = video.paused ? '&#9654;' : '&#9646;&#9646;';
+        if (icon) icon.innerHTML = video.paused
+            ? svgIcon(SVG_PLAY, null, 18)
+            : svgIcon(SVG_PAUSE, null, 18);
     }
 
     function isOsdPopupOpen() {
@@ -710,4 +712,7 @@
     _tv.toggleTvMode = toggleTvMode;
     _tv.showOsd = showOsd;
     _tv.hideOsd = hideOsd;
+
+    // Expose setFocus globally for profile auto-focus
+    window._tvSetFocus = setFocus;
 })();

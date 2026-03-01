@@ -23,6 +23,9 @@ async def lifespan(app):
     # Start background tasks
     from helpers import webos_renewal_loop
     renewal_task = asyncio.create_task(webos_renewal_loop())
+    # Warm up external API connections
+    from routes.sponsorblock import warmup_connection
+    asyncio.create_task(warmup_connection())
     yield
     # Shutdown
     renewal_task.cancel()

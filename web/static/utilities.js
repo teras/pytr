@@ -1,5 +1,16 @@
 // ── Shared utilities (used by app.js and standalone pages) ──────────────────
 
+// ── SVG Icons ───────────────────────────────────────────────────────────────
+
+const SVG_PLAY  = '<path d="M2.5 0 21.5 12 2.5 24z" fill-rule="evenodd"/>';
+const SVG_PAUSE = '<path d="M3.158 0h6.316v24H3.158Zm11.368 0h6.316v24h-6.316z" fill-rule="evenodd"/>';
+
+function svgIcon(inner, cls, size) {
+    const w = size ? ` width="${size}" height="${size}"` : '';
+    const c = cls ? ` class="${cls}"` : '';
+    return `<svg${c} viewBox="0 0 24 24"${w} fill="currentColor">${inner}</svg>`;
+}
+
 // ── HTML escaping ───────────────────────────────────────────────────────────
 
 const _escDiv = document.createElement('div');

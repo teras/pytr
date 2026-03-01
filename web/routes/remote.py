@@ -287,6 +287,8 @@ async def list_devices(request: Request, profile_id: int = Depends(require_profi
             continue
         if dev_token == token:
             continue  # exclude self
+        if dev_token in _pairings:
+            continue  # exclude devices acting as remote controllers
         devices.append({
             "device_id": _device_id_from_token(dev_token),
             "device_name": _token_to_name.get(dev_token, "Unknown Device"),

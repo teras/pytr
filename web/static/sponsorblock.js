@@ -34,8 +34,8 @@
     let _toastTimer = null;
     let _toastEl = null;
     let _prefs = null; // {enabled: bool, categories: string[]}
-    let _seekedAt = 0; // performance.now() of last USER seek (not auto-skip)
     let _isAutoSeek = false; // flag to distinguish auto-skip seeks from user seeks
+    let _suppressedSeg = null; // segment suppressed because user seeked into it
 
     // ── Preferences ──────────────────────────────────────────────────────────
 
@@ -74,15 +74,19 @@
             const data = await resp.json();
             _segments = data.segments || [];
             _highlight = data.highlight || null;
-        } catch (e) {}
+            if (_segments.length) {
+                _renderOsdMarkers();
+                _scheduleSkip();
+            }
+        } catch (e) { /* SponsorBlock fetch failed — silently ignore */ }
     }
 
     function resetSponsorBlock() {
         _segments = [];
         _highlight = null;
         _videoId = null;
-        _seekedAt = 0;
         _isAutoSeek = false;
+        _suppressedSeg = null;
         if (_skipTimer) { clearTimeout(_skipTimer); _skipTimer = null; }
         _dismissToast();
         _clearOsdMarkers();
@@ -93,7 +97,16 @@
     function _scheduleSkip() {
         if (_skipTimer) { clearTimeout(_skipTimer); _skipTimer = null; }
         const video = document.getElementById('video-player');
-        if (!video || !_segments.length || !video.duration) return;
+        if (!video || !_segments.length) return;
+        if (!video.duration) {
+            // Duration not yet available (common on Android WebView with HLS)
+            // Retry when metadata/duration becomes available
+            video.addEventListener('durationchange', function _sbDurRetry() {
+                video.removeEventListener('durationchange', _sbDurRetry);
+                _scheduleSkip();
+            });
+            return;
+        }
 
         const now = video.currentTime;
         let nearest = null;
@@ -105,7 +118,7 @@
             const end = seg.segment[1];
             if (now >= end) continue;
             if (now >= start - 0.5 && now < end) {
-                if (performance.now() - _seekedAt < 1500) continue;
+                if (_suppressedSeg && seg.segment[0] === _suppressedSeg[0] && seg.segment[1] === _suppressedSeg[1]) continue;
                 _doSkip(video, seg);
                 return;
             }
@@ -144,8 +157,11 @@
             return;
         }
         const skipFrom = video.currentTime;
+        const target = Math.min(seg.segment[1], video.duration - 0.5);
         _isAutoSeek = true;
-        video.currentTime = seg.segment[1];
+        video.currentTime = target;
+        // If we couldn't skip fully past the segment, suppress it to avoid re-triggering
+        if (target < seg.segment[1]) _suppressedSeg = seg.segment;
         _showToast(seg.category, skipFrom);
         _scheduleSkip();
     }
@@ -217,8 +233,26 @@
             if (_isAutoSeek) {
                 _isAutoSeek = false;
             } else {
-                _seekedAt = performance.now();
                 if (_skipTimer) { clearTimeout(_skipTimer); _skipTimer = null; }
+                // Suppress the segment the user seeked into
+                const t = video.currentTime;
+                _suppressedSeg = null;
+                for (const seg of _segments) {
+                    if (!_isCategoryEnabled(seg.category)) continue;
+                    if (t >= seg.segment[0] - 0.5 && t < seg.segment[1]) {
+                        _suppressedSeg = seg.segment;
+                        break;
+                    }
+                }
+            }
+        });
+        video.addEventListener('timeupdate', () => {
+            // Clear suppression once user leaves the suppressed segment
+            if (_suppressedSeg) {
+                const t = video.currentTime;
+                if (t < _suppressedSeg[0] - 0.5 || t >= _suppressedSeg[1]) {
+                    _suppressedSeg = null;
+                }
             }
         });
         video.addEventListener('play', () => {

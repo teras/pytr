@@ -13,7 +13,7 @@ from urllib.parse import quote, urlparse
 import qrcode
 import qrcode.image.svg
 from fastapi import APIRouter, HTTPException, Query, Request, Response, Depends, Form
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from helpers import register_cleanup
 import profiles_db
@@ -622,6 +622,16 @@ async def logout(request: Request):
     if token:
         profiles_db.delete_session(token)
     response = RedirectResponse(url="/login", status_code=302)
+    response.delete_cookie("pytr_session")
+    return response
+
+
+@router.post("/logout-api")
+async def logout_api(request: Request):
+    token = request.cookies.get("pytr_session")
+    if token:
+        profiles_db.delete_session(token)
+    response = JSONResponse({"ok": True})
     response.delete_cookie("pytr_session")
     return response
 

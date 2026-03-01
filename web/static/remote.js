@@ -102,8 +102,7 @@ function _pairWithDevice(deviceId) {
     wsSend({ type: 'pair', device_id: deviceId });
 }
 
-function remoteDisconnect() {
-    wsSend({ type: 'unpair' });
+function _resetPairing() {
     _pairedDeviceName = null;
     _pairedDeviceId = null;
     _remoteState = null;
@@ -111,6 +110,11 @@ function remoteDisconnect() {
     if (_remoteRepairTimer) { clearTimeout(_remoteRepairTimer); _remoteRepairTimer = null; }
     _removeMiniPlayer();
     _removeHeaderDisconnect();
+}
+
+function remoteDisconnect() {
+    wsSend({ type: 'unpair' });
+    _resetPairing();
 }
 
 // ── Handlers (called from app.js WS message handler) ────────────────────────
@@ -143,12 +147,8 @@ function _handleRemoteState(msg) {
 }
 
 function _handleTargetDisconnected() {
-    _pairedDeviceName = null;
-    _pairedDeviceId = null;
-    _remoteState = null;
+    _resetPairing();
     _showRemoteToast('Target device disconnected');
-    _removeMiniPlayer();
-    // Re-show device list
     if (_remoteMode) enterRemoteMode();
 }
 
@@ -159,13 +159,8 @@ function _handleRemoteError(message) {
         return;
     }
     _showRemoteToast(message);
-    // If we get an error while paired, the pairing is broken
     if (_pairedDeviceName) {
-        _pairedDeviceName = null;
-        _pairedDeviceId = null;
-        _remoteState = null;
-        _removeMiniPlayer();
-        _removeHeaderDisconnect();
+        _resetPairing();
         if (_remoteMode) enterRemoteMode();
     }
 }
@@ -214,7 +209,7 @@ function _createMiniPlayer() {
             </div>
         </div>
         <div class="rmp-row rmp-row-seek">
-            <button class="rmp-btn rmp-play-btn" title="Play/Pause"><svg class="rmp-icon" viewBox="0 0 24 24"><polygon points="8,5 19,12 8,19"/></svg></button>
+            <button class="rmp-btn rmp-play-btn" title="Play/Pause">${svgIcon(SVG_PLAY, 'rmp-icon')}</button>
             <div class="rmp-time rmp-current">0:00</div>
             <div class="rmp-bar">
                 <div class="rmp-bar-track"><div class="rmp-bar-fill"></div></div>
@@ -341,8 +336,8 @@ function _updateMiniPlayer() {
     // If no fresh state from target, assume player is dead → show play icon
     const isPaused = !_remoteHasFreshState || s.paused;
     playBtn.innerHTML = isPaused
-        ? '<svg class="rmp-icon" viewBox="0 0 24 24"><polygon points="8,5 19,12 8,19"/></svg>'
-        : '<svg class="rmp-icon" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>';
+        ? svgIcon(SVG_PLAY, 'rmp-icon')
+        : svgIcon(SVG_PAUSE, 'rmp-icon');
 }
 
 // ── Header disconnect button ────────────────────────────────────────────────

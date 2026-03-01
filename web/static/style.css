@@ -36,6 +36,7 @@ body {
     max-width: 1400px;
     margin: 0 auto;
     padding: 8px 20px 20px;
+    overflow-x: clip;
 }
 
 header {
@@ -498,6 +499,16 @@ h1 {
     overflow-y: auto;
     z-index: 100;
     box-shadow: var(--shadow-dropdown);
+}
+
+.quality-menu.drop-up,
+.audio-menu.drop-up,
+.subtitle-menu.drop-up,
+.summarize-menu.drop-up {
+    top: auto;
+    bottom: 100%;
+    margin-top: 0;
+    margin-bottom: 4px;
 }
 
 .quality-option,
@@ -2137,11 +2148,12 @@ body.tv-nav-active #video-grid {
     opacity: 1;
 }
 .osd-play-icon {
-    font-size: 18px;
     color: #fff;
     flex-shrink: 0;
     width: 24px;
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     pointer-events: none;
 }
 .tv-osd-time {

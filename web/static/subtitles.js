@@ -183,6 +183,7 @@ subtitleBtn.addEventListener('click', (e) => {
     if (!wasOpen) {
         renderSubtitleMenu();
         subtitleMenu.classList.remove('hidden');
+        positionMenu(subtitleMenu);
     }
 });
 

@@ -52,6 +52,16 @@ class MainActivity : Activity() {
         }
 
         webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                if (request.url.toString().startsWith("pytr://setup")) {
+                    PreferenceHelper.clearServerUrl(this@MainActivity)
+                    startActivity(Intent(this@MainActivity, SetupActivity::class.java))
+                    finish()
+                    return true
+                }
+                return false
+            }
+
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
                 // Inject TV mode activation and device name
