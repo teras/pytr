@@ -516,7 +516,7 @@
         for (let i = 0; i < 1; i++) {
             const card = document.createElement('div');
             card.className = 'tv-overlay-item related-card tv-skeleton-card';
-            card.innerHTML = '<div class="thumbnail-container"><div class="skeleton-text" style="width:100%;height:100%;margin:0;border-radius:0"></div></div><div class="related-info"><div class="skeleton-text"></div><div class="skeleton-text short"></div></div>';
+            card.innerHTML = '<div class="thumbnail-container"><div class="skeleton-text" style="position:absolute;top:0;left:0;width:100%;height:100%;margin:0;border-radius:0"></div></div><div class="related-info"><div class="skeleton-text"></div><div class="skeleton-text short"></div></div>';
             strip.appendChild(card);
         }
         row.appendChild(strip);

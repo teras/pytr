@@ -610,7 +610,7 @@ if (profileSwitcherBtn) {
             ${!isTv ? '<div class="profile-menu-item" data-action="edit-profile">Edit profile</div>' : ''}
             ${isAdmin && !isTv ? '<div class="profile-menu-item" data-action="settings">Options</div>' : ''}
             ${!isTv ? '<div class="profile-menu-item" data-action="remote-control">Remote Control</div>' : ''}
-            <div class="profile-menu-item" data-action="tv-mode">${document.body.classList.contains('tv-nav-active') ? 'Desktop Mode' : 'TV Mode'}</div>
+            ${!(isTv && localStorage.getItem('tv-mode') !== 'desktop') ? `<div class="profile-menu-item" data-action="tv-mode">${isTv ? 'Desktop Mode' : 'TV Mode'}</div>` : ''}
             ${!isTv ? `<div class="cookie-toggle-row">
                 <span class="cookie-toggle-label">Cookies</span>
                 <div class="cookie-toggle-btns" data-action="cookie-toggle">

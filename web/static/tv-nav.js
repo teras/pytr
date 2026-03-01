@@ -50,11 +50,17 @@
         return document.body.classList.contains('tv-nav-active');
     }
 
+    function isTvLocked() {
+        const v = localStorage.getItem(TV_KEY);
+        return v && v !== 'desktop';
+    }
+
     function toggleTvMode() {
+        if (isTvLocked()) return;
         const entering = !isTvActive();
         if (entering) {
             document.body.classList.add('tv-nav-active');
-            localStorage.setItem(TV_KEY, '1');
+            localStorage.setItem(TV_KEY, 'desktop');
             if (isVideoView()) enterPlayerMode();
         } else {
             document.body.classList.remove('tv-nav-active');
@@ -285,8 +291,8 @@
                 if (btn) { btn.click(); setFocus(btn); }
                 return;
             }
-            // Nothing open → exit TV mode
-            toggleTvMode();
+            // Nothing open → exit TV mode (only if not a real TV client)
+            if (!isTvLocked()) toggleTvMode();
             return;
         }
 
@@ -452,7 +458,7 @@
     });
 
     // ── Restore TV mode from localStorage on page load ───────────────────────
-    if (localStorage.getItem(TV_KEY) === '1') {
+    if (localStorage.getItem(TV_KEY)) {
         document.body.classList.add('tv-nav-active');
     }
 
@@ -475,8 +481,7 @@
 
     function isOsdPopupOpen() {
         const vp = document.getElementById('osd-volume-popup');
-        const ep = document.getElementById('osd-expand-popup');
-        return (vp && vp.classList.contains('open')) || (ep && ep.classList.contains('open'));
+        return vp && vp.classList.contains('open');
     }
 
     function showOsd() {
@@ -600,80 +605,54 @@
         });
     }
 
-    // ── Expand menu (normal / theater / fullscreen — show 2 of 3) ──────
-    const expandBtn = document.getElementById('osd-expand-btn');
-    const expandPopup = document.getElementById('osd-expand-popup');
-    const expandWrap = document.querySelector('.osd-expand-wrap');
-    let _expandLeaveTimer = null;
+    // ── Mode buttons (theater / normal / fullscreen / exit-fs) ─────────
+    const modeBtns = document.querySelectorAll('.osd-mode-btn');
+    let _preFsMode = 'normal';
 
-    // Pipeline: normal ↔ theater (2 options each), fullscreen → exit (returns to previous)
-    let _preFsMode = 'normal'; // remembers normal/theater before entering fullscreen
-
-    function updateExpandOptions() {
-        if (!expandPopup) return;
+    function updateModeButtons() {
         const isFs = !!document.fullscreenElement;
         const isTheater = document.body.classList.contains('theater-mode');
-        expandPopup.querySelectorAll('.osd-expand-option').forEach(opt => {
-            const a = opt.dataset.action;
+        modeBtns.forEach(btn => {
+            const a = btn.dataset.action;
             if (isFs) {
-                // In fullscreen: only show "Exit Fullscreen"
-                opt.style.display = a === 'exit-fs' ? '' : 'none';
+                btn.style.display = a === 'exit-fs' ? '' : 'none';
             } else if (isTheater) {
-                // In theater: show normal + fullscreen
-                opt.style.display = (a === 'normal' || a === 'fullscreen') ? '' : 'none';
+                btn.style.display = (a === 'normal' || a === 'fullscreen') ? '' : 'none';
             } else {
-                // In normal: show theater + fullscreen
-                opt.style.display = (a === 'theater' || a === 'fullscreen') ? '' : 'none';
+                btn.style.display = (a === 'theater' || a === 'fullscreen') ? '' : 'none';
             }
         });
     }
 
-    if (expandWrap && expandPopup) {
-        expandWrap.addEventListener('mouseenter', () => {
-            if (_expandLeaveTimer) { clearTimeout(_expandLeaveTimer); _expandLeaveTimer = null; }
-            updateExpandOptions();
-            expandPopup.classList.add('open');
-            showOsd();
-        });
-        expandWrap.addEventListener('mouseleave', () => {
-            _expandLeaveTimer = setTimeout(() => {
-                expandPopup.classList.remove('open');
-                _expandLeaveTimer = null;
-                showOsd();
-            }, 300);
-        });
-    }
+    updateModeButtons();
 
-    // ESC or browser exit from fullscreen → restore previous mode
     document.addEventListener('fullscreenchange', () => {
         if (!document.fullscreenElement) {
-            // Returned from fullscreen — restore previous mode
             if (_preFsMode === 'theater') {
                 document.body.classList.add('theater-mode');
             } else {
                 document.body.classList.remove('theater-mode');
             }
         }
+        updateModeButtons();
     });
 
-    document.querySelectorAll('.osd-expand-option').forEach(opt => {
-        opt.addEventListener('click', (e) => {
+    modeBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const action = opt.dataset.action;
+            const action = btn.dataset.action;
             const pc = document.getElementById('player-container');
             if (action === 'normal') {
                 document.body.classList.remove('theater-mode');
             } else if (action === 'theater') {
                 document.body.classList.add('theater-mode');
             } else if (action === 'fullscreen') {
-                // Remember current mode before going fullscreen
                 _preFsMode = document.body.classList.contains('theater-mode') ? 'theater' : 'normal';
                 if (pc) pc.requestFullscreen().catch(() => {});
             } else if (action === 'exit-fs') {
                 if (document.fullscreenElement) document.exitFullscreen();
-                // fullscreenchange handler restores _preFsMode
             }
-            expandPopup.classList.remove('open');
+            updateModeButtons();
             showOsd();
         });
     });
@@ -709,6 +688,7 @@
     _tv.enterPlayerMode = enterPlayerMode;
     _tv.isVideoView = isVideoView;
     _tv.isTvActive = isTvActive;
+    _tv.isTvLocked = isTvLocked;
     _tv.toggleTvMode = toggleTvMode;
     _tv.showOsd = showOsd;
     _tv.hideOsd = hideOsd;

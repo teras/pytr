@@ -656,7 +656,7 @@ def test_tv_bottom_overlay(driver):
     print(f"\n=== Test: TV bottom overlay ({PLAYLIST_VIDEO}) ===")
 
     # Enable TV mode BEFORE navigation so video-changed handler activates playerMode
-    driver.execute_script("localStorage.setItem('tv-mode', '1')")
+    driver.execute_script("localStorage.setItem('tv-mode', 'desktop')")
 
     # Navigate to playlist URL — page load reads localStorage, video-changed fires with TV active
     driver.get(f"{BASE}/watch?v={PLAYLIST_VIDEO}&list={PLAYLIST_ID}")

@@ -70,7 +70,7 @@ class MainActivity : Activity() {
                 view.evaluateJavascript(
                     """
                     (function() {
-                        localStorage.setItem('tv-mode', '1');
+                        localStorage.setItem('tv-mode', 'android');
                         localStorage.setItem('pytr-device-name', '$deviceName');
                         document.body.classList.add('tv-nav-active');
                         // Trigger tv-nav.js initialization if it checks on load
