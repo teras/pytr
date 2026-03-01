@@ -1930,6 +1930,19 @@ body.tv-nav-active .video-details {
     margin-top: 2px;
 }
 
+.tv-top-channel-link {
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-color: transparent;
+    transition: text-decoration-color 0.2s;
+}
+
+.tv-top-channel-link.tv-focus,
+.tv-top-channel-link:hover {
+    text-decoration-color: var(--color-text-muted);
+    color: var(--color-text);
+}
+
 .tv-top-meta .tv-top-views {
     font-size: 12px;
     color: var(--color-text-subtle);

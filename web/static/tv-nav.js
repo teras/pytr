@@ -687,6 +687,7 @@
     _tv.getCurrentEl = () => currentEl;
     _tv.enterPlayerMode = enterPlayerMode;
     _tv.isVideoView = isVideoView;
+    _tv.isPlayerMode = () => playerMode;
     _tv.isTvActive = isTvActive;
     _tv.isTvLocked = isTvLocked;
     _tv.toggleTvMode = toggleTvMode;

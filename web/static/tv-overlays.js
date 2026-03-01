@@ -300,7 +300,24 @@
         metaDiv.innerHTML = '';
         var _el;
         _el = document.getElementById('video-title'); addMetaLine(metaDiv, 'tv-top-title', _el ? _el.textContent : '');
-        _el = document.getElementById('video-channel'); addMetaLine(metaDiv, 'tv-top-channel', _el ? _el.textContent : '');
+
+        // Channel name: clickable/focusable link to channel page
+        _el = document.getElementById('video-channel');
+        const channelName = _el ? _el.textContent : '';
+        if (channelName) {
+            const btn = document.createElement('div');
+            btn.className = 'tv-top-channel tv-overlay-item tv-top-channel-link';
+            btn.textContent = channelName;
+            btn.addEventListener('click', () => {
+                const chId = typeof currentVideoChannelId !== 'undefined' ? currentVideoChannelId : null;
+                if (chId) {
+                    hideTop();
+                    navigateToChannel(chId, channelName);
+                }
+            });
+            metaDiv.appendChild(btn);
+        }
+
         _el = document.getElementById('video-meta'); addMetaLine(metaDiv, 'tv-top-views', _el ? _el.textContent : '');
     }
 
@@ -696,6 +713,17 @@
             }
         }
         return navigateOverlay(topOverlay, dir);
+    }
+
+    // ── Auto-show related on video end (TV mode only) ─────────────────────
+    const _videoPlayer = document.getElementById('video-player');
+    if (_videoPlayer) {
+        _videoPlayer.addEventListener('ended', () => {
+            if (!_tv.isTvActive() || !_tv.isPlayerMode()) return;
+            const queue = typeof window._getQueue === 'function' ? window._getQueue() : null;
+            if (queue && queue.videos && queue.videos.length) return;
+            showNextRow();
+        });
     }
 
     // ── Namespace exports ────────────────────────────────────────────────────
