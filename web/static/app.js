@@ -1395,7 +1395,7 @@ let _ws = null;
 let _wsReconnectTimer = null;
 let _wsStateThrottle = null;
 let _wsConnected = false;
-
+let _wsReconnectDelay = 500;
 function connectWebSocket() {
     if (_ws && (_ws.readyState === WebSocket.OPEN || _ws.readyState === WebSocket.CONNECTING)) return;
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -1405,16 +1405,22 @@ function connectWebSocket() {
         _wsConnected = true;
         if (_wsReconnectTimer) { clearTimeout(_wsReconnectTimer); _wsReconnectTimer = null; }
         console.log('WebSocket connected');
-        if (typeof _onWsReconnected === 'function') _onWsReconnected();
+        // _onWsReconnected returns true if auto-repair started (backoff resets on pair success instead)
+        const autoRepairing = typeof _onWsReconnected === 'function' && _onWsReconnected();
+        if (!autoRepairing) _wsReconnectDelay = 500;
     };
 
     _ws.onclose = () => {
         _wsConnected = false;
         _ws = null;
         if (typeof _onWsDisconnected === 'function') _onWsDisconnected();
-        // Auto-reconnect after 5s
+        // Auto-reconnect with exponential backoff (500ms → 1s → 2s → 4s → 5s max)
         if (!_wsReconnectTimer) {
-            _wsReconnectTimer = setTimeout(() => { _wsReconnectTimer = null; connectWebSocket(); }, 5000);
+            _wsReconnectTimer = setTimeout(() => {
+                _wsReconnectTimer = null;
+                connectWebSocket();
+            }, _wsReconnectDelay);
+            _wsReconnectDelay = Math.min(_wsReconnectDelay * 2, 5000);
         }
     };
 
@@ -1429,6 +1435,15 @@ function connectWebSocket() {
         }
     };
 }
+
+// Immediately reconnect when page becomes visible again
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        if (_wsReconnectTimer) { clearTimeout(_wsReconnectTimer); _wsReconnectTimer = null; }
+        _wsReconnectDelay = 500;
+        connectWebSocket();
+    }
+});
 
 function wsSend(data) {
     if (_ws && _ws.readyState === WebSocket.OPEN) {

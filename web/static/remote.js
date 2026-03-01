@@ -9,8 +9,7 @@ let _remoteMiniPlayer = null;
 let _remoteState = null;  // latest state from target
 let _remoteSeeking = false;
 let _remoteWsConnected = true; // tracks WS connection status for UI
-let _remoteRepairing = false;  // true while auto-retrying pair after reconnect
-let _remoteRepairTimer = null; // retry timer for re-pairing
+let _remoteAutoRepair = false;    // true when pair request was triggered by WS reconnect (not user)
 let _remoteHasFreshState = false; // true once we get state from target after (re-)pair
 
 // ── Enter/Exit Remote Mode ──────────────────────────────────────────────────
@@ -106,8 +105,7 @@ function _resetPairing() {
     _pairedDeviceName = null;
     _pairedDeviceId = null;
     _remoteState = null;
-    _remoteRepairing = false;
-    if (_remoteRepairTimer) { clearTimeout(_remoteRepairTimer); _remoteRepairTimer = null; }
+    _remoteAutoRepair = false;
     _removeMiniPlayer();
     _removeHeaderDisconnect();
 }
@@ -120,11 +118,12 @@ function remoteDisconnect() {
 // ── Handlers (called from app.js WS message handler) ────────────────────────
 
 function _handlePaired(msg) {
-    _remoteRepairing = false;
-    if (_remoteRepairTimer) { clearTimeout(_remoteRepairTimer); _remoteRepairTimer = null; }
+    const isRepair = !!_remoteMiniPlayer; // re-pair after reconnect, not first pair
+    _remoteAutoRepair = false;
+    _wsReconnectDelay = 500; // reset backoff on successful pair
     _remoteHasFreshState = false;
     _pairedDeviceName = msg.device_name || 'Device';
-    _showRemoteToast(`Controlling: ${_pairedDeviceName}`);
+    if (!isRepair) _showRemoteToast(`Controlling: ${_pairedDeviceName}`);
     _createMiniPlayer();
     _createHeaderDisconnect();
     if (_remoteMiniPlayer) _remoteMiniPlayer.classList.remove('rmp-disconnected');
@@ -133,11 +132,13 @@ function _handlePaired(msg) {
         _remoteHasFreshState = true;
     }
     _updateMiniPlayer();
-    // Return to normal browsing (keep remote mode active)
-    history.pushState({ view: 'home' }, '', '/');
-    document.title = 'PYTR';
-    showListView();
-    if (typeof loadHomeTab === 'function') loadHomeTab();
+    if (!isRepair) {
+        // Return to normal browsing (keep remote mode active)
+        history.pushState({ view: 'home' }, '', '/');
+        document.title = 'PYTR';
+        showListView();
+        if (typeof loadHomeTab === 'function') loadHomeTab();
+    }
 }
 
 function _handleRemoteState(msg) {
@@ -153,9 +154,10 @@ function _handleTargetDisconnected() {
 }
 
 function _handleRemoteError(message) {
-    // If we're auto-retrying after reconnect, retry silently
-    if (_remoteRepairing) {
-        _scheduleRepair();
+    // If auto-repairing after reconnect, close WS to trigger unified retry
+    if (_remoteAutoRepair) {
+        _remoteAutoRepair = false;
+        if (_ws && _ws.readyState === WebSocket.OPEN) _ws.close();
         return;
     }
     _showRemoteToast(message);
@@ -391,21 +393,12 @@ function _onWsReconnected() {
     // Don't remove rmp-disconnected yet — wait for successful re-pair
     // Re-pair with the same device if we were paired
     if (_remoteMode && _pairedDeviceId) {
-        _remoteRepairing = true;
+        _remoteAutoRepair = true;
         wsSend({ type: 'pair', device_id: _pairedDeviceId });
-    } else if (_remoteMiniPlayer) {
-        _remoteMiniPlayer.classList.remove('rmp-disconnected');
+        return true; // auto-repair in progress, don't reset backoff yet
     }
-}
-
-function _scheduleRepair() {
-    if (_remoteRepairTimer) return;
-    _remoteRepairTimer = setTimeout(() => {
-        _remoteRepairTimer = null;
-        if (_remoteMode && _pairedDeviceId && _remoteWsConnected) {
-            wsSend({ type: 'pair', device_id: _pairedDeviceId });
-        }
-    }, 5000);
+    if (_remoteMiniPlayer) _remoteMiniPlayer.classList.remove('rmp-disconnected');
+    return false;
 }
 
 function _deviceIcon(name) {
