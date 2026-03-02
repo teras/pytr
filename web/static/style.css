@@ -2037,14 +2037,15 @@ body.tv-nav-active .video-details {
     display: flex;
     gap: 16px;
     overflow-x: hidden;
-    padding: 6px 0;
-    margin: -6px 0;
+    padding: 12px;
+    margin: -12px;
 }
 
 .tv-related-strip .related-card {
     flex: 0 0 240px;
     flex-direction: column;
     padding: 0;
+    gap: 0;
     border-radius: 8px;
     overflow: hidden;
     background: var(--color-bg-surface);
