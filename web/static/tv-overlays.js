@@ -251,9 +251,9 @@
             e.stopPropagation(); // don't let TV nav intercept typing
         });
 
-        const homeBtn = document.createElement('button');
-        homeBtn.className = 'tv-overlay-item tv-top-home-btn';
-        homeBtn.innerHTML = '<img src="/static/pytr.svg" alt="Home">';
+        const homeBtn = document.createElement('div');
+        homeBtn.className = 'tv-overlay-item tv-top-home-btn logo-icon logo-icon-sm';
+        homeBtn.innerHTML = '<svg class="logo-outline" fill="#4d90fe"><use href="#pytr-outline"/></svg><img src="/static/pytr.svg" alt="Home" class="logo-img">';
         homeBtn.addEventListener('click', () => {
             hideTop();
             document.getElementById('logo-link').click();

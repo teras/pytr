@@ -46,6 +46,71 @@ header {
     margin-bottom: 12px;
 }
 
+.logo-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    margin: 0;
+}
+
+.logo-icon {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.logo-icon.tv-focus {
+    box-shadow: none !important;
+}
+
+.logo-icon .logo-img {
+    height: 2.2em;
+    width: auto;
+    display: block;
+    position: relative;
+    z-index: 1;
+}
+
+.logo-icon .logo-outline {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    height: 2.15em;
+    width: auto;
+    display: none;
+    z-index: 0;
+}
+
+.logo-icon.tv-focus .logo-outline {
+    display: block;
+}
+
+.logo-label {
+    font-size: 0.45em;
+    font-weight: 600;
+    color: #fff;
+    margin-left: 0.8em;
+    letter-spacing: 1px;
+    text-decoration: none;
+}
+
+.logo-icon,
+.logo-label {
+    color: inherit;
+    text-decoration: none;
+}
+
+.logo-icon:hover .logo-img {
+    filter: brightness(0.8);
+}
+
+.logo-label.tv-focus {
+    box-shadow: none !important;
+}
+
 .profile-switcher-btn {
     display: flex;
     align-items: center;
@@ -1718,9 +1783,8 @@ h1 {
 
 /* ── TV / D-pad Navigation ────────────────────────────────────────────────── */
 .tv-focus {
-    outline: 3px solid #4d90fe !important;
-    outline-offset: 2px;
-    box-shadow: 0 0 0 6px rgba(77, 144, 254, 0.3);
+    outline: none !important;
+    box-shadow: 0 0 0 3px #4d90fe, 0 0 0 6px rgba(77, 144, 254, 0.3);
     scroll-margin: 40px;
 }
 
@@ -1850,22 +1914,17 @@ body.tv-nav-active .video-details {
 }
 
 .tv-top-home-btn {
-    background: none;
-    border: none;
     padding: 4px 8px;
     cursor: pointer;
-    display: flex;
-    align-items: center;
 }
-.tv-top-home-btn img {
-    height: 28px;
-    width: auto;
-    filter: brightness(0.7);
+.logo-icon-sm .logo-img {
+    height: 46px;
+}
+.logo-icon-sm .logo-outline {
+    height: 46px;
+}
+.tv-top-home-btn .logo-img {
     transition: filter 0.2s;
-}
-.tv-top-home-btn.tv-focus img,
-.tv-top-home-btn:hover img {
-    filter: brightness(1);
 }
 
 /* Row 2: buttons left, info right */
