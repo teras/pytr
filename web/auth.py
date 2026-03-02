@@ -518,8 +518,8 @@ async def channel_page(request: Request, channel_id: str):
     return _serve_spa(request)
 
 
-@router.get("/channel/{channel_id}/playlists")
-async def channel_playlists_page(request: Request, channel_id: str):
+@router.get("/channel/{channel_id}/{suffix}")
+async def channel_suffix_page(request: Request, channel_id: str, suffix: str):
     return _serve_spa(request)
 
 
@@ -528,8 +528,8 @@ async def handle_page(request: Request, handle: str):
     return _serve_spa(request)
 
 
-@router.get("/@{handle}/playlists")
-async def handle_playlists_page(request: Request, handle: str):
+@router.get("/@{handle}/{suffix}")
+async def handle_suffix_page(request: Request, handle: str, suffix: str):
     return _serve_spa(request)
 
 

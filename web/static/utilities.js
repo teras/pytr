@@ -28,18 +28,28 @@ function escapeAttr(text) {
 function youtubeToInternalLink(url) {
     try {
         const u = new URL(url);
-        let videoId = null;
-        if (u.hostname === 'youtu.be') {
-            videoId = u.pathname.slice(1);
-        } else if ((u.hostname === 'www.youtube.com' || u.hostname === 'youtube.com' || u.hostname === 'm.youtube.com') && u.pathname === '/watch') {
-            videoId = u.searchParams.get('v');
-        }
-        if (!videoId) return null;
-        // For youtu.be, video ID is in the path — move it to ?v= and keep all other params
-        if (u.hostname === 'youtu.be') {
+        const hn = u.hostname.replace(/^www\./, '').replace(/^m\./, '');
+        const p = u.pathname;
+        // youtu.be/ID, /shorts/ID, /live/ID → all point to a video, normalize to /watch?v=ID
+        if (hn === 'youtu.be') {
+            const videoId = p.slice(1);
+            if (!videoId) return null;
             u.searchParams.set('v', videoId);
+            return `/watch?${u.searchParams.toString()}`;
         }
-        return `/watch?${u.searchParams.toString()}`;
+        if (hn !== 'youtube.com' && hn !== 'music.youtube.com') return null;
+        if (p.startsWith('/shorts/') || p.startsWith('/live/')) {
+            const videoId = p.split('/')[2];
+            if (!videoId) return null;
+            u.searchParams.set('v', videoId);
+            return `/watch?${u.searchParams.toString()}`;
+        }
+        // Paths we pass through as-is (handleInitialRoute knows how to route them)
+        if (p === '/watch' || p === '/playlist' || p === '/results'
+            || p.startsWith('/channel/') || p.startsWith('/@')) {
+            return `${p}${u.search || ''}`;
+        }
+        return null;
     } catch { return null; }
 }
 

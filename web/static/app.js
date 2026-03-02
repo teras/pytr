@@ -464,24 +464,29 @@ function handleInitialRoute() {
             if (listId) _loadQueue(videoId, listId);
         }
     } else if (path.startsWith('/@')) {
-        const rest = path.slice(2); // remove /@
-        const isPlaylists = rest.endsWith('/playlists');
-        const handle = isPlaylists ? rest.slice(0, -'/playlists'.length) : rest;
-        const tab = isPlaylists ? 'playlists' : 'videos';
+        const parts = path.slice(2).split('/'); // remove /@
+        const handle = parts[0];
+        const suffix = parts[1] || '';
+        const tab = suffix === 'playlists' ? 'playlists' : 'videos';
         showListView();
         resolveHandleAndLoad(handle, tab);
     } else if (path.startsWith('/channel/')) {
-        const rest = path.slice('/channel/'.length);
-        const isPlaylists = rest.endsWith('/playlists');
-        const channelId = isPlaylists ? rest.slice(0, -'/playlists'.length) : rest;
+        const parts = path.slice('/channel/'.length).split('/');
+        const channelId = parts[0];
+        const suffix = parts[1] || '';
+        const isPlaylists = suffix === 'playlists';
         const tab = isPlaylists ? 'playlists' : 'videos';
-        history.replaceState({ view: 'channel', channelId, channelName: '', tab }, '', path);
+        const cleanPath = isPlaylists ? `/channel/${channelId}/playlists` : `/channel/${channelId}`;
+        history.replaceState({ view: 'channel', channelId, channelName: '', tab }, '', cleanPath);
         showListView();
         if (isPlaylists) {
             loadChannelPlaylists(channelId, '');
         } else {
             loadChannelVideos(channelId, '');
         }
+    } else if (path === '/playlist' && params.get('list')) {
+        // Server resolves first video via yt-dlp and redirects to /watch?v=...&list=...
+        window.location.replace(`/playlist?list=${encodeURIComponent(params.get('list'))}`);
     } else if (path === '/results') {
         const query = params.get('search_query');
         if (query) {
