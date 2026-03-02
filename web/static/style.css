@@ -2037,6 +2037,8 @@ body.tv-nav-active .video-details {
     display: flex;
     gap: 16px;
     overflow-x: hidden;
+    padding: 6px 0;
+    margin: -6px 0;
 }
 
 .tv-related-strip .related-card {
@@ -2083,7 +2085,8 @@ body.tv-nav-active .video-details {
 }
 
 .tv-bottom-row.visible {
-    max-height: 260px;
+    max-height: 280px;
+    overflow: visible;
     opacity: 1;
 }
 
