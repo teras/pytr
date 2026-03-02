@@ -280,7 +280,7 @@ def save_position(profile_id: int, video_id: str, position: float,
             """INSERT INTO watch_history (profile_id, video_id, title, channel, thumbnail, duration, duration_str, watched_at, position)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(profile_id, video_id) DO UPDATE SET
-                   title = excluded.title,
+                   title = CASE WHEN excluded.title = '' THEN watch_history.title ELSE excluded.title END,
                    channel = CASE WHEN excluded.channel = '' THEN watch_history.channel ELSE excluded.channel END,
                    thumbnail = CASE WHEN excluded.thumbnail = '' THEN watch_history.thumbnail ELSE excluded.thumbnail END,
                    duration = CASE WHEN excluded.duration = 0 THEN watch_history.duration ELSE excluded.duration END,

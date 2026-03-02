@@ -255,22 +255,24 @@ def _save_position_from_state(token: str, state: dict):
 
     _last_position_save[token] = now
 
-    # Near end → save position 0 to clear (same logic as frontend)
+    title = state.get("title", "")
+    channel = state.get("channel", "")
+    thumbnail = state.get("thumbnail", "")
+    dur_int = int(duration) if duration else 0
+    # Format duration string
+    dur_str = ""
+    if dur_int > 0:
+        h, rem = divmod(dur_int, 3600)
+        m, s = divmod(rem, 60)
+        dur_str = f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+    # Near end → mark as watched (position 0) but preserve metadata
     if duration > 0 and (current_time > duration - 30 or current_time / duration > 0.95):
-        profiles_db.save_position(profile_id, video_id, 0)
+        profiles_db.save_position(profile_id, video_id, 0,
+                                  title, channel, thumbnail, dur_int, dur_str)
         return
 
     if current_time > 5:
-        title = state.get("title", "")
-        channel = state.get("channel", "")
-        thumbnail = state.get("thumbnail", "")
-        dur_int = int(duration) if duration else 0
-        # Format duration string
-        dur_str = ""
-        if dur_int > 0:
-            h, rem = divmod(dur_int, 3600)
-            m, s = divmod(rem, 60)
-            dur_str = f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
         profiles_db.save_position(profile_id, video_id, round(current_time, 1),
                                   title, channel, thumbnail, dur_int, dur_str)
 
