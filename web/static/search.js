@@ -136,8 +136,15 @@ function _renderFilterToggles() {
 function _applySearchFilters(results) {
     const { video, playlist, mix } = _searchFilters;
 
+    // Collect first_video_ids from visible mixes/playlists
+    const mixFirstIds = new Set();
+    for (const r of results) {
+        if (r.type === 'mix' && mix && r.first_video_id) mixFirstIds.add(r.first_video_id);
+        if (r.type === 'playlist' && playlist && r.first_video_id) mixFirstIds.add(r.first_video_id);
+    }
+
     return results.filter(r => {
-        if (!r.type) return video;
+        if (!r.type) return video && !mixFirstIds.has(r.id);
         if (r.type === 'playlist') return playlist;
         if (r.type === 'mix') return mix;
         return true;

@@ -177,7 +177,7 @@
 
     function getOpenProfileMenu() {
         const menu = document.querySelector('.profile-menu');
-        return menu && menu.offsetParent ? menu : null;
+        return menu && !menu.classList.contains('hidden') ? menu : null;
     }
 
     function closeProfileMenu() {
