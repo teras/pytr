@@ -504,6 +504,10 @@ function handleInitialRoute() {
         history.replaceState({ view: 'channels' }, '', '/');
         showListView();
         loadChannels();
+    } else if (path === '/remote') {
+        history.replaceState({ view: 'home' }, '', '/');
+        showListView();
+        if (typeof enterRemoteMode === 'function') enterRemoteMode();
     } else {
         // Home page = remembered tab
         showListView();

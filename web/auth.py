@@ -548,6 +548,11 @@ async def favorites_page(request: Request):
     return _serve_spa(request)
 
 
+@router.get("/remote")
+async def remote_page(request: Request):
+    return _serve_spa(request)
+
+
 @router.get("/login")
 async def login_page(request: Request, error: str = "", next: str = "/"):
     if not _get_password():
