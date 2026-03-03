@@ -1,35 +1,16 @@
 // Copyright (c) 2026 Panayotis Katsaloulis
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// PYTR Embed — minimal standalone player for /embed/, /v/, /shorts/, /live/
+// PYTR Embed — lightweight player for /embed/, /v/, /shorts/, /live/
 
 (function () {
     'use strict';
 
-    /** Set best available YouTube poster: maxresdefault → sddefault → hqdefault */
-    function setBestPoster(videoEl, videoId) {
-        const base = `https://img.youtube.com/vi/${videoId}`;
-        videoEl.poster = `${base}/hqdefault.jpg`;
-        const img = new Image();
-        img.onload = function() {
-            if (img.naturalWidth > 120) {
-                videoEl.poster = img.src;
-            } else {
-                const sd = new Image();
-                sd.onload = function() {
-                    if (sd.naturalWidth > 120) videoEl.poster = sd.src;
-                };
-                sd.src = `${base}/sddefault.jpg`;
-            }
-        };
-        img.src = `${base}/maxresdefault.jpg`;
-    }
-
     const video = document.getElementById('video');
+    const errorMsg = document.getElementById('error-msg');
     const qualityBtn = document.getElementById('quality-btn');
     const qualityMenu = document.getElementById('quality-menu');
     const subtitleBtn = document.getElementById('subtitle-btn');
     const subtitleMenu = document.getElementById('subtitle-menu');
-    const errorMsg = document.getElementById('error-msg');
 
     let dashPlayer = null;
     let hlsPlayer = null;
@@ -39,6 +20,13 @@
     let preferredQuality = 1080;
     let subtitleTracks = [];
     let activeLang = null;
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    function showError(msg) {
+        errorMsg.textContent = msg;
+        errorMsg.style.display = 'block';
+    }
 
     // ── Parse video ID from URL path ─────────────────────────────────────────
 
@@ -50,43 +38,14 @@
     }
     const videoId = match[2];
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    // ── Initialize OSD ──────────────────────────────────────────────────────
+    window._osd.init({
+        getVideo: () => video,
+        isVideoView: () => true,
+        containerId: 'player-wrap',
+    });
 
-    const _langNames = typeof Intl.DisplayNames === 'function' ? new Intl.DisplayNames(['en'], { type: 'language' }) : null;
-    function langName(code) {
-        try { return _langNames ? _langNames.of(code) : code.toUpperCase(); }
-        catch(e) { return code.toUpperCase(); }
-    }
-
-    function showError(msg) {
-        errorMsg.textContent = msg;
-        errorMsg.style.display = 'block';
-    }
-
-    function getTargetQuality(heights, preferred) {
-        if (heights.includes(preferred)) return preferred;
-        const below = heights.filter(h => h <= preferred);
-        return below.length > 0 ? Math.max(...below) : Math.min(...heights);
-    }
-
-    // ── Quality ─────────────────────────────────────────────────────────────
-
-    function buildQualitiesDash() {
-        return (dashPlayer.getBitrateInfoListFor('video') || []).map(br => ({
-            height: br.height, bandwidth: br.bandwidth, qualityIndex: br.qualityIndex,
-        })).sort((a, b) => a.height - b.height);
-    }
-
-    function buildQualitiesHls() {
-        return (hlsPlayer.levels || []).map((level, idx) => ({
-            height: level.height, bandwidth: level.bitrate || level.bandwidth || 0, qualityIndex: idx,
-        })).sort((a, b) => a.height - b.height);
-    }
-
-    function switchToQuality(entry) {
-        if (playerType === 'dash') dashPlayer.setQualityFor('video', entry.qualityIndex);
-        else if (playerType === 'hls') hlsPlayer.currentLevel = entry.qualityIndex;
-    }
+    // ── Quality UI ──────────────────────────────────────────────────────────
 
     function updateQualityHighlight(height) {
         currentHeight = height;
@@ -109,7 +68,7 @@
                 const height = parseInt(opt.dataset.height);
                 const entry = videoQualities.find(q => q.height === height);
                 if (!entry) return;
-                switchToQuality(entry);
+                switchToQuality(playerType, dashPlayer, hlsPlayer, entry);
                 preferredQuality = height;
                 qualityMenu.classList.remove('open');
                 if (playerType === 'dash') {
@@ -128,9 +87,9 @@
         qualityMenu.classList.toggle('open');
     });
 
-    // ── Subtitles ───────────────────────────────────────────────────────────
+    // ── Subtitle UI ─────────────────────────────────────────────────────────
 
-    function loadSubtitles(tracks) {
+    function initSubtitleUI(tracks) {
         subtitleTracks = tracks || [];
         if (subtitleTracks.length === 0) {
             subtitleBtn.style.display = 'none';
@@ -229,12 +188,15 @@
         dashPlayer.initialize(video, `/api/dash/${videoId}`, false);
 
         dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
-            videoQualities = buildQualitiesDash();
+            videoQualities = buildQualitiesDash(dashPlayer);
             if (videoQualities.length === 0) return;
             const heights = videoQualities.map(q => q.height);
             const target = getTargetQuality(heights, preferredQuality);
             const entry = videoQualities.find(q => q.height === target);
-            if (entry) { switchToQuality(entry); updateQualityHighlight(target); }
+            if (entry) {
+                switchToQuality(playerType, dashPlayer, hlsPlayer, entry);
+                updateQualityHighlight(target);
+            }
             populateQualityMenu();
         });
 
@@ -255,14 +217,16 @@
         hlsPlayer.loadSource(manifestUrl);
 
         hlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => {
-            videoQualities = buildQualitiesHls();
+            videoQualities = buildQualitiesHls(hlsPlayer);
             if (videoQualities.length === 0) return;
             const heights = videoQualities.map(q => q.height);
             const target = getTargetQuality(heights, preferredQuality);
             const entry = videoQualities.find(q => q.height === target);
-            if (entry) { hlsPlayer.currentLevel = entry.qualityIndex; updateQualityHighlight(target); }
+            if (entry) {
+                hlsPlayer.currentLevel = entry.qualityIndex;
+                updateQualityHighlight(target);
+            }
             populateQualityMenu();
-            // Video starts paused; user must click play
         });
 
         hlsPlayer.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
@@ -291,9 +255,8 @@
         .then(r => { if (!r.ok) throw new Error('Video not found'); return r.json(); })
         .then(info => {
             document.title = info.title || 'PYTR';
-            // Try maxresdefault (HD, 16:9) with fallback chain
             setBestPoster(video, videoId);
-            loadSubtitles(info.subtitle_tracks || []);
+            initSubtitleUI(info.subtitle_tracks || []);
 
             if (info.is_live && Hls.isSupported()) {
                 startHls(`/api/hls/master/${videoId}?live=1`, true);

@@ -14,8 +14,80 @@
         html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
         #player-wrap { position: relative; width: 100%; height: 100%; }
         video { width: 100%; height: 100%; background: #000; }
-        #controls { position: absolute; bottom: 60px; right: 8px; display: flex; gap: 6px; opacity: 0; transition: opacity .2s; }
-        #player-wrap:hover #controls { opacity: 1; }
+        #error-msg {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #aaa; font-size: 16px; display: none; text-align: center;
+        }
+        /* ── OSD styles ──────────────────────────────────────────────────── */
+        .tv-osd {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+            background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+            opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 40;
+        }
+        .tv-osd.visible { opacity: 1; }
+        .osd-play-icon {
+            color: #fff; flex-shrink: 0; width: 24px;
+            display: flex; align-items: center; justify-content: center; pointer-events: none;
+        }
+        .tv-osd-time {
+            font-size: 13px; color: #ddd; font-variant-numeric: tabular-nums;
+            flex-shrink: 0; pointer-events: none; user-select: none;
+        }
+        .time-pad { visibility: hidden; }
+        .tv-osd-bar {
+            flex: 1; height: 5px; background: rgba(255, 255, 255, 0.25);
+            border-radius: 3px; position: relative; cursor: pointer; pointer-events: auto;
+        }
+        .tv-osd-bar:hover { height: 8px; }
+        .tv-osd-progress {
+            height: 100%; background: #e94040; border-radius: 3px; pointer-events: none;
+        }
+        .osd-right-controls {
+            display: flex; align-items: center; gap: 6px; pointer-events: auto; flex-shrink: 0;
+        }
+        .osd-ctrl-btn {
+            background: none; border: none; color: #ddd; cursor: pointer;
+            padding: 4px; line-height: 0; display: flex; align-items: center;
+            justify-content: center; border-radius: 4px; transition: background 0.15s;
+        }
+        .osd-ctrl-btn:hover { background: rgba(255,255,255,0.15); }
+        .osd-ctrl-btn svg { display: block; }
+        .osd-volume-wrap { position: relative; }
+        .osd-volume-popup {
+            position: absolute; bottom: calc(100% - 8px);
+            background: rgba(28,28,28,0.95); border-radius: 8px; display: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            left: 50%; transform: translateX(-50%);
+            padding: 14px 14px 22px; align-items: center; justify-content: center;
+        }
+        .osd-volume-popup.open { display: flex; }
+        #osd-volume-slider {
+            writing-mode: vertical-lr; direction: rtl;
+            -webkit-appearance: none; appearance: none;
+            width: 6px; height: 100px; background: rgba(255,255,255,0.25);
+            border-radius: 3px; outline: none; cursor: pointer;
+        }
+        #osd-volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 14px; height: 14px;
+            border-radius: 50%; background: #fff; cursor: pointer; border: none;
+        }
+        #osd-volume-slider::-moz-range-thumb {
+            width: 14px; height: 14px; border-radius: 50%;
+            background: #fff; cursor: pointer; border: none;
+        }
+        #osd-volume-slider::-webkit-slider-runnable-track { background: transparent; }
+        #osd-volume-slider::-moz-range-track { background: transparent; }
+        /* Hide theater/normal mode buttons in embed — only fullscreen */
+        .osd-mode-btn[data-action="theater"],
+        .osd-mode-btn[data-action="normal"] { display: none !important; }
+        /* ── Embed controls bar (above OSD) ──────────────────────────────── */
+        #embed-controls {
+            position: absolute; bottom: 44px; right: 8px;
+            display: flex; gap: 6px; pointer-events: auto;
+            opacity: 0; transition: opacity 0.3s; z-index: 41;
+        }
+        .tv-osd.visible ~ #embed-controls { opacity: 1; }
         .embed-btn {
             background: rgba(0,0,0,.7); color: #fff; border: none; border-radius: 6px;
             padding: 4px 10px; font-size: 13px; cursor: pointer; position: relative;
@@ -34,27 +106,52 @@
         }
         .embed-menu-item:hover { background: rgba(255,255,255,.1); }
         .embed-menu-item.selected { color: #fff; font-weight: 600; }
-        #error-msg {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: #aaa; font-size: 16px; display: none; text-align: center;
-        }
     </style>
 </head>
 <body>
     <div id="player-wrap">
-        <video id="video" controls></video>
-        <div id="controls">
-            <div class="embed-btn-wrap">
+        <video id="video"></video>
+        <div id="tv-osd" class="tv-osd">
+            <span id="osd-play-icon" class="osd-play-icon"></span>
+            <span id="osd-current" class="tv-osd-time">0:00</span>
+            <div id="osd-bar" class="tv-osd-bar">
+                <div id="osd-progress" class="tv-osd-progress"></div>
+            </div>
+            <span id="osd-total" class="tv-osd-time">0:00</span>
+            <div class="osd-right-controls">
+                <div class="osd-volume-wrap">
+                    <button id="osd-volume-btn" class="osd-ctrl-btn" title="Volume">
+                        <svg id="osd-vol-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#ddd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                    </button>
+                    <div id="osd-volume-popup" class="osd-volume-popup">
+                        <input id="osd-volume-slider" type="range" min="0" max="100" value="100" orient="vertical">
+                    </div>
+                </div>
+                <button class="osd-ctrl-btn osd-mode-btn" data-action="theater" title="Theater mode">T</button>
+                <button class="osd-ctrl-btn osd-mode-btn" data-action="normal" title="Normal mode">N</button>
+                <button class="osd-ctrl-btn osd-mode-btn" data-action="fullscreen" title="Fullscreen">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#ddd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                </button>
+                <button class="osd-ctrl-btn osd-mode-btn" data-action="exit-fs" title="Exit Fullscreen">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#ddd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                </button>
+            </div>
+        </div>
+        <div id="embed-controls">
+            <div>
                 <button id="subtitle-btn" class="embed-btn" style="display:none"></button>
                 <div id="subtitle-menu" class="embed-menu"></div>
             </div>
-            <div class="embed-btn-wrap">
+            <div>
                 <button id="quality-btn" class="embed-btn"></button>
                 <div id="quality-menu" class="embed-menu"></div>
             </div>
         </div>
         <div id="error-msg"></div>
     </div>
+    <script src="/static/utilities.js"></script>
+    <script src="/static/player.js"></script>
+    <script src="/static/osd.js"></script>
     <script src="/static/embed.js"></script>
 </body>
 </html>

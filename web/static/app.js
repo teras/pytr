@@ -4,52 +4,11 @@
 
 // ── Utilities ───────────────────────────────────────────────────────────────
 
-/** Format seconds as M:SS, MM:SS, H:MM:SS etc.
- *  Pass refSec (e.g. duration) to pad current time to match its width.
- *  Returns HTML — use innerHTML to set. Hidden padding uses same chars
- *  as the duration format for pixel-perfect width matching. */
-function formatTime(s, refS) {
-    if (!isFinite(s)) return '0:00';
-    s = Math.floor(s);
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    const natural = h > 0
-        ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
-        : m + ':' + String(sec).padStart(2, '0');
-    if (refS === undefined || !isFinite(refS)) return natural;
-    const ref = formatTime(Math.floor(refS));
-    if (natural.length >= ref.length) return natural;
-    const pad = ref.substring(0, ref.length - natural.length);
-    return '<span class="time-pad">' + pad + '</span>' + natural;
-}
-
 /** Append ?cookies=<mode> (or &cookies=<mode>) to a URL based on localStorage */
 function appendCookieParam(url) {
     const mode = (typeof getCookieMode === 'function') ? getCookieMode() : (localStorage.getItem('cookieMode') || 'auto');
     const sep = url.includes('?') ? '&' : '?';
     return `${url}${sep}cookies=${mode}`;
-}
-
-/** Set best available YouTube poster: maxresdefault → sddefault → hqdefault */
-function setBestPoster(videoEl, videoId) {
-    const base = `https://img.youtube.com/vi/${videoId}`;
-    videoEl.poster = `${base}/hqdefault.jpg`; // immediate low-res
-    const img = new Image();
-    img.onload = function() {
-        // YouTube returns a 120x90 placeholder when maxresdefault doesn't exist
-        if (img.naturalWidth > 120) {
-            videoEl.poster = img.src;
-        } else {
-            // try sddefault (640x480) as middle ground
-            const sd = new Image();
-            sd.onload = function() {
-                if (sd.naturalWidth > 120) videoEl.poster = sd.src;
-            };
-            sd.src = `${base}/sddefault.jpg`;
-        }
-    };
-    img.src = `${base}/maxresdefault.jpg`;
 }
 
 // ── DOM Elements ────────────────────────────────────────────────────────────
@@ -115,6 +74,13 @@ const subtitleBtnContainer = document.getElementById('subtitle-btn-container');
 const subtitleBtn = document.getElementById('subtitle-btn');
 const subtitleMenu = document.getElementById('subtitle-menu');
 
+// ── Initialize OSD ──────────────────────────────────────────────────────────
+window._osd.init({
+    getVideo: () => document.getElementById('video-player'),
+    isVideoView: () => { const vv = document.getElementById('video-view'); return vv && !vv.classList.contains('hidden'); },
+    containerId: 'player-container',
+});
+
 // ── State ───────────────────────────────────────────────────────────────────
 
 let currentVideoId = null;
@@ -147,29 +113,6 @@ function parseYouTubeTime(t) {
 
 // ── Quality Selector ────────────────────────────────────────────────────────
 
-function getTargetQuality(heights, preferred) {
-    if (heights.includes(preferred)) return preferred;
-    const below = heights.filter(h => h <= preferred);
-    return below.length > 0 ? Math.max(...below) : Math.min(...heights);
-}
-
-function buildQualitiesDash() {
-    const bitrateList = dashPlayer.getBitrateInfoListFor('video');
-    return (bitrateList || []).map(br => ({
-        height: br.height,
-        bandwidth: br.bandwidth,
-        qualityIndex: br.qualityIndex,
-    })).sort((a, b) => a.height - b.height);
-}
-
-function buildQualitiesHls() {
-    return (hlsPlayer.levels || []).map((level, idx) => ({
-        height: level.height,
-        bandwidth: level.bitrate || level.bandwidth || 0,
-        qualityIndex: idx,
-    })).sort((a, b) => a.height - b.height);
-}
-
 function populateQualityMenu() {
     qualityMenu.innerHTML = [...videoQualities].reverse().map(q => {
         const active = q.height === currentActiveHeight ? ' selected' : '';
@@ -184,7 +127,7 @@ function populateQualityMenu() {
             const height = parseInt(opt.dataset.height);
             const entry = videoQualities.find(q => q.height === height);
             if (!entry || qualityBtn.disabled) return;
-            switchToQuality(entry);
+            applyQualitySwitch(entry);
             preferredQuality = height;
             localStorage.setItem('preferredQuality', height);
             if (typeof savePreference === 'function') savePreference('quality', height);
@@ -199,12 +142,8 @@ function populateQualityMenu() {
     });
 }
 
-function switchToQuality(entry) {
-    if (currentPlayerType === 'dash') {
-        dashPlayer.setQualityFor('video', entry.qualityIndex);
-    } else if (currentPlayerType === 'hls') {
-        hlsPlayer.currentLevel = entry.qualityIndex;
-    }
+function applyQualitySwitch(entry) {
+    switchToQuality(currentPlayerType, dashPlayer, hlsPlayer, entry);
 }
 
 function updateQualityHighlight(height) {
@@ -1099,7 +1038,7 @@ function startDashPlayer(videoId) {
 
     dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
         _dashAutoRefreshed = false;
-        videoQualities = buildQualitiesDash();
+        videoQualities = buildQualitiesDash(dashPlayer);
         if (videoQualities.length === 0) return;
 
         const heights = videoQualities.map(q => q.height);
@@ -1107,7 +1046,7 @@ function startDashPlayer(videoId) {
         const targetEntry = videoQualities.find(q => q.height === targetHeight);
 
         if (targetEntry) {
-            switchToQuality(targetEntry);
+            applyQualitySwitch(targetEntry);
             updateQualityHighlight(targetHeight);
         }
 
@@ -1152,7 +1091,7 @@ function startHlsPlayer(videoId, manifestUrl, live = false) {
     hlsPlayer.loadSource(manifestUrl);
 
     hlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => {
-        videoQualities = buildQualitiesHls();
+        videoQualities = buildQualitiesHls(hlsPlayer);
         if (videoQualities.length === 0) return;
 
         const heights = videoQualities.map(q => q.height);
@@ -1224,16 +1163,6 @@ function updateLiveBadge() {
     badge.classList.toggle('live-edge', atEdge);
     badge.classList.toggle('live-behind', !atEdge);
 }
-
-// ── Utils ───────────────────────────────────────────────────────────────────
-
-const _langNames = typeof Intl.DisplayNames === 'function' ? new Intl.DisplayNames(['en'], { type: 'language' }) : null;
-function langName(code) {
-    try { return _langNames ? _langNames.of(code) : code.toUpperCase(); }
-    catch(e) { return code.toUpperCase(); }
-}
-
-// escapeHtml, escapeAttr, linkifyText, showModal, nativeAlert, nativeConfirm → utilities.js
 
 // ── Playback Position ───────────────────────────────────────────────────────
 
