@@ -1291,24 +1291,32 @@ const summarizeBtn = document.getElementById('summarize-btn');
 const summarizeMenu = document.getElementById('summarize-menu');
 
 function parseVTT(vttText) {
-    const lines = vttText
-        .replace(/^WEBVTT.*$/m, '')
-        .replace(/Kind:.*$/gm, '')
-        .replace(/Language:.*$/gm, '')
-        .replace(/^\d+$/gm, '')
-        .replace(/\d{2}:\d{2}[:\.][\d.]+ --> \d{2}:\d{2}[:\.][\d.]+.*$/gm, '')
-        .replace(/<[^>]+>/g, '')
-        .split('\n')
-        .map(l => l.trim())
-        .filter(Boolean);
-    // Deduplicate consecutive identical lines (YouTube karaoke overlap)
+    const tsRe = /(\d{2}):(\d{2}):(\d{2})[.\d]* --> /;
+    const cues = [];
+    let curTime = null;
+    for (const raw of vttText.split('\n')) {
+        const line = raw.trim();
+        if (!line || /^WEBVTT/.test(line) || /^Kind:/.test(line) || /^Language:/.test(line) || /^\d+$/.test(line)) continue;
+        const m = line.match(tsRe);
+        if (m) {
+            const h = parseInt(m[1], 10);
+            const mm = parseInt(m[2], 10);
+            const ss = parseInt(m[3], 10);
+            curTime = h > 0 ? `${h}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}` : `${mm}:${String(ss).padStart(2, '0')}`;
+            continue;
+        }
+        const text = line.replace(/<[^>]+>/g, '').trim();
+        if (!text) continue;
+        cues.push({ time: curTime, text });
+    }
+    // Deduplicate consecutive identical lines (YouTube karaoke overlap), keep first timestamp
     const deduped = [];
-    for (const line of lines) {
-        if (deduped.length === 0 || line !== deduped[deduped.length - 1]) {
-            deduped.push(line);
+    for (const cue of cues) {
+        if (deduped.length === 0 || cue.text !== deduped[deduped.length - 1].text) {
+            deduped.push(cue);
         }
     }
-    return deduped.join('\n');
+    return deduped.map(c => c.time != null ? `[${c.time}] ${c.text}` : c.text).join('\n');
 }
 
 function getBestSubtitleLang() {
@@ -1339,7 +1347,8 @@ async function getSummarizePrompt() {
         const vtt = await resp.text();
         const text = parseVTT(vtt);
         if (!text) return null;
-        return 'Summarize this: ' + text;
+        const url = `${location.origin}/watch?v=${currentVideoId}`;
+        return `Summarize this video transcript in 1-2 paragraphs (more if needed for longer videos). At the end, list the key topics/sections in this exact format:\n- [MM:SS](${url}&t=SECONDS) Topic title\n\nExample:\n- [0:00](${url}&t=0) Introduction\n- [3:45](${url}&t=225) Main topic\n\nTranscript:\n` + text;
     } catch (e) {
         return null;
     }
