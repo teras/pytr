@@ -49,6 +49,8 @@ class MainActivity : Activity() {
             databaseEnabled = true
             allowFileAccess = false
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            useWideViewPort = true
+            loadWithOverviewMode = true
         }
 
         webView.webViewClient = object : WebViewClient() {
@@ -70,6 +72,8 @@ class MainActivity : Activity() {
                 view.evaluateJavascript(
                     """
                     (function() {
+                        var vp = document.querySelector('meta[name="viewport"]');
+                        if (vp) vp.setAttribute('content', 'width=1920, height=1080, initial-scale=1.0');
                         localStorage.setItem('tv-mode', 'android');
                         localStorage.setItem('pytr-device-name', '$deviceName');
                         document.body.classList.add('tv-nav-active');
