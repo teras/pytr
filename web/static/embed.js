@@ -226,7 +226,7 @@
                 abr: { autoSwitchBitrate: { video: false } },
             },
         });
-        dashPlayer.initialize(video, `/api/dash/${videoId}`, true);
+        dashPlayer.initialize(video, `/api/dash/${videoId}`, false);
 
         dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
             videoQualities = buildQualitiesDash();
@@ -262,7 +262,7 @@
             const entry = videoQualities.find(q => q.height === target);
             if (entry) { hlsPlayer.currentLevel = entry.qualityIndex; updateQualityHighlight(target); }
             populateQualityMenu();
-            video.play();
+            // Video starts paused; user must click play
         });
 
         hlsPlayer.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
