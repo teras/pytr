@@ -1,0 +1,13 @@
+services:
+  pytr:
+    image: teras/pytr:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+  discovery:
+    image: teras/pytr-discovery:latest
+    network_mode: host
+    restart: unless-stopped

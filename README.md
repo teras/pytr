@@ -10,10 +10,12 @@ A self-hosted web interface for searching and streaming YouTube videos.
 ## 🚀 Quick Start
 
 ```bash
-docker run -d -p 8000:8000 -v ./data:/app/data --restart unless-stopped teras/pytr:latest
+mkdir pytr && cd pytr
+curl -sL https://raw.githubusercontent.com/teras/pytr/main/docker-compose.prod.yml -o docker-compose.yml
+docker compose up -d
 ```
 
-Then open http://localhost:8000
+Open http://localhost:8000 — the discovery service enables TV apps to auto-detect your server on the local network.
 
 ## ✨ Features
 
