@@ -58,3 +58,4 @@ service.register('stopDiscovery', function (message) {
     }
     message.respond({ returnValue: true });
 });
+

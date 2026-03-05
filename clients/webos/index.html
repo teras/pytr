@@ -51,7 +51,7 @@
             font-size: 22px; padding: 12px 24px; cursor: pointer;
             border: 3px solid transparent;
         }
-        .manual-row button:focus { border-color: #fff; }
+        .manual-row button:focus { border-color: #fff; outline: none; }
         .spinner {
             display: inline-block; width: 24px; height: 24px;
             border: 3px solid #555; border-top-color: #e33; border-radius: 50%;
@@ -59,11 +59,10 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
         .hidden { display: none; }
-        .reset-link {
-            position: fixed; bottom: 30px; right: 40px;
-            color: #555; font-size: 18px; cursor: pointer;
+        #app-iframe {
+            position: fixed; top: 0; left: 0; width: 1920px; height: 1080px;
+            border: none; background: #0f0f0f;
         }
-        .reset-link:focus { color: #e33; outline: none; }
     </style>
 </head>
 <body>
@@ -74,46 +73,121 @@
 
         <ul class="server-list" id="server-list"></ul>
 
-        <p class="divider">Device Name</p>
+        <p class="divider" id="divider-name">Device Name</p>
 
-        <div class="manual-row">
+        <div class="manual-row" id="row-name">
             <input type="text" id="device-name" placeholder="LG TV" tabindex="0" value="">
         </div>
 
-        <p class="divider">or enter server address manually</p>
+        <p class="divider" id="divider-manual">or enter server address manually</p>
 
-        <div class="manual-row">
+        <div class="manual-row" id="row-manual">
             <input type="text" id="manual-ip" placeholder="192.168.1.100:8000" tabindex="0">
             <button id="manual-btn" tabindex="0">Connect</button>
         </div>
     </div>
 
-    <div id="reset-link" class="reset-link hidden" tabindex="0">Change server</div>
-
     <script>
         (function () {
-            var STORAGE_KEY = 'pytr-server';
-            var DEVICE_NAME_KEY = 'pytr-device-name';
-            var saved = localStorage.getItem(STORAGE_KEY);
-
-            // If we have a saved server, redirect immediately
-            if (saved) {
-                activateTvMode();
-                window.location.replace(saved);
-                return;
-            }
-
             var statusEl = document.getElementById('status');
             var listEl = document.getElementById('server-list');
             var manualInput = document.getElementById('manual-ip');
             var manualBtn = document.getElementById('manual-btn');
             var deviceNameInput = document.getElementById('device-name');
+            var setupScreen = document.getElementById('setup-screen');
 
-            // Pre-fill device name from storage
-            deviceNameInput.value = localStorage.getItem(DEVICE_NAME_KEY) || 'LG TV';
+            var STORE_KEY = 'pytr-data';
+            var store = (function () {
+                try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }
+                catch (e) { return {}; }
+            })();
+            function saveStore() { localStorage.setItem(STORE_KEY, JSON.stringify(store)); }
 
-            // Start discovery via Luna service
-            discover();
+            var savedToken = store.token || '';
+            var savedDeviceName = store.deviceName || 'LG TV';
+            var currentServerUrl = store.url || '';
+            var appIframe = null;
+
+            deviceNameInput.value = savedDeviceName;
+
+            // ── Entry point ──────────────────────────────────────────────────
+            if (currentServerUrl && savedToken) {
+                showIframe(currentServerUrl);
+            } else {
+                showDiscovery();
+            }
+
+            // ── Iframe management ────────────────────────────────────────────
+
+            function showIframe(address) {
+                currentServerUrl = address;
+                setupScreen.classList.add('hidden');
+
+                if (appIframe) appIframe.remove();
+                appIframe = document.createElement('iframe');
+                appIframe.id = 'app-iframe';
+                var sep = address.indexOf('?') >= 0 ? '&' : '?';
+                appIframe.src = address + sep + 'tv=webos';
+                appIframe.allow = 'autoplay; fullscreen';
+                document.body.appendChild(appIframe);
+            }
+
+            function destroyIframe() {
+                if (appIframe) {
+                    appIframe.remove();
+                    appIframe = null;
+                }
+                savedToken = '';
+                setupScreen.classList.remove('hidden');
+            }
+
+            // ── postMessage handlers from iframe ─────────────────────────────
+
+            window.addEventListener('message', function (e) {
+                if (!e.data || typeof e.data !== 'object') return;
+                // Only accept messages from our iframe
+                if (!appIframe || e.source !== appIframe.contentWindow) return;
+
+                switch (e.data.type) {
+                    case 'pytr-request-auth':
+                        if (appIframe && appIframe.contentWindow) {
+                            appIframe.contentWindow.postMessage(
+                                { type: 'pytr-auth', token: savedToken || '', deviceName: savedDeviceName }, currentServerUrl
+                            );
+                        }
+                        break;
+
+                    case 'pytr-paired':
+                        savedToken = e.data.token || '';
+                        store.token = savedToken;
+                        saveStore();
+                        break;
+
+                    case 'pytr-change-server':
+                        destroyIframe();
+                        store = {}; saveStore();
+                        showDiscovery();
+                        break;
+
+                    case 'pytr-auth-expired':
+                        savedToken = '';
+                        store.token = '';
+                        saveStore();
+                        break;
+                }
+            });
+
+            // ── Discovery screen ─────────────────────────────────────────────
+
+            function showDiscovery() {
+                listEl.classList.remove('hidden');
+                document.getElementById('divider-name').classList.remove('hidden');
+                document.getElementById('row-name').classList.remove('hidden');
+                document.getElementById('divider-manual').classList.remove('hidden');
+                document.getElementById('row-manual').classList.remove('hidden');
+                setupScreen.classList.remove('hidden');
+                discover();
+            }
 
             function discover() {
                 statusEl.innerHTML = '<span class="spinner"></span>Searching for servers...';
@@ -134,7 +208,6 @@
                         }
                     });
                 } else {
-                    // Running outside webOS (browser testing) — skip Luna
                     statusEl.textContent = 'Not running on webOS. Enter address manually.';
                 }
             }
@@ -142,21 +215,20 @@
             function showServers(servers) {
                 statusEl.textContent = 'Found ' + servers.length + ' server' + (servers.length > 1 ? 's' : '') + ':';
                 listEl.innerHTML = '';
+                var inputReady = false;
+                setTimeout(function () { inputReady = true; }, 800);
                 servers.forEach(function (srv) {
                     var li = document.createElement('li');
                     li.className = 'server-item';
                     li.tabIndex = 0;
                     li.innerHTML = '<span class="name">' + escHtml(srv.Name || 'PYTR Server') + '</span>' +
                         '<span class="addr">' + escHtml(srv.Address) + '</span>';
-                    li.addEventListener('click', function () { connectTo(srv.Address); });
+                    li.addEventListener('click', function () { if (inputReady) connectTo(srv.Address); });
                     li.addEventListener('keydown', function (e) {
-                        if (e.key === 'Enter') connectTo(srv.Address);
+                        if (e.key === 'Enter' && inputReady) connectTo(srv.Address);
                     });
                     listEl.appendChild(li);
                 });
-                // Focus first server
-                var first = listEl.querySelector('.server-item');
-                if (first) first.focus();
             }
 
             manualBtn.addEventListener('click', manualConnect);
@@ -167,19 +239,16 @@
             function manualConnect() {
                 var val = manualInput.value.trim();
                 if (!val) return;
-                // Add http:// if missing
                 if (!/^https?:\/\//.test(val)) val = 'http://' + val;
                 connectTo(val);
             }
 
             function connectTo(address) {
-                // Normalize: ensure http:// prefix
                 if (!/^https?:\/\//.test(address)) address = 'http://' + address;
 
                 statusEl.innerHTML = '<span class="spinner"></span>Connecting...';
                 statusEl.className = 'status';
 
-                // Validate server by hitting the boot endpoint
                 var timeout = setTimeout(function () {
                     statusEl.textContent = 'Connection timed out. Check the address.';
                     statusEl.className = 'status error';
@@ -192,11 +261,11 @@
                         return r.json();
                     })
                     .then(function () {
-                        var dname = deviceNameInput.value.trim() || 'LG TV';
-                        localStorage.setItem(DEVICE_NAME_KEY, dname);
-                        localStorage.setItem(STORAGE_KEY, address);
-                        activateTvMode();
-                        window.location.replace(address);
+                        savedDeviceName = deviceNameInput.value.trim() || 'LG TV';
+                        store.url = address;
+                        store.deviceName = savedDeviceName;
+                        saveStore();
+                        showIframe(address);
                     })
                     .catch(function () {
                         clearTimeout(timeout);
@@ -205,33 +274,18 @@
                     });
             }
 
-            function activateTvMode() {
-                localStorage.setItem('tv-mode', 'webos');
-            }
-
             function escHtml(s) {
                 var d = document.createElement('div');
                 d.textContent = s;
                 return d.innerHTML;
             }
 
-            // "Change server" link — shown when redirecting to allow reset
-            document.getElementById('reset-link').addEventListener('click', function () {
-                localStorage.removeItem(STORAGE_KEY);
-                window.location.reload();
-            });
-            document.getElementById('reset-link').addEventListener('keydown', function (e) {
-                if (e.key === 'Enter') {
-                    localStorage.removeItem(STORAGE_KEY);
-                    window.location.reload();
-                }
-            });
-
-            // Handle WebOS back button (keyCode 461) on setup screen
+            // Back button: if iframe visible, forward to iframe. Else exit app.
             document.addEventListener('keydown', function (e) {
                 if (e.keyCode === 461) {
-                    // On setup screen, back exits the app
-                    if (window.webOS && window.webOS.platformBack) {
+                    if (appIframe) {
+                        appIframe.contentWindow.postMessage({ type: 'pytr-back' }, currentServerUrl);
+                    } else if (window.webOS && window.webOS.platformBack) {
                         window.webOS.platformBack();
                     }
                 }

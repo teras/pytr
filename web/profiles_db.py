@@ -124,6 +124,10 @@ def init_db():
         # Migration: add device_name to sessions if missing
         if "device_name" not in sess_cols:
             conn.execute("ALTER TABLE sessions ADD COLUMN device_name TEXT NOT NULL DEFAULT ''")
+        # Migration: add bearer_allowed to sessions if missing
+        sess_cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
+        if "bearer_allowed" not in sess_cols:
+            conn.execute("ALTER TABLE sessions ADD COLUMN bearer_allowed INTEGER NOT NULL DEFAULT 0")
 
 
 def list_profiles() -> list[dict]:
@@ -486,29 +490,30 @@ def cleanup_old_history(max_age_days: int = 90):
 _SESSION_EXPIRY = 10 * 365 * 86400  # 10 years
 
 
-def create_session() -> tuple[str, dict]:
+def create_session(bearer_allowed: bool = False) -> tuple[str, dict]:
     token = secrets.token_urlsafe(32)
     now = time.time()
     expiry = now + _SESSION_EXPIRY
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO sessions (token, profile_id, created_at, expiry) VALUES (?, NULL, ?, ?)",
-            (token, now, expiry),
+            "INSERT INTO sessions (token, profile_id, created_at, expiry, bearer_allowed) VALUES (?, NULL, ?, ?, ?)",
+            (token, now, expiry, 1 if bearer_allowed else 0),
         )
-    return token, {"expiry": expiry, "profile_id": None}
+    return token, {"expiry": expiry, "profile_id": None, "bearer_allowed": bearer_allowed}
 
 
 def get_session(token: str) -> dict | None:
     with _connect() as conn:
         r = conn.execute(
-            "SELECT token, profile_id, expiry FROM sessions WHERE token = ?", (token,)
+            "SELECT token, profile_id, expiry, bearer_allowed FROM sessions WHERE token = ?", (token,)
         ).fetchone()
     if not r:
         return None
     if r["expiry"] < time.time():
         delete_session(token)
         return None
-    return {"expiry": r["expiry"], "profile_id": r["profile_id"]}
+    return {"expiry": r["expiry"], "profile_id": r["profile_id"],
+            "bearer_allowed": bool(r["bearer_allowed"])}
 
 
 def set_session_profile(token: str, profile_id: int | None):

@@ -456,10 +456,33 @@
         _tv.hideTop(); _tv.hideBottom();
     });
 
+    // ── Detect TV mode from URL params (WebOS uses ?tv=webos, Android injects via WebView JS) ──
+    (function () {
+        var params = new URLSearchParams(window.location.search);
+        var tvParam = params.get('tv');
+        if (tvParam) {
+            localStorage.setItem(TV_KEY, tvParam);
+            // Clean URL params without reloading
+            params.delete('tv');
+            var clean = window.location.pathname + (params.toString() ? '?' + params.toString() : '') + window.location.hash;
+            history.replaceState(null, '', clean);
+        }
+    })();
+
     // ── Restore TV mode from localStorage on page load ───────────────────────
     if (localStorage.getItem(TV_KEY)) {
         document.body.classList.add('tv-nav-active');
     }
+
+    // ── Receive back button from parent (iframe mode) ─────────────────────
+    window.addEventListener('message', function (e) {
+        if (e.source !== window.parent) return;
+        if (e.data && e.data.type === 'pytr-back') {
+            document.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'XF86Back', keyCode: 461, bubbles: true
+            }));
+        }
+    });
 
     // ── Namespace exports ────────────────────────────────────────────────────
     _tv.setFocus = setFocus;

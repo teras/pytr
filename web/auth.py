@@ -89,6 +89,39 @@ register_cleanup(_cleanup)
 register_cleanup(_cleanup_pairing)
 
 
+def extract_token(request: Request) -> tuple[str | None, dict | None]:
+    """Extract and validate session token from cookie or Bearer header.
+
+    Cookie tokens work unconditionally.
+    Bearer tokens require bearer_allowed=True on the session.
+    Result is cached on request.state to avoid double DB reads.
+    """
+    if hasattr(request.state, '_auth_result'):
+        return request.state._auth_result
+
+    # Try cookie first (always valid)
+    token = request.cookies.get("pytr_session")
+    if token:
+        session = profiles_db.get_session(token)
+        if session:
+            result = (token, session)
+            request.state._auth_result = result
+            return result
+
+    # Try Bearer header (only if bearer_allowed)
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        session = profiles_db.get_session(token)
+        if session and session.get("bearer_allowed"):
+            result = (token, session)
+            request.state._auth_result = result
+            return result
+
+    request.state._auth_result = (None, None)
+    return (None, None)
+
+
 def _safe_redirect(url: str) -> str:
     """Ensure URL is a safe relative path (no open redirect via // or netloc)."""
     if not url or not url.startswith("/") or url.startswith("//") or urlparse(url).netloc:
@@ -132,11 +165,14 @@ def clear_failures(ip: str):
 
 def get_session(request: Request) -> tuple[str, dict]:
     """Get existing session from DB or create a new one. Returns (token, session_dict)."""
-    token = request.cookies.get("pytr_session")
-    if token:
-        session = profiles_db.get_session(token)
-        if session:
-            return token, session
+    token, session = extract_token(request)
+    if token and session:
+        return token, session
+
+    # Bearer requests can't receive cookies — don't create orphan sessions
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid bearer token")
 
     # Create new persistent session
     token, session = profiles_db.create_session()
@@ -148,11 +184,9 @@ def get_session(request: Request) -> tuple[str, dict]:
 def verify_session(request: Request) -> bool:
     if not _get_password():
         return True
-    token = request.cookies.get("pytr_session")
-    if token:
-        session = profiles_db.get_session(token)
-        if session:
-            return True
+    token, session = extract_token(request)
+    if token and session:
+        return True
     return False
 
 
@@ -172,8 +206,8 @@ _pending_ip_updates: dict[str, str] = {}
 
 
 def buffer_session_ip(request: Request):
-    """If request has a valid session cookie, buffer the IP for deferred DB write."""
-    token = request.cookies.get("pytr_session")
+    """If request has a valid session, buffer the IP for deferred DB write."""
+    token, _ = extract_token(request)
     if token:
         _pending_ip_updates[token] = get_client_ip(request)
 
@@ -207,11 +241,9 @@ async def require_auth_or_embed(request: Request):
 
 def get_profile_id(request: Request) -> int | None:
     """Get the profile_id from the current session, or None."""
-    token = request.cookies.get("pytr_session")
-    if token:
-        session = profiles_db.get_session(token)
-        if session:
-            return session.get("profile_id")
+    token, session = extract_token(request)
+    if token and session:
+        return session.get("profile_id")
     return None
 
 
@@ -380,82 +412,48 @@ LOGIN_PAGE = """<!DOCTYPE html>
             <a href="#" class="back-link" id="pair-back">Back to password login</a>
         </div>
     </div>
+    <script src="/static/pairing.js"></script>
     <script>
     (function() {
         const loginView = document.getElementById('login-view');
         const pairView = document.getElementById('pair-view');
         const startBtn = document.getElementById('start-pair-btn');
         const backBtn = document.getElementById('pair-back');
-        const codeEl = document.getElementById('pair-code');
-        const qrEl = document.getElementById('pair-qr');
-        const urlEl = document.getElementById('pair-url');
         const statusEl = document.getElementById('pair-status');
-        let pollTimer = null;
+        const urlEl = document.getElementById('pair-url');
 
-        startBtn.addEventListener('click', async function(e) {
+        const pairOpts = {
+            codeEl: document.getElementById('pair-code'),
+            qrEl: document.getElementById('pair-qr'),
+            statusEl: statusEl,
+            onApproved() {
+                statusEl.textContent = 'Approved! Redirecting...';
+                setTimeout(() => { location.href = '/'; }, 500);
+            },
+            onRetry(reason) {
+                statusEl.innerHTML = reason + ' <a href="#" id="retry-link" style="color:#3ea6ff">Try again</a>';
+                statusEl.style.color = '#ff4444';
+                document.getElementById('retry-link').addEventListener('click', function(e) {
+                    e.preventDefault();
+                    startPairing(pairOpts);
+                });
+            },
+        };
+
+        startBtn.addEventListener('click', function(e) {
             e.preventDefault();
-            try {
-                const res = await fetch('/api/pair/request', { method: 'POST' });
-                if (!res.ok) {
-                    const data = await res.json();
-                    alert(data.detail || 'Failed to create pairing code');
-                    return;
-                }
-                const data = await res.json();
-                codeEl.textContent = data.code;
-                qrEl.innerHTML = data.qr_svg;
-                urlEl.textContent = location.origin + '/link';
-                loginView.style.display = 'none';
-                pairView.style.display = 'block';
-                statusEl.textContent = 'Waiting for approval...';
-                statusEl.className = 'pair-status';
-                startPolling(data.code);
-            } catch (err) {
-                alert('Network error');
-            }
+            loginView.style.display = 'none';
+            pairView.style.display = 'block';
+            urlEl.textContent = location.origin + '/link';
+            startPairing(pairOpts);
         });
 
         backBtn.addEventListener('click', function(e) {
             e.preventDefault();
-            stopPolling();
+            stopPairPolling();
             pairView.style.display = 'none';
             loginView.style.display = 'block';
         });
-
-        function startPolling(code) {
-            stopPolling();
-            pollTimer = setInterval(async () => {
-                try {
-                    const res = await fetch('/api/pair/status/' + code);
-                    const data = await res.json();
-                    if (data.status === 'approved') {
-                        stopPolling();
-                        statusEl.textContent = 'Approved! Redirecting...';
-                        statusEl.className = 'pair-status approved';
-                        setTimeout(() => { location.href = '/'; }, 500);
-                    } else if (data.status === 'denied') {
-                        stopPolling();
-                        showRetry('Denied.');
-                    } else if (data.status === 'expired') {
-                        stopPolling();
-                        showRetry('Code expired.');
-                    }
-                } catch (err) {}
-            }, 2000);
-        }
-
-        function stopPolling() {
-            if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-        }
-
-        function showRetry(reason) {
-            statusEl.innerHTML = reason + ' <a href="#" id="retry-link" style="color:#3ea6ff">Try again</a>';
-            statusEl.className = 'pair-status denied';
-            document.getElementById('retry-link').addEventListener('click', async function(e) {
-                e.preventDefault();
-                startBtn.click();
-            });
-        }
     })();
     </script>
 </body>
@@ -466,6 +464,10 @@ LOGIN_PAGE = """<!DOCTYPE html>
 
 def _serve_spa(request: Request):
     """Serve index.html or redirect to login, preserving the original URL."""
+    # TV iframe clients authenticate at the API layer via Bearer tokens,
+    # not at the page level — always serve the SPA so auth-token.js can load.
+    if request.query_params.get("tv"):
+        return FileResponse("static/index.html")
     if _get_password() and not verify_session(request):
         next_url = str(request.url.path)
         if request.url.query:
@@ -583,27 +585,43 @@ async def login_page(request: Request, error: str = "", next: str = "/"):
 
 
 @router.post("/login")
-async def do_login(request: Request, response: Response, password: str = Form(default=""), next: str = Form(default="/")):
+async def do_login(request: Request, response: Response, password: str = Form(default=""),
+                   next: str = Form(default="/"), bearer: str = Form(default=""),
+                   device_name: str = Form(default="")):
     app_password = _get_password()
+    want_bearer = bearer == "1"
+
     if not app_password:
-        return RedirectResponse(url="/", status_code=302)
+        return JSONResponse({"ok": True}) if want_bearer else RedirectResponse(url="/", status_code=302)
 
     redirect_to = _safe_redirect(next)
 
     ip = get_client_ip(request)
     blocked, remaining = is_ip_blocked(ip)
     if blocked:
+        if want_bearer:
+            raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")
         return RedirectResponse(url=f"/login?next={quote(redirect_to, safe='')}", status_code=302)
 
     if not password:
+        if want_bearer:
+            raise HTTPException(status_code=400, detail="Password required")
         return RedirectResponse(url=f"/login?error=Password+required&next={quote(redirect_to, safe='')}", status_code=302)
 
     if secrets.compare_digest(password, app_password):
         clear_failures(ip)
-        token, session = profiles_db.create_session()
+        token, session = profiles_db.create_session(bearer_allowed=want_bearer)
         profiles_db.update_session_ip(token, ip)
-        ua = request.headers.get("user-agent", "")
-        profiles_db.update_session_device_name(token, profiles_db.parse_device_name(ua))
+        if device_name:
+            profiles_db.update_session_device_name(token, device_name)
+        else:
+            ua = request.headers.get("user-agent", "")
+            profiles_db.update_session_device_name(token, profiles_db.parse_device_name(ua))
+
+        log.info(f"Login successful from {ip}")
+
+        if want_bearer:
+            return JSONResponse({"ok": True, "token": token})
 
         response = RedirectResponse(url=redirect_to, status_code=302)
         response.set_cookie(
@@ -613,17 +631,18 @@ async def do_login(request: Request, response: Response, password: str = Form(de
             httponly=True,
             samesite="lax"
         )
-        log.info(f"Login successful from {ip}")
         return response
     else:
         record_failure(ip)
         log.warning(f"Failed login attempt from {ip}")
+        if want_bearer:
+            raise HTTPException(status_code=401, detail="Invalid password")
         return RedirectResponse(url=f"/login?error=Invalid+password&next={quote(redirect_to, safe='')}", status_code=302)
 
 
 @router.get("/logout")
 async def logout(request: Request):
-    token = request.cookies.get("pytr_session")
+    token, _ = extract_token(request)
     if token:
         profiles_db.delete_session(token)
     response = RedirectResponse(url="/login", status_code=302)
@@ -633,7 +652,7 @@ async def logout(request: Request):
 
 @router.post("/logout-api")
 async def logout_api(request: Request):
-    token = request.cookies.get("pytr_session")
+    token, _ = extract_token(request)
     if token:
         profiles_db.delete_session(token)
     response = JSONResponse({"ok": True})
@@ -660,15 +679,18 @@ async def pair_request(request: Request):
     PAIRING_RATE[ip] = timestamps
 
     code = _generate_pair_code()
-    token, session = profiles_db.create_session()
 
-    # Accept optional device_name (e.g. from TV clients)
+    # Accept optional body params (device_name, bearer)
     device_name = ""
+    bearer = False
     try:
         body = await request.json()
         device_name = body.get("device_name", "")
+        bearer = bool(body.get("bearer", False))
     except Exception:
         pass
+
+    token, session = profiles_db.create_session(bearer_allowed=bearer)
 
     PAIRING_REQUESTS[code] = {
         "created_at": now,
@@ -700,11 +722,18 @@ async def pair_status(code: str, request: Request, response: Response):
         return {"status": "expired"}
 
     if req["status"] == "approved":
-        # Deliver the session cookie and clean up
+        # Deliver the session and clean up
         token = req["session_token"]
         ip = get_client_ip(request)
         profiles_db.update_session_ip(token, ip)
+        session = profiles_db.get_session(token)
         PAIRING_REQUESTS.pop(code, None)
+
+        # Bearer sessions get token in JSON (no cookie)
+        if session and session.get("bearer_allowed"):
+            return {"status": "approved", "token": token}
+
+        # Cookie sessions get a cookie
         response.set_cookie(
             key="pytr_session",
             value=token,

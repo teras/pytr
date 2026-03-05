@@ -10,6 +10,7 @@
     "bgColor": "#929292",
     "iconColor": "#929292",
     "resolution": "1920x1080",
+    "accessibleUrl": "*",
     "disableBackHistoryAPI": true,
     "serviceList": [
         {

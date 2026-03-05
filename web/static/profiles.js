@@ -43,6 +43,10 @@ async function checkProfile() {
         const data = await resp.json();
 
         if (data.state === 'login-required') {
+            if (window._pytrIsIframe) {
+                _startIframeLogin();
+                return;
+            }
             window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname + window.location.search);
             return;
         } else if (data.state === 'first-run') {
@@ -66,6 +70,141 @@ async function checkProfile() {
     } catch (err) {
         console.error('Boot check failed:', err);
     }
+}
+
+// ── Iframe Auth (webOS TV) ─────────────────────────────────────────────────
+
+function _iframeAuthSuccess(token) {
+    _removeIframeBackHandler();
+    window._pytrSetToken(token);
+    window.parent.postMessage({ type: 'pytr-paired', token: token }, window._pytrParentOrigin());
+    setTimeout(() => checkProfile(), 500);
+}
+
+function _iframeChangeServer() {
+    stopPairPolling();
+    _removeIframeBackHandler();
+    window.parent.postMessage({ type: 'pytr-change-server' }, window._pytrParentOrigin());
+}
+
+function _installIframeBackHandler(onBack) {
+    _removeIframeBackHandler();
+    window._pytrIframeBackHandler = function(e) {
+        if (e.key === 'Backspace' || e.key === 'BrowserBack' || e.key === 'XF86Back' || e.keyCode === 461) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            onBack();
+        }
+    };
+    document.addEventListener('keydown', window._pytrIframeBackHandler, true);
+}
+
+function _removeIframeBackHandler() {
+    if (window._pytrIframeBackHandler) {
+        document.removeEventListener('keydown', window._pytrIframeBackHandler, true);
+        window._pytrIframeBackHandler = null;
+    }
+}
+
+function _startIframeLogin() {
+    stopPairPolling();
+    var deviceName = localStorage.getItem('pytr-device-name') || 'LG TV';
+    profileOverlay.innerHTML = `
+        <div class="profile-selector" style="max-width:400px">
+            <h2 style="text-align:center;margin-bottom:20px">Login</h2>
+            <p id="iframe-login-error" style="color:#ff4444;text-align:center;min-height:20px;margin-bottom:12px"></p>
+            <input type="password" id="iframe-login-pw" placeholder="Password"
+                   style="width:100%;padding:14px 18px;font-size:16px;border:1px solid #303030;border-radius:12px;background:#121212;color:#f1f1f1;margin-bottom:20px;box-sizing:border-box">
+            <button id="iframe-login-btn"
+                    style="width:100%;padding:14px;font-size:16px;background:#cc0000;color:#fff;border:none;border-radius:12px;cursor:pointer;font-weight:500">Login</button>
+            <div style="display:flex;align-items:center;margin:24px 0;color:#666;font-size:13px">
+                <span style="flex:1;border-bottom:1px solid #303030"></span>
+                <span style="padding:0 12px">or</span>
+                <span style="flex:1;border-bottom:1px solid #303030"></span>
+            </div>
+            <button id="iframe-link-btn"
+                    style="width:100%;padding:14px;font-size:16px;background:#272727;color:#aaa;border:none;border-radius:12px;cursor:pointer;font-weight:500">Link from another device</button>
+            <a href="#" id="iframe-login-back" style="display:block;text-align:center;color:#666;text-decoration:none;margin-top:20px;font-size:14px">Change Server</a>
+        </div>
+    `;
+    profileOverlay.classList.remove('hidden');
+
+    var pwInput = document.getElementById('iframe-login-pw');
+    var errorEl = document.getElementById('iframe-login-error');
+    var loginBtn = document.getElementById('iframe-login-btn');
+
+    async function doLogin() {
+        var pw = pwInput.value;
+        if (!pw) { errorEl.textContent = 'Password required'; return; }
+        errorEl.textContent = '';
+        loginBtn.disabled = true;
+        try {
+            var form = new URLSearchParams();
+            form.append('password', pw);
+            form.append('bearer', '1');
+            form.append('device_name', deviceName);
+            var res = await fetch('/login', { method: 'POST', body: form });
+            var data = await res.json();
+            if (!res.ok) {
+                errorEl.textContent = data.detail || 'Login failed';
+                loginBtn.disabled = false;
+                return;
+            }
+            _iframeAuthSuccess(data.token);
+        } catch (e) {
+            errorEl.textContent = 'Network error';
+            loginBtn.disabled = false;
+        }
+    }
+
+    loginBtn.addEventListener('click', doLogin);
+    pwInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
+
+    document.getElementById('iframe-link-btn').addEventListener('click', function() {
+        _startIframePairing();
+    });
+
+    document.getElementById('iframe-login-back').addEventListener('click', function(e) {
+        e.preventDefault();
+        _iframeChangeServer();
+    });
+
+    _installIframeBackHandler(_iframeChangeServer);
+    setTimeout(function() { pwInput.focus(); }, 100);
+}
+
+function _startIframePairing() {
+    stopPairPolling();
+    var deviceName = localStorage.getItem('pytr-device-name') || 'LG TV';
+    profileOverlay.innerHTML = `
+        <div class="profile-selector" style="max-width:400px">
+            <p style="color:#aaa;margin-bottom:16px;text-align:center">Enter this code on a device that's already logged in, or scan the QR code</p>
+            <div id="iframe-pair-code" style="font-size:48px;font-weight:700;letter-spacing:12px;text-align:center;font-family:monospace;color:#3ea6ff;margin:20px 0">...</div>
+            <div id="iframe-pair-qr" style="display:flex;justify-content:center;margin:20px 0"></div>
+            <p id="iframe-pair-status" style="text-align:center;color:#aaa;font-size:14px">Requesting code...</p>
+            <a href="#" id="iframe-pair-back" style="display:block;text-align:center;color:#666;text-decoration:none;margin-top:20px;font-size:14px">Back to password login</a>
+        </div>
+    `;
+    profileOverlay.classList.remove('hidden');
+
+    document.getElementById('iframe-pair-back').addEventListener('click', function(e) {
+        e.preventDefault();
+        stopPairPolling();
+        _startIframeLogin();
+    });
+
+    _installIframeBackHandler(function() {
+        stopPairPolling();
+        _startIframeLogin();
+    });
+
+    startPairing({
+        codeEl: document.getElementById('iframe-pair-code'),
+        qrEl: document.getElementById('iframe-pair-qr'),
+        statusEl: document.getElementById('iframe-pair-status'),
+        requestBody: { bearer: true, device_name: deviceName },
+        onApproved(d) { _iframeAuthSuccess(d.token); },
+    });
 }
 
 function applyProfilePrefs() {
@@ -663,14 +802,16 @@ if (profileSwitcherBtn) {
                 } else if (action === 'tv-mode') {
                     if (typeof window.toggleTvMode === 'function') window.toggleTvMode();
                 } else if (action === 'logout') {
-                    if (document.body.classList.contains('tv-nav-active')) {
-                        localStorage.removeItem('tv-mode');
-                        localStorage.removeItem('pytr-device-name');
-                        localStorage.removeItem('pytr-server');
+                    const tvMode = localStorage.getItem('tv-mode');
+                    if (window._pytrIsIframe) {
+                        window.parent.postMessage({ type: 'pytr-change-server' }, window._pytrParentOrigin());
+                    } else if (tvMode === 'android') {
                         fetch('/logout-api', { method: 'POST' }).finally(() => {
                             window.location.href = 'pytr://setup';
-                            setTimeout(() => { window.location.href = '/login'; }, 300);
                         });
+                    } else if (tvMode) {
+                        // Manual TV mode toggle from desktop
+                        window.location.href = '/logout';
                     } else {
                         window.location.href = '/logout';
                     }

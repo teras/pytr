@@ -1,13 +1,14 @@
 # Copyright (c) 2026 Panayotis Katsaloulis
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Remote control: WebSocket relay, device listing, rename, position save."""
+import asyncio
 import hashlib
 import logging
 import time
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 
 import profiles_db
-from auth import require_auth, require_profile, get_profile_id, _require_admin
+from auth import require_auth, require_profile, get_profile_id, _require_admin, extract_token
 
 log = logging.getLogger(__name__)
 
@@ -48,20 +49,35 @@ async def _send_json(ws: WebSocket, data: dict):
 @router.websocket("/api/ws")
 async def websocket_endpoint(websocket: WebSocket):
     token = _get_token_from_ws(websocket)
+
+    # If no cookie, accept and wait for first-message auth (Bearer)
     if not token:
         await websocket.accept()
-        await websocket.close(code=4001, reason="No session")
-        return
-
-    session = profiles_db.get_session(token)
-    if not session or session.get("profile_id") is None:
+        try:
+            data = await asyncio.wait_for(websocket.receive_json(), timeout=5.0)
+            if data.get("type") == "auth" and data.get("token"):
+                bearer_token = data["token"]
+                session = profiles_db.get_session(bearer_token)
+                if session and session.get("bearer_allowed") and session.get("profile_id") is not None:
+                    token = bearer_token
+                else:
+                    await websocket.close(code=4001, reason="Invalid bearer token")
+                    return
+            else:
+                await websocket.close(code=4001, reason="No session")
+                return
+        except Exception:
+            await websocket.close(code=4001, reason="Auth timeout")
+            return
+    else:
+        session = profiles_db.get_session(token)
+        if not session or session.get("profile_id") is None:
+            await websocket.accept()
+            await websocket.close(code=4001, reason="Invalid session")
+            return
         await websocket.accept()
-        await websocket.close(code=4001, reason="Invalid session")
-        return
 
     profile_id = session["profile_id"]
-
-    await websocket.accept()
 
     # Register connection
     device_id = _device_id_from_token(token)
@@ -282,7 +298,7 @@ def _save_position_from_state(token: str, state: dict):
 @router.get("/api/remote/devices")
 async def list_devices(request: Request, profile_id: int = Depends(require_profile)):
     """List connected devices for the current profile."""
-    token = request.cookies.get("pytr_session")
+    token, _ = extract_token(request)
     devices = []
     for dev_token in _connections:
         if _token_to_profile.get(dev_token) != profile_id:
@@ -303,7 +319,7 @@ async def list_devices(request: Request, profile_id: int = Depends(require_profi
 async def rename_device(request: Request, body: dict, auth: bool = Depends(require_auth)):
     """Rename the current session's device (admin only)."""
     _require_admin(request)
-    token = request.cookies.get("pytr_session")
+    token, _ = extract_token(request)
     if not token:
         raise HTTPException(status_code=400, detail="No session")
     name = body.get("device_name", "").strip()

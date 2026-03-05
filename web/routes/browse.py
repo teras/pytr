@@ -7,7 +7,7 @@ import re
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, Depends
 
-from auth import require_auth, get_session
+from auth import require_auth, get_session, extract_token
 from helpers import VIDEO_ID_RE
 from iterators import create_search, create_channel, create_channel_playlists, fetch_more
 from directcalls import fetch_related, fetch_playlist_contents, resolve_handle
@@ -20,9 +20,10 @@ _COOKIE_MAX_AGE = 10 * 365 * 86400  # 10 years
 
 
 def _json_with_cookie(data: dict, token: str, request: Request) -> Response:
-    """Return a JSON response, setting session cookie if needed."""
+    """Return a JSON response, setting session cookie if needed (skipped for Bearer)."""
     resp = Response(content=json.dumps(data), media_type='application/json')
-    if request.cookies.get("pytr_session") != token:
+    _, session = extract_token(request)
+    if not (session and session.get("bearer_allowed")):
         resp.set_cookie(
             key="pytr_session",
             value=token,
