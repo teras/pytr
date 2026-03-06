@@ -36,6 +36,7 @@
     let _prefs = null; // {enabled: bool, categories: string[]}
     let _isAutoSeek = false; // flag to distinguish auto-skip seeks from user seeks
     let _suppressedSeg = null; // segment suppressed because user seeked into it
+    let _skipDepth = 0; // recursion guard for _doSkip ↔ _scheduleSkip
 
     // ── Preferences ──────────────────────────────────────────────────────────
 
@@ -87,6 +88,7 @@
         _videoId = null;
         _isAutoSeek = false;
         _suppressedSeg = null;
+        _skipDepth = 0;
         if (_skipTimer) { clearTimeout(_skipTimer); _skipTimer = null; }
         _dismissToast();
         _clearOsdMarkers();
@@ -96,6 +98,7 @@
 
     function _scheduleSkip() {
         if (_skipTimer) { clearTimeout(_skipTimer); _skipTimer = null; }
+        if (_skipDepth > 0) return; // prevent _doSkip → _scheduleSkip recursion
         const video = document.getElementById('video-player');
         if (!video || !_segments.length) return;
         if (!video.duration) {
@@ -163,7 +166,10 @@
         // If we couldn't skip fully past the segment, suppress it to avoid re-triggering
         if (target < seg.segment[1]) _suppressedSeg = seg.segment;
         _showToast(seg.category, skipFrom);
-        _scheduleSkip();
+        // Use depth guard: if currentTime didn't actually change (e.g. autoplay blocked),
+        // _scheduleSkip would see the old position and call _doSkip again → infinite recursion
+        _skipDepth++;
+        try { _scheduleSkip(); } finally { _skipDepth--; }
     }
 
     // ── Toast ────────────────────────────────────────────────────────────────
