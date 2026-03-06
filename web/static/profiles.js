@@ -61,6 +61,7 @@ async function checkProfile() {
             showCreateFirstProfile();
         } else if (data.state === 'ready') {
             currentProfile = data.profile;
+            window._cookiesAvailable = !!data.cookies_available;
             applyProfilePrefs();
             updateProfileButton();
             profileOverlay.innerHTML = '';
@@ -765,7 +766,7 @@ if (profileSwitcherBtn) {
             ${isAdmin && !isTv ? '<div class="profile-menu-item" data-action="settings">Options</div>' : ''}
             ${!isTv ? '<div class="profile-menu-item" data-action="remote-control">Remote Control</div>' : ''}
             ${!(isTv && localStorage.getItem('tv-mode') !== 'desktop') ? `<div class="profile-menu-item" data-action="tv-mode">${isTv ? 'Desktop Mode' : 'TV Mode'}</div>` : ''}
-            ${!isTv ? `<div class="cookie-toggle-row">
+            ${!isTv && window._cookiesAvailable ? `<div class="cookie-toggle-row">
                 <span class="cookie-toggle-label">Cookies</span>
                 <div class="cookie-toggle-btns" data-action="cookie-toggle">
                     <button class="cookie-btn${getCookieMode() === 'off' ? ' active' : ''}" data-mode="off">Off</button>
@@ -773,7 +774,7 @@ if (profileSwitcherBtn) {
                     <button class="cookie-btn${getCookieMode() === 'on' ? ' active' : ''}" data-mode="on">On</button>
                 </div>
             </div>` : ''}
-            <div class="profile-menu-divider"></div>
+            ${!isTv || localStorage.getItem('tv-mode') === 'desktop' || !otherProfiles.length ? '<div class="profile-menu-divider"></div>' : ''}
             <div class="profile-menu-item profile-menu-logout" data-action="logout">Logout ${escapeHtml(currentProfile.name)}</div>
         `;
         // Position below the button

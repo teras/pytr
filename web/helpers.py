@@ -69,18 +69,34 @@ _throttled_until: float = 0
 _THROTTLE_COOLDOWN = 600  # 10 minutes
 
 
+_cookies_mtime: float = 0
+
+
 def init_ydl():
     """(Re)create the global yt-dlp instances."""
-    global ydl_info, ydl_info_auth
+    global ydl_info, ydl_info_auth, _cookies_mtime
     ydl_info = yt_dlp.YoutubeDL(dict(_BASE_YDL_OPTS))
     if COOKIES_FILE.is_file():
+        _cookies_mtime = COOKIES_FILE.stat().st_mtime
         auth_opts = dict(_BASE_YDL_OPTS)
         auth_opts['cookiefile'] = str(COOKIES_FILE)
         ydl_info_auth = yt_dlp.YoutubeDL(auth_opts)
         log.info("yt-dlp: anonymous + authenticated (%s) instances created", COOKIES_FILE.name)
     else:
+        _cookies_mtime = 0
         ydl_info_auth = None
         log.info("yt-dlp: anonymous instance created (no cookies)")
+
+
+def _maybe_reload_cookies():
+    """Reload yt-dlp instances if cookies.txt has changed on disk."""
+    try:
+        mtime = COOKIES_FILE.stat().st_mtime if COOKIES_FILE.is_file() else 0
+    except OSError:
+        return
+    if mtime != _cookies_mtime:
+        log.info("cookies.txt changed, reloading yt-dlp instances")
+        init_ydl()
 
 
 # Initialize on import
@@ -223,6 +239,7 @@ def get_video_info(video_id: str, cookie_mode: str = "auto") -> dict:
             return cached['info']
 
     with _info_lock:
+        _maybe_reload_cookies()
         # Re-check after acquiring lock (another thread may have populated cache)
         cached = _info_cache.get(video_id)
         if cached:

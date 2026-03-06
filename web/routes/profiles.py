@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from pydantic import BaseModel, Field
 
 from auth import require_auth, require_profile, get_profile_id, get_session, verify_session, require_admin
-from helpers import maybe_long_cleanup
+from helpers import maybe_long_cleanup, COOKIES_FILE
 import profiles_db as db
 
 router = APIRouter(prefix="/api/profiles")
@@ -87,7 +87,7 @@ async def boot(request: Request):
     if pid:
         profile = db.get_profile(pid)
         if profile:
-            return {"state": "ready", "profile": profile}
+            return {"state": "ready", "profile": profile, "cookies_available": COOKIES_FILE.is_file()}
     # Hourly cleanup (cache expiry, etc.) — runs here and in list_profiles because
     # these are the only idle-state endpoints hit regularly. Not needed in the
     # "ready" branch above since that returns immediately without listing.
