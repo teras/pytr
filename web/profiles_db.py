@@ -609,7 +609,6 @@ def parse_device_name(user_agent: str) -> str:
         return "Android Tablet"
 
     # Desktop browsers
-    import re
     os_name = "Unknown"
     if "windows" in ua:
         os_name = "Windows"

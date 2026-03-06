@@ -6,3 +6,8 @@ venv
 .cache
 *.md
 .claude
+clients/
+tests/
+data/
+.github/
+.env

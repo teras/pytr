@@ -786,7 +786,7 @@ def main():
                 print("  Browser console:")
                 for log in logs[-10:]:
                     print(f"    {log}")
-        except:
+        except Exception:
             pass
         sys.exit(1)
     finally:

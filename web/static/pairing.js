@@ -49,7 +49,13 @@ async function startPairing(opts) {
         const data = await res.json();
         codeEl.textContent = data.code;
         if (data.qr_svg && qrEl) {
-            qrEl.innerHTML = data.qr_svg;
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(data.qr_svg, 'image/svg+xml');
+            const parsedSvg = doc.documentElement;
+            if (parsedSvg.tagName === 'svg') {
+                qrEl.innerHTML = '';
+                qrEl.appendChild(document.importNode(parsedSvg, true));
+            }
             const svg = qrEl.querySelector('svg');
             if (svg) { svg.style.width = '180px'; svg.style.height = '180px'; }
             qrEl.querySelectorAll('path').forEach(p => p.style.fill = '#f1f1f1');

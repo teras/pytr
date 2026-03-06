@@ -35,8 +35,9 @@ class ServerDiscovery {
         if (!running.compareAndSet(false, true)) return
 
         thread = Thread {
+            var socket: DatagramSocket? = null
             try {
-                val socket = DatagramSocket().apply {
+                socket = DatagramSocket().apply {
                     broadcast = true
                     soTimeout = 2000
                 }
@@ -77,10 +78,10 @@ class ServerDiscovery {
                         Log.w(TAG, "Broadcast error", e)
                     }
                 }
-
-                socket.close()
             } catch (e: Exception) {
                 Log.e(TAG, "Discovery failed", e)
+            } finally {
+                socket?.close()
             }
         }.apply { isDaemon = true; start() }
     }

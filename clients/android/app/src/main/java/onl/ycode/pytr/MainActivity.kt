@@ -14,11 +14,13 @@ import android.widget.Toast
 class MainActivity : Activity() {
     companion object {
         const val VIEWPORT_WIDTH = 1024
+        const val MAX_LOAD_ERRORS = 3
     }
 
     private lateinit var webView: WebView
     private var backPressedOnce = false
     private val handler = Handler(Looper.getMainLooper())
+    private var consecutiveErrors = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,7 +40,6 @@ class MainActivity : Activity() {
         // Persist cookies across restarts
         CookieManager.getInstance().apply {
             setAcceptCookie(true)
-            setAcceptThirdPartyCookies(webView, true)
         }
 
         webView.loadUrl(serverUrl)
@@ -74,9 +75,10 @@ class MainActivity : Activity() {
 
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
+                consecutiveErrors = 0
                 // Inject TV mode activation and device name
                 val deviceName = PreferenceHelper.getDeviceName(this@MainActivity)
-                    .replace("'", "\\'").replace("\\", "\\\\")
+                    .replace("\\", "\\\\").replace("'", "\\'")
                 view.evaluateJavascript(
                     """
                     (function() {
@@ -96,11 +98,14 @@ class MainActivity : Activity() {
             override fun onReceivedError(
                 view: WebView, request: WebResourceRequest, error: WebResourceError
             ) {
-                // If main frame fails to load, go back to setup
+                // Only reset to setup after repeated main frame failures
                 if (request.isForMainFrame) {
-                    PreferenceHelper.clearServerUrl(this@MainActivity)
-                    startActivity(Intent(this@MainActivity, SetupActivity::class.java))
-                    finish()
+                    consecutiveErrors++
+                    if (consecutiveErrors >= MAX_LOAD_ERRORS) {
+                        PreferenceHelper.clearServerUrl(this@MainActivity)
+                        startActivity(Intent(this@MainActivity, SetupActivity::class.java))
+                        finish()
+                    }
                 }
             }
         }
@@ -129,7 +134,7 @@ class MainActivity : Activity() {
                     })();
                     """.trimIndent()
                 ) { result ->
-                    if (result.contains("handled")) {
+                    if (result == "\"handled\"") {
                         // tv-nav.js consumed the back press
                         return@evaluateJavascript
                     }
@@ -207,5 +212,11 @@ class MainActivity : Activity() {
     override fun onPause() {
         super.onPause()
         CookieManager.getInstance().flush()
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+        webView.destroy()
+        super.onDestroy()
     }
 }

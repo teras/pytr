@@ -259,9 +259,14 @@ function formatTime(s, refS) {
         const pcEl = document.getElementById(_containerId);
         if (!pcEl) return;
 
-        // Mouse move on container → show OSD
+        // Mouse move on container → show OSD (throttled)
+        let _mouseMoveThrottle = 0;
         pcEl.addEventListener('mousemove', () => {
-            if (_isVideoView()) showOsd();
+            if (!_isVideoView()) return;
+            const now = Date.now();
+            if (now - _mouseMoveThrottle < 100) return;
+            _mouseMoveThrottle = now;
+            showOsd();
         });
 
         // Click on video toggles play/pause + shows OSD

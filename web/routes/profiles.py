@@ -7,7 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from pydantic import BaseModel, Field
 
-from auth import require_auth, require_profile, get_profile_id, get_session, verify_session
+from auth import require_auth, require_profile, get_profile_id, get_session, verify_session, require_admin
 from helpers import maybe_long_cleanup
 import profiles_db as db
 
@@ -73,18 +73,6 @@ class UpdateSBPrefsReq(BaseModel):
     categories: list[str] = []
 
 
-# ── Helpers ─────────────────────────────────────────────────────────────────
-
-def _require_admin(request: Request):
-    """Check that current profile is admin."""
-    pid = get_profile_id(request)
-    if pid is None:
-        raise HTTPException(status_code=403, detail="No profile selected")
-    profile = db.get_profile(pid)
-    if not profile or not profile["is_admin"]:
-        raise HTTPException(status_code=403, detail="Admin required")
-
-
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 @router.get("/boot")
@@ -120,7 +108,11 @@ async def create_profile(req: CreateProfileReq, request: Request, response: Resp
     is_first_run = not profiles and db.get_app_password() is None
     # First profile: anyone can create. After that: admin only.
     if profiles:
-        _require_admin(request)
+        require_admin(request)
+    # Validate password before creating profile to avoid orphaned profile on failure
+    if is_first_run:
+        if not req.password or len(req.password) < 4:
+            raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
     try:
         profile = db.create_profile(req.name, req.pin, req.avatar_color, req.avatar_emoji)
     except Exception as e:
@@ -129,8 +121,6 @@ async def create_profile(req: CreateProfileReq, request: Request, response: Resp
         raise HTTPException(status_code=400, detail=str(e))
     # First-run: also set app password and create authenticated session
     if is_first_run:
-        if not req.password or len(req.password) < 4:
-            raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
         db.set_app_password(req.password)
         token, _ = get_session(request)
         db.set_session_profile(token, profile["id"])
@@ -140,7 +130,7 @@ async def create_profile(req: CreateProfileReq, request: Request, response: Resp
 
 @router.delete("/profile/{profile_id}")
 async def delete_profile(profile_id: int, request: Request, auth: bool = Depends(require_auth)):
-    _require_admin(request)
+    require_admin(request)
     current = get_profile_id(request)
     if current == profile_id:
         raise HTTPException(status_code=400, detail="Cannot delete your own profile")
@@ -317,7 +307,7 @@ async def update_sb_prefs(req: UpdateSBPrefsReq, profile_id: int = Depends(requi
 
 @router.get("/settings")
 async def get_settings(request: Request, auth: bool = Depends(require_auth)):
-    _require_admin(request)
+    require_admin(request)
     raw = db.get_setting("registered_tvs")
     tvs = []
     if raw:
@@ -350,7 +340,7 @@ async def update_password(req: UpdatePasswordReq, request: Request, response: Re
     first_run = db.get_app_password() is None
     # First-run: no password set yet and no profile selected — allow setting initial password
     if not first_run or get_profile_id(request) is not None:
-        _require_admin(request)
+        require_admin(request)
     if not req.password or len(req.password) < 4:
         raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
     db.set_app_password(req.password)
@@ -364,7 +354,7 @@ async def update_password(req: UpdatePasswordReq, request: Request, response: Re
 @router.put("/settings/allow-embed")
 async def update_allow_embed(req: UpdateAllowEmbedReq, request: Request,
                              auth: bool = Depends(require_auth)):
-    _require_admin(request)
+    require_admin(request)
     db.set_setting("allow_embed", "1" if req.allow_embed else None)
     return {"ok": True, "allow_embed": req.allow_embed}
 
@@ -372,7 +362,7 @@ async def update_allow_embed(req: UpdateAllowEmbedReq, request: Request,
 @router.delete("/settings/registered-tv/{index}")
 async def delete_registered_tv(index: int, request: Request,
                                 auth: bool = Depends(require_auth)):
-    _require_admin(request)
+    require_admin(request)
     raw = db.get_setting("registered_tvs")
     tvs = []
     if raw:

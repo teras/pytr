@@ -146,8 +146,9 @@
 
             window.addEventListener('message', function (e) {
                 if (!e.data || typeof e.data !== 'object') return;
-                // Only accept messages from our iframe
+                // Only accept messages from our iframe and correct origin
                 if (!appIframe || e.source !== appIframe.contentWindow) return;
+                if (currentServerUrl && e.origin !== new URL(currentServerUrl).origin) return;
 
                 switch (e.data.type) {
                     case 'pytr-request-auth':

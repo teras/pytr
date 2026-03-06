@@ -106,3 +106,7 @@ The container runs as UID/GID `1000:1000` by default, which matches most Linux s
 UID=1001
 GID=1001
 ```
+
+### 🔀 Reverse Proxy
+
+If running behind a reverse proxy (e.g. nginx), add `TRUSTED_PROXY=1` to your `.env` file so that brute-force protection sees real client IPs instead of the proxy's address.

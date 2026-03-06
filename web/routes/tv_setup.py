@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from auth import require_auth, verify_session, get_profile_id
+from auth import require_auth, verify_session, get_profile_id, require_admin
 import profiles_db
 
 router = APIRouter(prefix="/api/tv-setup")
@@ -38,22 +38,13 @@ class DeployReq(BaseModel):
     passphrase: str = ""
 
 
-def _require_admin(request: Request):
-    pid = get_profile_id(request)
-    if pid is None:
-        raise HTTPException(status_code=403, detail="No profile selected")
-    profile = profiles_db.get_profile(pid)
-    if not profile or not profile["is_admin"]:
-        raise HTTPException(status_code=403, detail="Admin required")
-
-
 def _status_key(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
 @router.post("/deploy")
 async def deploy(req: DeployReq, request: Request, auth: bool = Depends(require_auth)):
-    _require_admin(request)
+    require_admin(request)
     key = _status_key(request)
     _deploy_status[key] = {"steps": [], "done": False, "error": None, "token": None, "cancelled": False}
 
@@ -87,7 +78,7 @@ async def deploy(req: DeployReq, request: Request, auth: bool = Depends(require_
 
 @router.post("/cancel")
 async def cancel_deploy(request: Request, auth: bool = Depends(require_auth)):
-    _require_admin(request)
+    require_admin(request)
     key = _status_key(request)
     if key in _deploy_status and not _deploy_status[key].get("done"):
         _deploy_status[key]["cancelled"] = True
@@ -97,7 +88,7 @@ async def cancel_deploy(request: Request, auth: bool = Depends(require_auth)):
 @router.get("/has-key")
 async def has_key(ip: str, request: Request, auth: bool = Depends(require_auth)):
     """Check if we have a stored SSH key for this IP."""
-    _require_admin(request)
+    require_admin(request)
     return {"has_key": _load_stored_key(ip) is not None}
 
 
@@ -109,7 +100,7 @@ class AndroidActionReq(BaseModel):
 @router.post("/android-action")
 async def android_action(req: AndroidActionReq, request: Request, auth: bool = Depends(require_auth)):
     """Run ADB commands on a registered Android TV."""
-    _require_admin(request)
+    require_admin(request)
     adb_path = shutil.which("adb")
     if not adb_path:
         raise HTTPException(status_code=500, detail="adb not found on server")
@@ -147,7 +138,7 @@ async def renew_webos(index: int, request: Request, auth: bool = Depends(require
     """Manually trigger dev mode renewal for an LG TV."""
     import json
     from helpers import http_client
-    _require_admin(request)
+    require_admin(request)
     tvs = _get_tvs()
     if index < 0 or index >= len(tvs):
         raise HTTPException(status_code=404, detail="TV not found")
@@ -173,7 +164,7 @@ async def renew_webos(index: int, request: Request, auth: bool = Depends(require
 
 @router.get("/status")
 async def status(request: Request, auth: bool = Depends(require_auth)):
-    _require_admin(request)
+    require_admin(request)
     key = _status_key(request)
     return _deploy_status.get(key, {"steps": [], "done": True, "error": None, "token": None})
 

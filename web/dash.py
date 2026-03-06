@@ -332,19 +332,15 @@ async def videoplayback_options():
         headers={
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Range',
+            'Access-Control-Allow-Headers': 'Authorization, Content-Type, Range',
             'Access-Control-Max-Age': '86400',
         },
     )
 
 
 @router.get("/api/videoplayback")
-async def videoplayback_proxy(url: str, request: Request):
-    """Proxy range requests to YouTube CDN for DASH playback.
-
-    No auth required — the manifest endpoint already checks auth,
-    and the YouTube URLs are opaque/temporary.
-    """
+async def videoplayback_proxy(url: str, request: Request, auth: bool = Depends(require_auth_or_embed)):
+    """Proxy range requests to YouTube CDN for DASH playback."""
     if not is_youtube_url(url):
         raise HTTPException(status_code=403, detail="URL not allowed")
     return await proxy_range_request(request, url)

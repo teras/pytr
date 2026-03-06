@@ -50,7 +50,7 @@ async function enterRemoteMode() {
         videoGrid.innerHTML = `
             <div class="remote-device-grid">
                 ${devices.map(d => `
-                    <div class="remote-device-card" data-device-id="${escapeHtml(d.device_id)}">
+                    <div class="remote-device-card" data-device-id="${escapeAttr(d.device_id)}">
                         <div class="remote-device-icon">${_deviceIcon(d.device_name)}</div>
                         <div class="remote-device-name">${escapeHtml(d.device_name || 'Unknown Device')}</div>
                         ${d.has_state ? '<div class="remote-device-status">Now playing</div>' : '<div class="remote-device-status">Idle</div>'}

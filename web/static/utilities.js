@@ -81,11 +81,12 @@ function linkifyText(text) {
     // First linkify URLs, converting YouTube links to internal PYTR links
     let result = escaped.replace(/(https?:\/\/[^\s<]+)/g, (match) => {
         const href = match.replace(/&quot;/g, '%22').replace(/&#39;/g, '%27').replace(/&amp;/g, '&');
+        const safeHref = escapeAttr(href);
         const pytrLink = youtubeToInternalLink(href);
         if (pytrLink) {
-            return `<a href="${pytrLink}" data-internal="1">${match}</a>`;
+            return `<a href="${escapeAttr(pytrLink)}" data-internal="1">${match}</a>`;
         }
-        return `<a href="${href}" target="_blank" rel="noopener">${match}</a>`;
+        return `<a href="${safeHref}" target="_blank" rel="noopener">${match}</a>`;
     });
     // Then parse timestamps (0:00, 1:23, 1:23:45) — but not inside <a> tags
     result = result.replace(/(?:<a[^>]*>.*?<\/a>)|(?:^|\s|\()(\d{1,2}:\d{2}(?::\d{2})?)\b/g, (full, ts) => {

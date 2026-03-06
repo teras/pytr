@@ -2,10 +2,10 @@ services:
   pytr:
     build:
       context: .
-      args:
-        UID: "${UID:-1000}"
-        GID: "${GID:-1000}"
-    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      - PYTR_UID=${UID:-1000}
+      - PYTR_GID=${GID:-1000}
+      - TRUSTED_PROXY=${TRUSTED_PROXY:-}
     ports:
       - "8000:8000"
     volumes:

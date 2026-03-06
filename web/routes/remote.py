@@ -8,7 +8,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 
 import profiles_db
-from auth import require_auth, require_profile, get_profile_id, _require_admin, extract_token
+from auth import require_auth, require_profile, get_profile_id, require_admin, extract_token
 
 log = logging.getLogger(__name__)
 
@@ -318,7 +318,7 @@ async def list_devices(request: Request, profile_id: int = Depends(require_profi
 @router.post("/api/remote/rename")
 async def rename_device(request: Request, body: dict, auth: bool = Depends(require_auth)):
     """Rename the current session's device (admin only)."""
-    _require_admin(request)
+    require_admin(request)
     token, _ = extract_token(request)
     if not token:
         raise HTTPException(status_code=400, detail="No session")

@@ -4,6 +4,7 @@
 import asyncio
 import io
 import logging
+import os
 import secrets
 import time
 
@@ -130,9 +131,10 @@ def _safe_redirect(url: str) -> str:
 
 
 def get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    if os.environ.get("TRUSTED_PROXY"):
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
     return request.client.host
 
 
@@ -148,14 +150,18 @@ def is_ip_blocked(ip: str) -> tuple[bool, int]:
 def record_failure(ip: str):
     if ip not in AUTH_FAILURES:
         AUTH_FAILURES[ip] = {"count": 0, "blocked_until": 0}
-    AUTH_FAILURES[ip]["count"] += 1
-    AUTH_FAILURES[ip]["last_failure"] = time.time()
-    count = AUTH_FAILURES[ip]["count"]
+    info = AUTH_FAILURES[ip]
+    # Reset count if previous block has expired (allows legitimate retries)
+    if info["blocked_until"] and info["blocked_until"] < time.time():
+        info["count"] = 0
+    info["count"] += 1
+    info["last_failure"] = time.time()
+    count = info["count"]
     if count >= 10:
-        AUTH_FAILURES[ip]["blocked_until"] = time.time() + 86400
+        info["blocked_until"] = time.time() + 86400
         log.warning(f"IP {ip} blocked for 24 hours after {count} failures")
     elif count >= 5:
-        AUTH_FAILURES[ip]["blocked_until"] = time.time() + 3600
+        info["blocked_until"] = time.time() + 3600
         log.warning(f"IP {ip} blocked for 1 hour after {count} failures")
 
 
@@ -216,11 +222,12 @@ def _flush_session_ips():
     """Flush buffered IP updates to SQLite."""
     if not _pending_ip_updates:
         return
-    updates = dict(_pending_ip_updates)
-    _pending_ip_updates.clear()
-    for token, ip in updates.items():
+    count = 0
+    while _pending_ip_updates:
+        token, ip = _pending_ip_updates.popitem()
         profiles_db.update_session_ip(token, ip)
-    log.debug(f"Flushed {len(updates)} session IP updates")
+        count += 1
+    log.debug(f"Flushed {count} session IP updates")
 
 
 register_cleanup(_flush_session_ips)
@@ -256,7 +263,7 @@ async def require_profile(request: Request) -> int:
     return pid
 
 
-def _require_admin(request: Request):
+def require_admin(request: Request):
     """Check that current profile is admin."""
     pid = get_profile_id(request)
     if pid is None:
@@ -953,7 +960,7 @@ async def link_page(request: Request, code: str = ""):
 
 @router.post("/api/pair/approve")
 async def pair_approve(request: Request, body: dict, auth: bool = Depends(require_auth)):
-    _require_admin(request)
+    require_admin(request)
     code = body.get("code", "").upper()
     req = PAIRING_REQUESTS.get(code)
     if not req or req["expires_at"] < time.time():
@@ -973,7 +980,7 @@ async def pair_approve(request: Request, body: dict, auth: bool = Depends(requir
 
 @router.post("/api/pair/deny")
 async def pair_deny(request: Request, body: dict, auth: bool = Depends(require_auth)):
-    _require_admin(request)
+    require_admin(request)
     code = body.get("code", "").upper()
     req = PAIRING_REQUESTS.get(code)
     if not req or req["expires_at"] < time.time():
@@ -989,7 +996,7 @@ async def pair_deny(request: Request, body: dict, auth: bool = Depends(require_a
 
 @router.get("/auth/status")
 async def auth_status(request: Request, auth: bool = Depends(require_auth)):
-    _require_admin(request)
+    require_admin(request)
     now = time.time()
     blocked = {
         ip: {

@@ -1203,10 +1203,6 @@ document.getElementById('logo-link').addEventListener('click', (e) => {
     loadHomeTab();
 });
 
-videoPlayer.addEventListener('error', () => {
-    console.log('Video error:', videoPlayer.error && videoPlayer.error.message);
-});
-
 // For non-DASH/HLS fallback: show resolution from video element
 videoPlayer.addEventListener('loadedmetadata', () => {
     if (dashPlayer || hlsPlayer) return;
@@ -1356,7 +1352,6 @@ function connectWebSocket() {
     _ws.onopen = () => {
         _wsConnected = true;
         if (_wsReconnectTimer) { clearTimeout(_wsReconnectTimer); _wsReconnectTimer = null; }
-        console.log('WebSocket connected');
         // _onWsReconnected returns true if auto-repair started (backoff resets on pair success instead)
         const autoRepairing = typeof _onWsReconnected === 'function' && _onWsReconnected();
         if (!autoRepairing) _wsReconnectDelay = 500;

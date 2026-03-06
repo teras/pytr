@@ -94,8 +94,18 @@
         return r.width > 0 && r.height > 0;
     }
 
+    let _focusablesCache = null;
+    let _focusablesDirty = true;
+    new MutationObserver(() => { _focusablesDirty = true; }).observe(document.body, {
+        childList: true, subtree: true, attributes: true
+    });
+
     function getFocusables() {
-        return [...document.querySelectorAll(FOCUSABLE)].filter(isVisible);
+        if (_focusablesDirty || !_focusablesCache) {
+            _focusablesCache = [...document.querySelectorAll(FOCUSABLE)].filter(isVisible);
+            _focusablesDirty = false;
+        }
+        return _focusablesCache;
     }
 
     function setFocus(el) {
@@ -488,6 +498,7 @@
     // ── Receive back button from parent (iframe mode) ─────────────────────
     window.addEventListener('message', function (e) {
         if (e.source !== window.parent) return;
+        if (window._pytrIsIframe && window._pytrParentOrigin && window._pytrParentOrigin() !== '*' && e.origin !== window._pytrParentOrigin()) return;
         if (e.data && e.data.type === 'pytr-back') {
             document.dispatchEvent(new KeyboardEvent('keydown', {
                 key: 'XF86Back', keyCode: 461, bubbles: true

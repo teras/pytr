@@ -25,10 +25,11 @@ async def lifespan(app):
     renewal_task = asyncio.create_task(webos_renewal_loop())
     # Warm up external API connections
     from routes.sponsorblock import warmup_connection
-    asyncio.create_task(warmup_connection())
+    warmup_task = asyncio.create_task(warmup_connection())
     yield
     # Shutdown
     renewal_task.cancel()
+    warmup_task.cancel()
     from helpers import http_client
     await http_client.aclose()
     logging.getLogger(__name__).info("httpx client closed")
@@ -97,9 +98,10 @@ from auth import buffer_session_ip
 
 @app.middleware("http")
 async def cleanup_middleware(request, call_next):
-    maybe_cleanup()
-    maybe_long_cleanup()
-    buffer_session_ip(request)
+    if not request.url.path.startswith("/static"):
+        maybe_cleanup()
+        maybe_long_cleanup()
+        buffer_session_ip(request)
     return await call_next(request)
 
 # Register routers

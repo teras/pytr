@@ -24,7 +24,7 @@
         }
     });
 
-    // Request token from parent immediately
+    // Request token from parent immediately (safe: no sensitive data sent)
     window.parent.postMessage({ type: 'pytr-request-auth' }, '*');
     // Timeout: don't wait forever if parent has no token
     setTimeout(function () {
@@ -49,7 +49,7 @@
         return _origFetch.call(this, input, init).then(function (resp) {
             if (resp.status === 401 && _bearerToken) {
                 _bearerToken = null;
-                window.parent.postMessage({ type: 'pytr-auth-expired' }, _parentOrigin || '*');
+                if (_parentOrigin) window.parent.postMessage({ type: 'pytr-auth-expired' }, _parentOrigin);
                 if (typeof checkProfile === 'function') checkProfile();
             }
             return resp;
@@ -74,10 +74,32 @@
     window.WebSocket.CLOSING = _OrigWS.CLOSING;
     window.WebSocket.CLOSED = _OrigWS.CLOSED;
 
+    // Override XMLHttpRequest: add Authorization header (needed for dash.js)
+    const _origXHROpen = XMLHttpRequest.prototype.open;
+    const _origXHRSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+        this._pytrUrl = typeof url === 'string' ? url : '';
+        return _origXHROpen.call(this, method, url, ...rest);
+    };
+    XMLHttpRequest.prototype.send = function (body) {
+        if (_bearerToken && this._pytrUrl &&
+            (this._pytrUrl.startsWith('/') || this._pytrUrl.startsWith(location.origin))) {
+            this.setRequestHeader('Authorization', 'Bearer ' + _bearerToken);
+            this.addEventListener('load', function () {
+                if (this.status === 401 && _bearerToken) {
+                    _bearerToken = null;
+                    if (_parentOrigin) window.parent.postMessage({ type: 'pytr-auth-expired' }, _parentOrigin);
+                    if (typeof checkProfile === 'function') checkProfile();
+                }
+            });
+        }
+        return _origXHRSend.call(this, body);
+    };
+
     // Expose for iframe pairing flow
     window._pytrSetToken = function (token) { _bearerToken = token; };
     window._pytrGetToken = function () { return _bearerToken; };
-    window._pytrParentOrigin = function () { return _parentOrigin || '*'; };
+    window._pytrParentOrigin = function () { return _parentOrigin || location.origin; };
     window._pytrIsIframe = true;
     // Wait for token before first checkProfile
     window._pytrWaitForToken = function () { return _tokenPromise; };
