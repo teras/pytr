@@ -1,0 +1,17 @@
+/* WebOS-specific overrides — loaded dynamically only on LG TVs */
+
+/* Thin overlay scrollbar (WebOS uses old WebKit)
+   Note: iframe is 1024x576 scaled x1.875 to fill 1920x1080,
+   so 4px here renders as ~7.5px on screen.
+   Standalone selectors required — old WebKit ignores compound ::-webkit-scrollbar */
+::-webkit-scrollbar {
+    width: 4px !important;
+    height: 4px !important;
+}
+::-webkit-scrollbar-track {
+    background: transparent !important;
+}
+::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.2) !important;
+    border-radius: 3px !important;
+}

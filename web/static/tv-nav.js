@@ -472,8 +472,16 @@
     // ── Restore TV mode from localStorage on page load ───────────────────────
     if (localStorage.getItem(TV_KEY)) {
         document.body.classList.add('tv-nav-active');
-        if (localStorage.getItem(TV_KEY) !== 'desktop') {
+        var tvMode = localStorage.getItem(TV_KEY);
+        if (tvMode !== 'desktop') {
             document.body.classList.add('tv-device');
+        }
+        if (tvMode === 'webos') {
+            document.body.classList.add('webos');
+            var link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = '/static/webos.css';
+            document.head.appendChild(link);
         }
     }
 
