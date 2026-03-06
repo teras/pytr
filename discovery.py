@@ -10,7 +10,9 @@ When a client sends "who is PytrServer?", responds with JSON:
 Designed to run with network_mode: host in Docker.
 """
 import json
+import signal
 import socket
+import sys
 
 DISCOVERY_PORT = 5444
 HTTP_PORT = 8000
@@ -30,9 +32,12 @@ def get_local_ip():
 
 
 def main():
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    sock.settimeout(2)
     sock.bind(("", DISCOVERY_PORT))
 
     hostname = socket.gethostname()
@@ -46,7 +51,10 @@ def main():
     print(f"PYTR discovery listening on UDP {DISCOVERY_PORT} (address: http://{local_ip}:{HTTP_PORT})")
 
     while True:
-        data, addr = sock.recvfrom(256)
+        try:
+            data, addr = sock.recvfrom(256)
+        except socket.timeout:
+            continue
         if data.strip() == QUERY:
             print(f"Discovery query from {addr[0]}")
             sock.sendto(response, addr)
