@@ -27,12 +27,12 @@ jobs:
       - name: Setup Android signing
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > clients/android/pytr-release.jks
-          cat > clients/android/local.properties << EOF
-release.storeFile=../pytr-release.jks
-release.storePassword=${{ secrets.KEYSTORE_PASSWORD }}
-release.keyAlias=${{ secrets.KEY_ALIAS }}
-release.keyPassword=${{ secrets.KEY_PASSWORD }}
-EOF
+          printf '%s\n' \
+            "release.storeFile=../pytr-release.jks" \
+            "release.storePassword=${{ secrets.KEYSTORE_PASSWORD }}" \
+            "release.keyAlias=${{ secrets.KEY_ALIAS }}" \
+            "release.keyPassword=${{ secrets.KEY_PASSWORD }}" \
+            > clients/android/local.properties
 
       # Build TV packages (skip Docker — handled below)
       - name: Build APK and IPK
