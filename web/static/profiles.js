@@ -431,6 +431,12 @@ function showEditProfileForm() {
                     ${buildAvatarPickerHtml(currentProfile.avatar_color, currentProfile.avatar_emoji)}
                     <div class="edit-pin-section">
                         <label class="edit-pin-label">
+                            <input type="checkbox" id="edit-exclusive-playback" ${currentProfile.exclusive_playback ? 'checked' : ''}>
+                            Exclusive playback (pause other tabs)
+                        </label>
+                    </div>
+                    <div class="edit-pin-section">
+                        <label class="edit-pin-label">
                             <input type="checkbox" id="edit-pin-toggle" ${hasPin ? 'checked' : ''}>
                             PIN lock
                         </label>
@@ -520,6 +526,13 @@ function showEditProfileForm() {
         }
         currentProfile = await resp.json();
         updateProfileButton();
+
+        // Save exclusive playback preference
+        const exclPlay = modal.querySelector('#edit-exclusive-playback').checked ? 1 : 0;
+        if (exclPlay !== currentProfile.exclusive_playback) {
+            currentProfile.exclusive_playback = exclPlay;
+            savePreference('exclusive_playback', exclPlay);
+        }
 
         if (form._cleanupEmojiListener) form._cleanupEmojiListener();
         modal.remove();

@@ -1496,10 +1496,24 @@ function _throttledBroadcast() {
     _wsStateThrottle = setTimeout(() => { _wsStateThrottle = null; }, 1000);
 }
 
+// Exclusive playback: pause other tabs when playing here
+const _playbackChannel = new BroadcastChannel('pytr-playback');
+let _pausedByOtherTab = false;
+_playbackChannel.onmessage = () => {
+    if (!videoPlayer.paused && currentProfile?.exclusive_playback) {
+        _pausedByOtherTab = true;
+        videoPlayer.pause();
+    }
+};
+
 // Hook into player events for state broadcasting
 videoPlayer.addEventListener('timeupdate', _throttledBroadcast);
 videoPlayer.addEventListener('pause', () => _broadcastPlayerState());
-videoPlayer.addEventListener('play', () => _broadcastPlayerState());
+videoPlayer.addEventListener('play', () => {
+    if (currentProfile?.exclusive_playback) _playbackChannel.postMessage('pause');
+    _pausedByOtherTab = false;
+    _broadcastPlayerState();
+});
 videoPlayer.addEventListener('ended', () => {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     _broadcastPlayerState();

@@ -30,6 +30,7 @@ class UpdatePrefsReq(BaseModel):
     quality: int | None = None
     subtitle_lang: str | None = None
     cookie_mode: str | None = None
+    exclusive_playback: int | None = None
 
 class SavePositionReq(BaseModel):
     video_id: str
@@ -192,7 +193,7 @@ async def edit_profile(req: EditProfileReq, profile_id: int = Depends(require_pr
 
 @router.put("/preferences")
 async def update_preferences(req: UpdatePrefsReq, profile_id: int = Depends(require_profile)):
-    db.update_preferences(profile_id, req.quality, req.subtitle_lang, req.cookie_mode)
+    db.update_preferences(profile_id, req.quality, req.subtitle_lang, req.cookie_mode, req.exclusive_playback)
     return {"ok": True}
 
 
