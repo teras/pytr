@@ -325,7 +325,7 @@ async def _deploy_webos(ip: str, passphrase: str, add_step, is_cancelled) -> dic
         await asyncio.get_event_loop().run_in_executor(None, _upload)
 
         add_step("Installing app...")
-        install_params = json.dumps({"id": "com.pytr.tv", "ipkUrl": remote_path, "subscribe": True})
+        install_params = json.dumps({"id": "onl.ycode.pytr", "ipkUrl": remote_path, "subscribe": True})
         install_cmd = f"/usr/bin/luna-send-pub -i luna://com.webos.appInstallService/dev/install '{install_params}'"
 
         def _run_install():
@@ -382,7 +382,7 @@ async def _deploy_webos(ip: str, passphrase: str, add_step, is_cancelled) -> dic
 
         add_step("Launching app...")
         ssh.exec_command("/usr/bin/luna-send-pub -n 1 'luna://com.webos.service.applicationManager/launch' "
-                         "'{\"id\":\"com.pytr.tv\"}'")
+                         "'{\"id\":\"onl.ycode.pytr\"}'")
         await asyncio.sleep(1)
 
         add_step("Reading dev mode token...")
@@ -468,7 +468,7 @@ async def _deploy_android(ip: str, add_step, is_cancelled) -> dict:
             raise Exception(f"Install failed: {output}")
 
         add_step("Launching app...")
-        await _adb("-s", target, "shell", "am", "start", "-n", "com.pytr.tv/.SetupActivity")
+        await _adb("-s", target, "shell", "am", "start", "-n", "onl.ycode.pytr/.SetupActivity")
 
         add_step("Done! App deployed successfully.")
 

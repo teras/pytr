@@ -1,9 +1,9 @@
 {
-    "id": "com.pytr.tv.service",
+    "id": "onl.ycode.pytr.service",
     "description": "PYTR server discovery via UDP broadcast",
     "services": [
         {
-            "name": "com.pytr.tv.service",
+            "name": "onl.ycode.pytr.service",
             "description": "PYTR Discovery Service",
             "assistantRecovery": false
         }

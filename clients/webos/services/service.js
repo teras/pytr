@@ -4,7 +4,7 @@
 var Service = require('webos-service');
 var dgram = require('dgram');
 
-var service = new Service('com.pytr.tv.service');
+var service = new Service('onl.ycode.pytr.service');
 var activeSocket = null;
 
 service.register('discover', function (message) {

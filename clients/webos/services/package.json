@@ -1,5 +1,5 @@
 {
-    "name": "com.pytr.tv.service",
+    "name": "onl.ycode.pytr.service",
     "version": "1.0.0",
     "description": "PYTR server discovery service",
     "main": "service.js"

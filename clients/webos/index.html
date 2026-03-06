@@ -194,7 +194,7 @@
                 statusEl.className = 'status';
 
                 if (window.webOS && window.webOS.service) {
-                    window.webOS.service.request('luna://com.pytr.tv.service', {
+                    window.webOS.service.request('luna://onl.ycode.pytr.service', {
                         method: 'discover',
                         onSuccess: function (res) {
                             if (res.servers && res.servers.length > 0) {

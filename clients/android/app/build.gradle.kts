@@ -12,11 +12,11 @@ rootProject.file("local.properties").let { f ->
 }
 
 android {
-    namespace = "com.pytr.tv"
+    namespace = "onl.ycode.pytr"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.pytr.tv"
+        applicationId = "onl.ycode.pytr"
         minSdk = 21
         targetSdk = 34
         versionCode = 1

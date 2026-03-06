@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Panayotis Katsaloulis
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package com.pytr.tv
+package onl.ycode.pytr
 
 import android.app.Activity
 import android.content.Intent

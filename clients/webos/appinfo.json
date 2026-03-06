@@ -1,5 +1,5 @@
 {
-    "id": "com.pytr.tv",
+    "id": "onl.ycode.pytr",
     "version": "1.0.0",
     "vendor": "PYTR",
     "type": "web",
@@ -14,7 +14,7 @@
     "disableBackHistoryAPI": true,
     "serviceList": [
         {
-            "name": "com.pytr.tv.service",
+            "name": "onl.ycode.pytr.service",
             "description": "PYTR Discovery Service"
         }
     ]
