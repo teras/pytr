@@ -8,7 +8,7 @@ import re
 from fastapi import APIRouter, HTTPException, Query, Request, Response, Depends
 
 from auth import require_auth, get_session, extract_token
-from helpers import VIDEO_ID_RE
+from helpers import VIDEO_ID_RE, http_client, is_youtube_url
 from iterators import create_search, create_channel, create_channel_playlists, fetch_more
 from directcalls import fetch_related, fetch_playlist_contents, resolve_handle
 
@@ -156,3 +156,21 @@ async def get_playlist_contents(
     token, session = get_session(request)
     result = await fetch_playlist_contents(video_id, playlist_id)
     return _json_with_cookie(result, token, request)
+
+
+@router.get("/img-proxy")
+async def img_proxy(url: str = Query(..., min_length=1), auth: bool = Depends(require_auth)):
+    """Proxy images from YouTube/Google domains to avoid CORS and loading issues."""
+    if not is_youtube_url(url):
+        raise HTTPException(status_code=400, detail="URL not allowed")
+    try:
+        resp = await http_client.get(url)
+        resp.raise_for_status()
+    except Exception:
+        raise HTTPException(status_code=502, detail="Failed to fetch image")
+    content_type = resp.headers.get("content-type", "image/jpeg")
+    return Response(
+        content=resp.content,
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )

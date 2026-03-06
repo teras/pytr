@@ -23,6 +23,13 @@ function escapeAttr(text) {
     return text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// ── Image proxy ─────────────────────────────────────────────────────────────
+
+function proxyImageUrl(url) {
+    if (!url) return '';
+    return '/api/img-proxy?url=' + encodeURIComponent(url);
+}
+
 // ── YouTube URL → internal PYTR link conversion ────────────────────────────
 
 function youtubeToInternalLink(url) {
