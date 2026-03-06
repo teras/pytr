@@ -4,6 +4,7 @@ __pycache__
 .gitignore
 venv
 .cache
+web/.cache
 *.md
 .claude
 clients/

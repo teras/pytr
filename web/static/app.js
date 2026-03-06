@@ -1077,11 +1077,17 @@ function startDashPlayer(videoId) {
     });
 
     dashPlayer.on(dashjs.MediaPlayer.events.ERROR, (e) => {
-        if (!e.error || _dashAutoRefreshed) return;
-        _dashAutoRefreshed = true;
-        console.warn('DASH error, auto-refreshing session');
-        savePosition();
-        playVideo(videoId, videoTitle.textContent, videoChannel.textContent, videoPlayer.dataset.expectedDuration);
+        if (!e.error) return;
+        if (!_dashAutoRefreshed) {
+            _dashAutoRefreshed = true;
+            console.warn('DASH error, auto-refreshing session');
+            savePosition();
+            playVideo(videoId, videoTitle.textContent, videoChannel.textContent, videoPlayer.dataset.expectedDuration);
+        } else if (Hls.isSupported()) {
+            console.warn('DASH failed again, falling back to HLS');
+            dashPlayer.destroy(); dashPlayer = null;
+            startHlsPlayer(videoId, appendCookieParam(`/api/hls/master/${videoId}`));
+        }
     });
 }
 

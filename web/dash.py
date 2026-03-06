@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from auth import require_auth, require_auth_or_embed
 from container import probe_ranges
-from helpers import register_cleanup, make_cache_cleanup, get_video_info, invalidate_video_cache, http_client, is_youtube_url, VIDEO_ID_RE
+from helpers import register_cleanup, make_cache_cleanup, get_video_info, invalidate_video_cache, init_ydl, http_client, is_youtube_url, VIDEO_ID_RE
 
 log = logging.getLogger(__name__)
 
@@ -122,6 +122,28 @@ def _dedup_by_height(fmts: list) -> list:
     return ([sd[-1]] if sd else []) + hd
 
 
+def _collect_dash_formats(info: dict) -> tuple[dict, dict]:
+    """Collect HTTPS video-only and audio-only formats, grouped by container."""
+    video_by_container: dict[str, list] = {}
+    audio_by_container: dict[str, list] = {}
+    for fmt in info.get('formats', []):
+        if fmt.get('protocol') != 'https' or not fmt.get('url'):
+            continue
+        has_video = fmt.get('vcodec') not in (None, 'none')
+        has_audio = fmt.get('acodec') not in (None, 'none')
+        if has_video and not has_audio:
+            if fmt.get('ext') not in _VIDEO_EXTS:
+                continue
+            c = _container_of(fmt)
+            video_by_container.setdefault(c, []).append(fmt)
+        elif has_audio and not has_video:
+            if fmt.get('ext') not in _AUDIO_EXTS:
+                continue
+            c = _container_of(fmt)
+            audio_by_container.setdefault(c, []).append(fmt)
+    return video_by_container, audio_by_container
+
+
 # ── DASH manifest endpoint ───────────────────────────────────────────────────
 
 @router.get("/api/dash/{video_id}")
@@ -155,26 +177,19 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
     duration = info.get('duration') or 0
 
     # Collect HTTPS video-only and audio-only formats, grouped by container
-    video_by_container: dict[str, list] = {}  # container -> [fmt, ...]
-    audio_by_container: dict[str, list] = {}
+    video_by_container, audio_by_container = _collect_dash_formats(info)
 
-    for fmt in info.get('formats', []):
-        if fmt.get('protocol') != 'https' or not fmt.get('url'):
-            continue
-        has_video = fmt.get('vcodec') not in (None, 'none')
-        has_audio = fmt.get('acodec') not in (None, 'none')
-
-        if has_video and not has_audio:
-            height = fmt.get('height') or 0
-            if fmt.get('ext') not in _VIDEO_EXTS:
-                continue
-            c = _container_of(fmt)
-            video_by_container.setdefault(c, []).append(fmt)
-        elif has_audio and not has_video:
-            if fmt.get('ext') not in _AUDIO_EXTS:
-                continue
-            c = _container_of(fmt)
-            audio_by_container.setdefault(c, []).append(fmt)
+    if not video_by_container:
+        # Stale cache or corrupted yt-dlp state — refresh and retry once
+        log.warning("No DASH video formats for %s — invalidating cache and retrying", video_id)
+        invalidate_video_cache(video_id)
+        await asyncio.to_thread(init_ydl)
+        try:
+            info = await asyncio.to_thread(get_video_info, video_id, cookies)
+        except Exception:
+            raise HTTPException(status_code=404, detail="No DASH video formats available")
+        duration = info.get('duration') or 0
+        video_by_container, audio_by_container = _collect_dash_formats(info)
 
     if not video_by_container:
         raise HTTPException(status_code=404, detail="No DASH video formats available")
