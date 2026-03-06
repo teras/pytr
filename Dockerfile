@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM public.ecr.aws/docker/library/python:3.12-slim
 
 # Install ffmpeg, adb, and dependencies for deno
 RUN apt-get update && \
