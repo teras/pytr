@@ -100,14 +100,34 @@ function formatTime(s, refS) {
     function setupSeekBar() {
         const osdBar = document.getElementById('osd-bar');
         if (!osdBar) return;
+
+        const tooltip = document.getElementById('osd-seek-tooltip');
+
+        function barPct(e) {
+            const rect = osdBar.getBoundingClientRect();
+            return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        }
+
         osdBar.addEventListener('click', function (e) {
             const video = _getVideo();
             if (!video || !video.duration) return;
-            const rect = osdBar.getBoundingClientRect();
-            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-            video.currentTime = pct * video.duration;
+            video.currentTime = barPct(e) * video.duration;
             showOsd();
         });
+
+        if (tooltip) {
+            osdBar.addEventListener('mousemove', function (e) {
+                const video = _getVideo();
+                if (!video || !video.duration) return;
+                const pct = barPct(e);
+                const time = pct * video.duration;
+                tooltip.textContent = formatTime(time);
+                tooltip.style.left = (pct * 100) + '%';
+            });
+            osdBar.addEventListener('mouseleave', function () {
+                tooltip.textContent = '';
+            });
+        }
     }
 
     // ── Volume control ───────────────────────────────────────────────────

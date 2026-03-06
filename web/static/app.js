@@ -926,6 +926,9 @@ async function playVideo(videoId, title, channel, duration, startTime) {
     relatedVideos.innerHTML = '';
 
     videoPlayer.dataset.expectedDuration = duration || 0;
+    // Restore saved volume
+    const savedVol = localStorage.getItem('volume');
+    if (savedVol !== null) videoPlayer.volume = parseFloat(savedVol);
     // Try maxresdefault (1280x720 HD, 16:9) with fallback chain
     setBestPoster(videoPlayer, videoId);
 
@@ -1189,6 +1192,10 @@ function restorePosition(videoId) {
         restorePositionFromAPI(videoId);
     }
 }
+
+videoPlayer.addEventListener('volumechange', () => {
+    localStorage.setItem('volume', videoPlayer.volume);
+});
 
 videoPlayer.addEventListener('timeupdate', () => {
     if (isLiveStream) { updateLiveBadge(); return; }
@@ -1493,7 +1500,10 @@ function _throttledBroadcast() {
 videoPlayer.addEventListener('timeupdate', _throttledBroadcast);
 videoPlayer.addEventListener('pause', () => _broadcastPlayerState());
 videoPlayer.addEventListener('play', () => _broadcastPlayerState());
-videoPlayer.addEventListener('ended', () => _broadcastPlayerState());
+videoPlayer.addEventListener('ended', () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    _broadcastPlayerState();
+});
 videoPlayer.addEventListener('seeked', () => _broadcastPlayerState());
 
 let _remoteToastTimer = null;

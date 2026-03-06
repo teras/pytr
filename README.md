@@ -20,15 +20,18 @@ Open http://localhost:8000 — the discovery service enables TV apps to auto-det
 ## ✨ Features
 
 - 🔍 Search YouTube videos with infinite scroll
-- 📺 Channel browsing and related videos
+- 📺 Channel browsing, playlists, and related videos
 - 📡 Adaptive streaming (DASH up to 4K, HLS fallback for multi-audio)
 - 💬 Subtitle support (manual and auto-captions)
 - 🌐 Multi-audio language switching
 - 👥 Netflix-style profiles with watch history, favorites, and per-profile preferences
+- ⭐ Personal favorites — save videos, playlists, mixes, and live streams per profile
+- 🛡️ SponsorBlock — auto-skip sponsors, intros, outros, and more with per-profile category preferences
+- 📲 Remote control — pair devices over WebSocket to control playback from your phone or another browser
 - 🔒 Password-protected access with optional per-profile PIN lock
 - 🖼️ Embeddable player for use with LibRedirect
 - 🍪 YouTube cookie support for age-restricted content
-- 📱 Mobile-friendly responsive interface
+- 📱 Mobile-friendly responsive interface — install as an app via your browser's "Add to Home Screen"
 - 📺 TV apps for Android TV and LG webOS with auto-discovery
 
 ## 🔧 Building from Source
@@ -96,7 +99,7 @@ python3 extract-cookies.py
 
 The script supports Firefox, Chrome, Chromium, Brave, and Edge. It will ask you to select your browser, then extract only YouTube/Google cookies to `data/cookies.txt`.
 
-After extracting, restart the container: `docker compose restart`
+Cookies are picked up automatically — no restart needed.
 
 ### 👤 Non-default UID/GID
 

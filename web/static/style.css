@@ -2280,21 +2280,53 @@ body.tv-device #video-grid {
 }
 .tv-osd-bar {
     flex: 1;
-    height: 5px;
-    background: rgba(255, 255, 255, 0.25);
-    border-radius: 3px;
+    height: 29px;
     position: relative;
     cursor: pointer;
     pointer-events: auto;
 }
-.tv-osd-bar:hover {
+.tv-osd-bar::before {
+    content: '';
+    position: absolute;
+    left: 0; right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 5px;
+    background: rgba(255, 255, 255, 0.25);
+    border-radius: 3px;
+}
+.tv-osd-bar:hover::before {
     height: 8px;
 }
 .tv-osd-progress {
-    height: 100%;
+    height: 5px;
     background: #e94040;
     border-radius: 3px;
     pointer-events: none;
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+}
+.tv-osd-bar:hover .tv-osd-progress {
+    height: 8px;
+}
+.osd-seek-tooltip {
+    position: absolute;
+    top: -18px;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    font-size: 12px;
+    padding: 3px 7px;
+    border-radius: 4px;
+    pointer-events: none;
+    white-space: nowrap;
+    display: none;
+    z-index: 10;
+}
+.tv-osd-bar:hover .osd-seek-tooltip {
+    display: block;
 }
 
 /* ── OSD Right Controls (volume + expand) ────────────────────────────── */
@@ -2412,12 +2444,16 @@ body.theater-mode .video-sidebar {
 /* ── SponsorBlock OSD markers ─────────────────────────────────────────── */
 .sb-osd-marker {
     position: absolute;
-    top: 0;
-    height: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 5px;
     border-radius: 3px;
     opacity: 0.85;
     pointer-events: none;
     z-index: 1;
+}
+.tv-osd-bar:hover .sb-osd-marker {
+    height: 8px;
 }
 
 /* ── Remote Control ──────────────────────────────────────────────────── */
