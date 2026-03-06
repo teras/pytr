@@ -284,7 +284,7 @@ h1 {
 /* Video Grid (Search Results) */
 #video-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: 20px;
 }
 
@@ -1820,7 +1820,11 @@ body.tv-nav-active *:focus {
 /* ── TV Layout: Full 10-foot UI ──────────────────────────────────────────── */
 body.tv-nav-active header {
     display: flex;
-    padding: 16px 32px;
+    padding: 4px 24px;
+    margin-bottom: 0;
+}
+body.tv-nav-active #list-header {
+    margin-bottom: 8px;
 }
 body.tv-nav-active.tv-video-active header {
     display: none;
@@ -2101,11 +2105,14 @@ body.tv-nav-active .video-details {
     pointer-events: none;
 }
 
-/* TV Search page: bigger cards */
+/* TV: compact grid padding */
 body.tv-nav-active #video-grid {
-    padding: 16px 24px;
-    gap: 24px;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    padding: 8px 24px;
+    gap: 16px;
+}
+/* Actual TV devices (Android/WebOS): small cards, 4 per row */
+body.tv-device #video-grid {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
 }
 
 /* ── Edit Profile Tabs ───────────────────────────────────────────────────── */

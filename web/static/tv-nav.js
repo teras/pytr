@@ -472,6 +472,9 @@
     // ── Restore TV mode from localStorage on page load ───────────────────────
     if (localStorage.getItem(TV_KEY)) {
         document.body.classList.add('tv-nav-active');
+        if (localStorage.getItem(TV_KEY) !== 'desktop') {
+            document.body.classList.add('tv-device');
+        }
     }
 
     // ── Receive back button from parent (iframe mode) ─────────────────────

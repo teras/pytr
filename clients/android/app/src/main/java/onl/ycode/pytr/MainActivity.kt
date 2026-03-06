@@ -12,6 +12,10 @@ import android.webkit.*
 import android.widget.Toast
 
 class MainActivity : Activity() {
+    companion object {
+        const val VIEWPORT_WIDTH = 1024
+    }
+
     private lateinit var webView: WebView
     private var backPressedOnce = false
     private val handler = Handler(Looper.getMainLooper())
@@ -41,6 +45,10 @@ class MainActivity : Activity() {
     }
 
     private fun setupWebView() {
+        val displayWidth = resources.displayMetrics.widthPixels
+        val scale = (displayWidth.toFloat() / VIEWPORT_WIDTH * 100).toInt()
+        webView.setInitialScale(scale)
+
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -50,7 +58,7 @@ class MainActivity : Activity() {
             allowFileAccess = false
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             useWideViewPort = true
-            loadWithOverviewMode = true
+            loadWithOverviewMode = false
         }
 
         webView.webViewClient = object : WebViewClient() {
@@ -73,7 +81,7 @@ class MainActivity : Activity() {
                     """
                     (function() {
                         var vp = document.querySelector('meta[name="viewport"]');
-                        if (vp) vp.setAttribute('content', 'width=1920, height=1080, initial-scale=1.0');
+                        if (vp) vp.setAttribute('content', 'width=$VIEWPORT_WIDTH, initial-scale=1.0');
                         localStorage.setItem('tv-mode', 'android');
                         localStorage.setItem('pytr-device-name', '$deviceName');
                         document.body.classList.add('tv-nav-active');
