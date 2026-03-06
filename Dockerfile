@@ -28,7 +28,7 @@ COPY build/pytr-tv.apk clients/android/pytr-tv.apk
 # Create writable directories
 ARG UID=1000
 ARG GID=1000
-RUN mkdir -p cache && chown ${UID}:${GID} cache
+RUN mkdir -p .cache && chown ${UID}:${GID} .cache
 # ADB keys: symlink .android → data/adb so keys persist via the data volume mount
 ENV HOME=/app
 RUN ln -s /app/data/adb /app/.android

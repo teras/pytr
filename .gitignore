@@ -3,9 +3,9 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Subtitle cache
-cache/*
-web/cache/*
+# Cache (subtitles, yt-dlp challenge solver, etc.)
+.cache/
+web/.cache/
 
 # Profile database
 data/

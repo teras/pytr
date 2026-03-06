@@ -3,6 +3,6 @@ __pycache__
 .git
 .gitignore
 venv
-cache/*
+.cache
 *.md
 .claude

@@ -17,8 +17,8 @@ log = logging.getLogger(__name__)
 VIDEO_ID_RE = re.compile(r'^[a-zA-Z0-9_-]{11}$')
 
 # Cache directory for subtitle VTT files
-CACHE_DIR = Path("cache")
-CACHE_DIR.mkdir(exist_ok=True)
+CACHE_DIR = Path(".cache/subtitles")
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # yt-dlp base options
 _BASE_YDL_OPTS = {
