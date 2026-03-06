@@ -403,7 +403,7 @@ async def _deploy_webos(ip: str, passphrase: str, add_step, is_cancelled) -> dic
         _store_key(ip, pkey, token, effective_passphrase)
 
         add_step("Done! App deployed successfully.")
-        return {"ok": True, "token": token}
+        return {"ok": True}
     finally:
         ssh.close()
 

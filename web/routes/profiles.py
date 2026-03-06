@@ -369,38 +369,6 @@ async def update_allow_embed(req: UpdateAllowEmbedReq, request: Request,
     return {"ok": True, "allow_embed": req.allow_embed}
 
 
-class AddWebosTokenReq(BaseModel):
-    token: str = Field(..., min_length=1, max_length=200)
-    name: str = Field(default="", max_length=50)
-
-
-@router.post("/settings/webos-token")
-async def add_webos_token(req: AddWebosTokenReq, request: Request,
-                          auth: bool = Depends(require_auth)):
-    _require_admin(request)
-    raw = db.get_setting("registered_tvs")
-    tvs = []
-    if raw:
-        try:
-            tvs = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            pass
-    token_val = req.token.strip()
-    ip = req.name.strip()
-    # Update existing entry for this IP (preserves ssh_key), or create new
-    found = False
-    for t in tvs:
-        if t.get("name") == ip:
-            t["token"] = token_val
-            t["type"] = "webos"
-            found = True
-            break
-    if not found:
-        tvs.append({"token": token_val, "name": ip, "type": "webos"})
-    db.set_setting("registered_tvs", json.dumps(tvs))
-    return {"ok": True}
-
-
 @router.delete("/settings/registered-tv/{index}")
 async def delete_registered_tv(index: int, request: Request,
                                 auth: bool = Depends(require_auth)):

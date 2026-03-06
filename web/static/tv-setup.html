@@ -67,18 +67,6 @@
         .result-error { background: #2e1a1a; border: 1px solid #5a2d2d; border-radius: 12px; padding: 20px; }
         .result-error h3 { color: #ff4444; font-size: 16px; margin-bottom: 8px; }
         .result-error p { color: #ccc; font-size: 14px; }
-        .token-box { background: #121212; border: 1px solid #303030; border-radius: 8px; padding: 14px; margin-top: 12px; }
-        .token-box label { margin-bottom: 4px; }
-        .token-value { font-family: 'Courier New', monospace; font-size: 13px; color: #3ea6ff; word-break: break-all; margin-bottom: 12px; }
-        .token-actions { display: flex; gap: 8px; }
-        .token-btn {
-            flex: 1; padding: 10px; font-size: 13px; border: 1px solid #303030; border-radius: 8px;
-            background: #1a1a1a; color: #f1f1f1; cursor: pointer; text-align: center;
-        }
-        .token-btn:hover { background: #272727; }
-        .token-btn.primary { background: #cc0000; border-color: #cc0000; color: #fff; }
-        .token-btn.primary:hover { background: #ee0000; }
-        .token-saved { color: #4caf50; font-size: 13px; text-align: center; margin-top: 8px; display: none; }
         .back-link { display: block; text-align: center; color: #666; text-decoration: none; margin-top: 24px; font-size: 14px; }
         .back-link:hover { color: #aaa; }
         .divider { border: none; border-top: 1px solid #303030; margin: 28px 0 8px; }
@@ -350,48 +338,10 @@
         }
 
         function showSuccess(data) {
-            let html = '<div class="result-success"><h3>Deployed successfully!</h3>';
-            html += '<p style="color:#ccc;font-size:14px">The PYTR app should now be running on your TV.</p>';
-            if (data.token) {
-                html += `
-                    <div class="token-box">
-                        <label>Dev Mode Token</label>
-                        <div class="token-value" id="token-value">${esc(data.token)}</div>
-                        <div class="token-actions">
-                            <button type="button" class="token-btn" id="copy-token-btn">Copy</button>
-                            <button type="button" class="token-btn primary" id="save-token-btn">Save for auto-renewal</button>
-                        </div>
-                        <p class="token-saved" id="token-saved">Saved! Dev mode will be renewed automatically.</p>
-                    </div>`;
-            }
-            html += '</div>';
-            resultEl.innerHTML = html;
+            resultEl.innerHTML = '<div class="result-success"><h3>Deployed successfully!</h3>' +
+                '<p style="color:#ccc;font-size:14px">The PYTR app should now be running on your TV.</p></div>';
             resultEl.classList.add('visible');
-
-            const copyBtn = document.getElementById('copy-token-btn');
-            if (copyBtn) copyBtn.addEventListener('click', () => {
-                navigator.clipboard.writeText(document.getElementById('token-value').textContent);
-            });
-            const saveBtn = document.getElementById('save-token-btn');
-            if (saveBtn) saveBtn.addEventListener('click', async () => {
-                const token = document.getElementById('token-value').textContent;
-                const tvIp = document.getElementById('tv-ip').value.trim();
-                const resp = await fetch('/api/profiles/settings/webos-token', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token, name: tvIp }),
-                });
-                if (resp.ok) {
-                    document.getElementById('token-saved').style.display = 'block';
-                    saveBtn.disabled = true;
-                    saveBtn.textContent = 'Saved';
-                } else {
-                    nativeAlert('Failed to save token');
-                }
-            });
-
-            // After Android deploy, auto-saved by backend — reload TV list
-            if (selectedType === 'android') loadTvList();
+            loadTvList();
         }
 
         function showError(msg) {
