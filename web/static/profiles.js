@@ -34,6 +34,14 @@ const _graphemeSegmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segme
 const profileOverlay = document.getElementById('profile-overlay');
 const profileSwitcherBtn = document.getElementById('profile-switcher-btn');
 
+function setMainContentVisible(visible) {
+    const container = document.querySelector('.container');
+    if (container) {
+        if (visible) container.classList.remove('hidden');
+        else container.classList.add('hidden');
+    }
+}
+
 // ── Boot Gate ──────────────────────────────────────────────────────────────
 
 async function checkProfile() {
@@ -57,6 +65,7 @@ async function checkProfile() {
             updateProfileButton();
             profileOverlay.innerHTML = '';
             profileOverlay.classList.add('hidden');
+            setMainContentVisible(true);
             handleInitialRoute();
             if (typeof connectWebSocket === 'function') connectWebSocket();
         } else if (data.state === 'profile-select') {
@@ -128,6 +137,7 @@ function _startIframeLogin() {
         </div>
     `;
     profileOverlay.classList.remove('hidden');
+    setMainContentVisible(false);
 
     var pwInput = document.getElementById('iframe-login-pw');
     var errorEl = document.getElementById('iframe-login-error');
@@ -186,6 +196,7 @@ function _startIframePairing() {
         </div>
     `;
     profileOverlay.classList.remove('hidden');
+    setMainContentVisible(false);
 
     document.getElementById('iframe-pair-back').addEventListener('click', function(e) {
         e.preventDefault();
@@ -248,6 +259,7 @@ function showProfileSelector(profiles) {
         </div>
     `;
     profileOverlay.classList.remove('hidden');
+    setMainContentVisible(false);
 
     // Auto-focus first profile card in TV mode
     if (document.body.classList.contains('tv-nav-active')) {
@@ -330,6 +342,7 @@ async function selectProfile(id, pin) {
         updateProfileButton();
         profileOverlay.innerHTML = '';
         profileOverlay.classList.add('hidden');
+        setMainContentVisible(true);
         if (document.activeElement) document.activeElement.blur();
         stopPlayer();
         handleInitialRoute();
@@ -393,6 +406,7 @@ function showCreateFirstProfile() {
         </div>
     `;
     profileOverlay.classList.remove('hidden');
+    setMainContentVisible(false);
     attachFirstRunFormListeners('create-first-profile-form');
 }
 
@@ -697,6 +711,7 @@ function attachFirstRunFormListeners(formId) {
                 updateProfileButton();
                 profileOverlay.innerHTML = '';
                 profileOverlay.classList.add('hidden');
+                setMainContentVisible(true);
                 handleInitialRoute();
             } else {
                 const err = await resp.json();
