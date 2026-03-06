@@ -30,6 +30,20 @@ function proxyImageUrl(url) {
     return '/api/img-proxy?url=' + encodeURIComponent(url);
 }
 
+function loadProxyImage(img) {
+    const url = img.dataset.proxySrc;
+    if (!url) return;
+    fetch(url).then(r => {
+        if (!r.ok) throw new Error(r.status);
+        return r.blob();
+    }).then(blob => {
+        img.src = URL.createObjectURL(blob);
+    }).catch(() => {
+        const tpl = img.nextElementSibling;
+        if (tpl) img.outerHTML = tpl.innerHTML;
+    });
+}
+
 // ── YouTube URL → internal PYTR link conversion ────────────────────────────
 
 function youtubeToInternalLink(url) {

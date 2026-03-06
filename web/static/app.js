@@ -776,7 +776,7 @@ async function loadChannelsPage() {
                 const initial = escapeHtml(ch.channel_name.charAt(0).toUpperCase());
                 const placeholder = `<div class="channel-card-placeholder">${initial}</div>`;
                 const avatar = ch.avatar_url
-                    ? `<img src="${escapeAttr(proxyImageUrl(ch.avatar_url))}" alt="${escapeHtml(ch.channel_name)}" loading="lazy" onerror="this.outerHTML=this.nextElementSibling.innerHTML"><template>${placeholder}</template>`
+                    ? `<img data-proxy-src="${escapeAttr(proxyImageUrl(ch.avatar_url))}" alt="${escapeHtml(ch.channel_name)}" loading="lazy"><template>${placeholder}</template>`
                     : placeholder;
                 return `<a class="video-card channel-card" href="/channel/${escapeAttr(ch.channel_id)}" data-channel-id="${escapeAttr(ch.channel_id)}" data-channel-name="${escapeAttr(ch.channel_name)}">
                     <div class="thumbnail-container channel-avatar-container">
@@ -787,6 +787,9 @@ async function loadChannelsPage() {
                     </div>
                 </a>`;
             }).join('');
+
+            // Load avatars via fetch (needed for iframe/Bearer auth)
+            videoGrid.querySelectorAll('img[data-proxy-src]').forEach(loadProxyImage);
 
             // Attach click listeners
             videoGrid.querySelectorAll('.channel-card').forEach(card => {
