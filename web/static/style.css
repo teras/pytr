@@ -979,8 +979,34 @@ h1 {
     white-space: nowrap;
 }
 
-.list-tab[data-tab="channels"] {
-    font-size: 80%;
+#sub-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+#sub-tabs .sub-tab {
+    padding: 5px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-muted);
+    background: var(--color-bg-button);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+#sub-tabs .sub-tab.active {
+    color: var(--color-text);
+    background: var(--color-bg-button-hover);
+}
+
+#sub-tabs .sub-tab:hover:not(.active) {
+    background: var(--color-bg-hover);
+    color: #ccc;
 }
 
 .channel-tab.active,
@@ -1311,6 +1337,105 @@ h1 {
     accent-color: var(--color-brand);
     width: 16px;
     height: 16px;
+}
+
+.pref-label {
+    font-size: 13px;
+    color: #999;
+    margin-bottom: 4px;
+}
+
+.locale-row {
+    display: flex;
+    gap: 10px;
+    text-align: left;
+}
+
+.locale-col {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Searchable select */
+.searchable-select {
+    position: relative;
+}
+
+.ss-button {
+    width: 100%;
+    padding: 7px 28px 7px 10px;
+    font-size: 13px;
+    color: #eee;
+    background: var(--color-bg-button, #333);
+    border: 1px solid #555;
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath fill='%23999' d='M5 7L1 3h8z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+}
+
+.ss-button:hover {
+    border-color: #777;
+}
+
+.ss-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    min-width: 200px;
+    background: #222;
+    border: 1px solid #555;
+    border-radius: 8px;
+    z-index: 100;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+    overflow: hidden;
+}
+
+.ss-search {
+    width: 100%;
+    padding: 8px 10px;
+    font-size: 14px;
+    color: #eee;
+    background: #2a2a2a;
+    border: none;
+    border-bottom: 1px solid #444;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.ss-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.ss-item {
+    padding: 8px 10px;
+    font-size: 14px;
+    color: #ccc;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ss-item:hover {
+    background: #333;
+    color: #fff;
+}
+
+.ss-separator {
+    border-top: 1px solid #444;
+    margin: 2px 0;
+}
+
+.ss-item.active {
+    color: #fff;
 }
 
 /* Avatar Preview + Emoji Input */

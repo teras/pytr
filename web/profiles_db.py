@@ -114,6 +114,10 @@ def init_db():
             conn.execute("ALTER TABLE profiles ADD COLUMN cookie_mode TEXT NOT NULL DEFAULT 'auto'")
         if "exclusive_playback" not in cols:
             conn.execute("ALTER TABLE profiles ADD COLUMN exclusive_playback INTEGER NOT NULL DEFAULT 1")
+        if "content_lang" not in cols:
+            conn.execute("ALTER TABLE profiles ADD COLUMN content_lang TEXT NOT NULL DEFAULT 'auto'")
+        if "content_region" not in cols:
+            conn.execute("ALTER TABLE profiles ADD COLUMN content_region TEXT NOT NULL DEFAULT 'auto'")
         # Migration: add playlist/mix columns to favorites if missing
         fav_cols = [r[1] for r in conn.execute("PRAGMA table_info(favorites)").fetchall()]
         for col, typ, default in [
@@ -169,6 +173,8 @@ def get_profile(profile_id: int) -> dict | None:
         "subtitle_lang": r["subtitle_lang"],
         "cookie_mode": r["cookie_mode"],
         "exclusive_playback": r["exclusive_playback"],
+        "content_lang": r["content_lang"] if "content_lang" in r.keys() else "auto",
+        "content_region": r["content_region"] if "content_region" in r.keys() else "auto",
         "sb_prefs": r["sb_prefs"],
     }
 
@@ -199,6 +205,8 @@ def create_profile(name: str, pin: str | None = None, avatar_color: str = "#cc00
         "subtitle_lang": "off",
         "cookie_mode": "auto",
         "exclusive_playback": 1,
+        "content_lang": "auto",
+        "content_region": "auto",
         "sb_prefs": "{}",
     }
 
@@ -243,6 +251,8 @@ def update_profile(profile_id: int, name: str | None = None,
         "subtitle_lang": r["subtitle_lang"],
         "cookie_mode": r["cookie_mode"],
         "exclusive_playback": r["exclusive_playback"],
+        "content_lang": r["content_lang"] if "content_lang" in r.keys() else "auto",
+        "content_region": r["content_region"] if "content_region" in r.keys() else "auto",
         "sb_prefs": r["sb_prefs"],
     }
 
@@ -277,6 +287,16 @@ def update_preferences(profile_id: int, quality: int | None = None,
             conn.execute("UPDATE profiles SET cookie_mode = ? WHERE id = ?", (cookie_mode, profile_id))
         if exclusive_playback is not None:
             conn.execute("UPDATE profiles SET exclusive_playback = ? WHERE id = ?", (1 if exclusive_playback else 0, profile_id))
+
+
+def update_content_lang(profile_id: int, lang: str):
+    with _connect() as conn:
+        conn.execute("UPDATE profiles SET content_lang = ? WHERE id = ?", (lang, profile_id))
+
+
+def update_content_region(profile_id: int, region: str):
+    with _connect() as conn:
+        conn.execute("UPDATE profiles SET content_region = ? WHERE id = ?", (region, profile_id))
 
 
 def update_sb_prefs(profile_id: int, prefs_json: str):

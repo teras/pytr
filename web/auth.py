@@ -473,7 +473,8 @@ def _serve_spa(request: Request):
     """Serve index.html or redirect to login, preserving the original URL."""
     # TV iframe clients authenticate at the API layer via Bearer tokens,
     # not at the page level — always serve the SPA so auth-token.js can load.
-    if request.query_params.get("tv"):
+    # Detect iframe: ?tv= param (first load) or Sec-Fetch-Dest header (subsequent loads).
+    if request.query_params.get("tv") or request.headers.get("sec-fetch-dest") == "iframe":
         return FileResponse("static/index.html")
     if _get_password() and not verify_session(request):
         next_url = str(request.url.path)

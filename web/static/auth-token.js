@@ -4,7 +4,11 @@
 // Only activates when running inside an iframe.
 
 (function () {
-    if (window.self === window.top) return; // not in iframe, do nothing
+    // Detect iframe: window.top access may throw SecurityError on cross-origin
+    // (e.g. WebOS WebView: file:// parent, http:// iframe).
+    var inIframe = false;
+    try { inIframe = window.self !== window.top; } catch (e) { inIframe = true; }
+    if (!inIframe) return;
 
     let _bearerToken = null;
     let _parentOrigin = null;

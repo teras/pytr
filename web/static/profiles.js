@@ -13,6 +13,267 @@ const AVATAR_EMOJIS = [
     '🌟', '🎵', '🎮', '🚀', '🌈', '🍕', '⚡', '🎨', '🏀', '🎸',
 ];
 const _pickableColors = AVATAR_COLORS.filter(c => c !== 'transparent' && c !== 'custom');
+
+const _LANGUAGES = [
+    { code: 'auto', label: 'Auto (detect from region)' },
+    { code: 'af', label: 'Afrikaans' },
+    { code: 'az', label: 'Azərbaycan' },
+    { code: 'id', label: 'Bahasa Indonesia' },
+    { code: 'ms', label: 'Bahasa Malaysia' },
+    { code: 'bs', label: 'Bosanski' },
+    { code: 'ca', label: 'Català' },
+    { code: 'cs', label: 'Čeština' },
+    { code: 'da', label: 'Dansk' },
+    { code: 'de', label: 'Deutsch' },
+    { code: 'et', label: 'Eesti' },
+    { code: 'en-IN', label: 'English (India)' },
+    { code: 'en-GB', label: 'English (UK)' },
+    { code: 'en', label: 'English (US)' },
+    { code: 'es', label: 'Español (España)' },
+    { code: 'es-419', label: 'Español (Latinoamérica)' },
+    { code: 'es-US', label: 'Español (US)' },
+    { code: 'eu', label: 'Euskara' },
+    { code: 'fil', label: 'Filipino' },
+    { code: 'fr', label: 'Français' },
+    { code: 'fr-CA', label: 'Français (Canada)' },
+    { code: 'gl', label: 'Galego' },
+    { code: 'hr', label: 'Hrvatski' },
+    { code: 'zu', label: 'IsiZulu' },
+    { code: 'is', label: 'Íslenska' },
+    { code: 'it', label: 'Italiano' },
+    { code: 'sw', label: 'Kiswahili' },
+    { code: 'lv', label: 'Latviešu valoda' },
+    { code: 'lt', label: 'Lietuvių' },
+    { code: 'hu', label: 'Magyar' },
+    { code: 'nl', label: 'Nederlands' },
+    { code: 'no', label: 'Norsk' },
+    { code: 'uz', label: "O'zbek" },
+    { code: 'pl', label: 'Polski' },
+    { code: 'pt-PT', label: 'Português' },
+    { code: 'pt', label: 'Português (Brasil)' },
+    { code: 'ro', label: 'Română' },
+    { code: 'sq', label: 'Shqip' },
+    { code: 'sk', label: 'Slovenčina' },
+    { code: 'sl', label: 'Slovenščina' },
+    { code: 'sr-Latn', label: 'Srpski' },
+    { code: 'fi', label: 'Suomi' },
+    { code: 'sv', label: 'Svenska' },
+    { code: 'vi', label: 'Tiếng Việt' },
+    { code: 'tr', label: 'Türkçe' },
+    { code: 'be', label: 'Беларуская' },
+    { code: 'bg', label: 'Български' },
+    { code: 'ky', label: 'Кыргызча' },
+    { code: 'kk', label: 'Қазақ Тілі' },
+    { code: 'mk', label: 'Македонски' },
+    { code: 'mn', label: 'Монгол' },
+    { code: 'ru', label: 'Русский' },
+    { code: 'sr', label: 'Српски' },
+    { code: 'uk', label: 'Українська' },
+    { code: 'el', label: 'Ελληνικά' },
+    { code: 'hy', label: 'Հայerեն' },
+    { code: 'iw', label: 'עברית' },
+    { code: 'ur', label: 'اردو' },
+    { code: 'ar', label: 'العربية' },
+    { code: 'fa', label: 'فارسی' },
+    { code: 'ne', label: 'नेपाली' },
+    { code: 'mr', label: 'मराठी' },
+    { code: 'hi', label: 'हिन्दी' },
+    { code: 'as', label: 'অসমীয়া' },
+    { code: 'bn', label: 'বাংলা' },
+    { code: 'pa', label: 'ਪੰਜਾਬੀ' },
+    { code: 'gu', label: 'ગુજરાતી' },
+    { code: 'or', label: 'ଓଡ଼ିଆ' },
+    { code: 'ta', label: 'தமிழ்' },
+    { code: 'te', label: 'తెలుగు' },
+    { code: 'kn', label: 'ಕನ್ನಡ' },
+    { code: 'ml', label: 'മലയാളം' },
+    { code: 'si', label: 'සිංහල' },
+    { code: 'th', label: 'ภาษาไทย' },
+    { code: 'lo', label: 'ລາວ' },
+    { code: 'my', label: 'ဗမာ' },
+    { code: 'ka', label: 'ქართული' },
+    { code: 'am', label: 'አማርኛ' },
+    { code: 'km', label: 'ខ្មែរ' },
+    { code: 'zh-CN', label: '中文 (简体)' },
+    { code: 'zh-TW', label: '中文 (繁體)' },
+    { code: 'zh-HK', label: '中文 (香港)' },
+    { code: 'ja', label: '日本語' },
+    { code: 'ko', label: '한국어' },
+];
+
+const _COUNTRIES = [
+    { code: 'auto', label: 'Auto (detect from IP)' },
+    { code: 'DZ', label: 'Algeria' },
+    { code: 'AR', label: 'Argentina' },
+    { code: 'AU', label: 'Australia' },
+    { code: 'AT', label: 'Austria' },
+    { code: 'AZ', label: 'Azerbaijan' },
+    { code: 'BH', label: 'Bahrain' },
+    { code: 'BD', label: 'Bangladesh' },
+    { code: 'BY', label: 'Belarus' },
+    { code: 'BE', label: 'Belgium' },
+    { code: 'BO', label: 'Bolivia' },
+    { code: 'BA', label: 'Bosnia and Herzegovina' },
+    { code: 'BR', label: 'Brazil' },
+    { code: 'BG', label: 'Bulgaria' },
+    { code: 'KH', label: 'Cambodia' },
+    { code: 'CA', label: 'Canada' },
+    { code: 'CL', label: 'Chile' },
+    { code: 'CO', label: 'Colombia' },
+    { code: 'CR', label: 'Costa Rica' },
+    { code: 'HR', label: 'Croatia' },
+    { code: 'CY', label: 'Cyprus' },
+    { code: 'CZ', label: 'Czechia' },
+    { code: 'DK', label: 'Denmark' },
+    { code: 'DO', label: 'Dominican Republic' },
+    { code: 'EC', label: 'Ecuador' },
+    { code: 'EG', label: 'Egypt' },
+    { code: 'SV', label: 'El Salvador' },
+    { code: 'EE', label: 'Estonia' },
+    { code: 'FI', label: 'Finland' },
+    { code: 'FR', label: 'France' },
+    { code: 'GE', label: 'Georgia' },
+    { code: 'DE', label: 'Germany' },
+    { code: 'GH', label: 'Ghana' },
+    { code: 'GR', label: 'Greece' },
+    { code: 'GT', label: 'Guatemala' },
+    { code: 'HN', label: 'Honduras' },
+    { code: 'HK', label: 'Hong Kong' },
+    { code: 'HU', label: 'Hungary' },
+    { code: 'IS', label: 'Iceland' },
+    { code: 'IN', label: 'India' },
+    { code: 'ID', label: 'Indonesia' },
+    { code: 'IQ', label: 'Iraq' },
+    { code: 'IE', label: 'Ireland' },
+    { code: 'IL', label: 'Israel' },
+    { code: 'IT', label: 'Italy' },
+    { code: 'JM', label: 'Jamaica' },
+    { code: 'JP', label: 'Japan' },
+    { code: 'JO', label: 'Jordan' },
+    { code: 'KZ', label: 'Kazakhstan' },
+    { code: 'KE', label: 'Kenya' },
+    { code: 'KW', label: 'Kuwait' },
+    { code: 'LA', label: 'Laos' },
+    { code: 'LV', label: 'Latvia' },
+    { code: 'LB', label: 'Lebanon' },
+    { code: 'LY', label: 'Libya' },
+    { code: 'LI', label: 'Liechtenstein' },
+    { code: 'LT', label: 'Lithuania' },
+    { code: 'LU', label: 'Luxembourg' },
+    { code: 'MY', label: 'Malaysia' },
+    { code: 'MT', label: 'Malta' },
+    { code: 'MX', label: 'Mexico' },
+    { code: 'MD', label: 'Moldova' },
+    { code: 'ME', label: 'Montenegro' },
+    { code: 'MA', label: 'Morocco' },
+    { code: 'NP', label: 'Nepal' },
+    { code: 'NL', label: 'Netherlands' },
+    { code: 'NZ', label: 'New Zealand' },
+    { code: 'NI', label: 'Nicaragua' },
+    { code: 'NG', label: 'Nigeria' },
+    { code: 'MK', label: 'North Macedonia' },
+    { code: 'NO', label: 'Norway' },
+    { code: 'OM', label: 'Oman' },
+    { code: 'PK', label: 'Pakistan' },
+    { code: 'PA', label: 'Panama' },
+    { code: 'PG', label: 'Papua New Guinea' },
+    { code: 'PY', label: 'Paraguay' },
+    { code: 'PE', label: 'Peru' },
+    { code: 'PH', label: 'Philippines' },
+    { code: 'PL', label: 'Poland' },
+    { code: 'PT', label: 'Portugal' },
+    { code: 'PR', label: 'Puerto Rico' },
+    { code: 'QA', label: 'Qatar' },
+    { code: 'RO', label: 'Romania' },
+    { code: 'RU', label: 'Russia' },
+    { code: 'SA', label: 'Saudi Arabia' },
+    { code: 'SN', label: 'Senegal' },
+    { code: 'RS', label: 'Serbia' },
+    { code: 'SG', label: 'Singapore' },
+    { code: 'SK', label: 'Slovakia' },
+    { code: 'SI', label: 'Slovenia' },
+    { code: 'ZA', label: 'South Africa' },
+    { code: 'KR', label: 'South Korea' },
+    { code: 'ES', label: 'Spain' },
+    { code: 'LK', label: 'Sri Lanka' },
+    { code: 'SE', label: 'Sweden' },
+    { code: 'CH', label: 'Switzerland' },
+    { code: 'TW', label: 'Taiwan' },
+    { code: 'TZ', label: 'Tanzania' },
+    { code: 'TH', label: 'Thailand' },
+    { code: 'TN', label: 'Tunisia' },
+    { code: 'TR', label: 'Turkey' },
+    { code: 'UG', label: 'Uganda' },
+    { code: 'UA', label: 'Ukraine' },
+    { code: 'AE', label: 'United Arab Emirates' },
+    { code: 'GB', label: 'United Kingdom' },
+    { code: 'US', label: 'United States' },
+    { code: 'UY', label: 'Uruguay' },
+    { code: 'VE', label: 'Venezuela' },
+    { code: 'VN', label: 'Vietnam' },
+    { code: 'YE', label: 'Yemen' },
+    { code: 'ZW', label: 'Zimbabwe' },
+];
+
+function _buildSearchableSelect(id, items, selected) {
+    const current = items.find(i => i.code === selected) || items[0];
+    return `
+        <div class="searchable-select" data-id="${id}">
+            <button type="button" class="ss-button">${escapeHtml(current.label)}</button>
+            <div class="ss-dropdown hidden">
+                <input type="text" class="ss-search" placeholder="Search..." autocomplete="off">
+                <div class="ss-list">${items.map((i, idx) =>
+                    `${idx === 1 ? '<div class="ss-separator"></div>' : ''}<div class="ss-item${i.code === selected ? ' active' : ''}" data-code="${escapeAttr(i.code)}">${escapeHtml(i.label)}</div>`
+                ).join('')}</div>
+            </div>
+            <input type="hidden" name="${id}" value="${escapeAttr(selected)}">
+        </div>`;
+}
+
+function _attachSearchableSelect(container) {
+    container.querySelectorAll('.searchable-select').forEach(wrap => {
+        const btn = wrap.querySelector('.ss-button');
+        const dropdown = wrap.querySelector('.ss-dropdown');
+        const search = wrap.querySelector('.ss-search');
+        const list = wrap.querySelector('.ss-list');
+        const hidden = wrap.querySelector('input[type="hidden"]');
+
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const wasOpen = !dropdown.classList.contains('hidden');
+            // Close all other dropdowns
+            container.querySelectorAll('.ss-dropdown').forEach(d => d.classList.add('hidden'));
+            if (!wasOpen) {
+                dropdown.classList.remove('hidden');
+                search.value = '';
+                list.querySelectorAll('.ss-item').forEach(i => i.style.display = '');
+                search.focus();
+            }
+        });
+
+        search.addEventListener('input', () => {
+            const q = search.value.toLowerCase();
+            list.querySelectorAll('.ss-item').forEach(item => {
+                item.style.display = item.textContent.toLowerCase().includes(q) ? '' : 'none';
+            });
+        });
+
+        list.addEventListener('click', (e) => {
+            const item = e.target.closest('.ss-item');
+            if (!item) return;
+            list.querySelectorAll('.ss-item').forEach(i => i.classList.remove('active'));
+            item.classList.add('active');
+            hidden.value = item.dataset.code;
+            btn.textContent = item.textContent;
+            dropdown.classList.add('hidden');
+        });
+
+        // Close on outside click
+        document.addEventListener('click', (e) => {
+            if (!wrap.contains(e.target)) dropdown.classList.add('hidden');
+        });
+    });
+}
 function randomAvatar() {
     return {
         color: _pickableColors[Math.floor(Math.random() * _pickableColors.length)],
@@ -231,6 +492,8 @@ function applyProfilePrefs() {
     if (currentProfile.cookie_mode) {
         localStorage.setItem('cookieMode', currentProfile.cookie_mode);
     }
+    localStorage.setItem('contentLang', currentProfile.content_lang || 'auto');
+    localStorage.setItem('contentRegion', currentProfile.content_region || 'auto');
 }
 
 function updateProfileButton() {
@@ -436,6 +699,18 @@ function showEditProfileForm() {
                         </label>
                     </div>
                     <div class="edit-pin-section">
+                        <div class="locale-row">
+                            <div class="locale-col">
+                                <label class="pref-label">Region</label>
+                                ${_buildSearchableSelect('edit-content-region', _COUNTRIES, currentProfile.content_region || 'auto')}
+                            </div>
+                            <div class="locale-col">
+                                <label class="pref-label">Language</label>
+                                ${_buildSearchableSelect('edit-content-lang', _LANGUAGES, currentProfile.content_lang || 'auto')}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="edit-pin-section">
                         <label class="edit-pin-label">
                             <input type="checkbox" id="edit-pin-toggle" ${hasPin ? 'checked' : ''}>
                             PIN lock
@@ -458,6 +733,7 @@ function showEditProfileForm() {
     `;
     document.body.appendChild(modal);
     attachAvatarPickerListeners('edit-profile-form');
+    _attachSearchableSelect(modal);
 
     // Tab switching
     modal.querySelectorAll('.edit-tab').forEach(tab => {
@@ -532,6 +808,20 @@ function showEditProfileForm() {
         if (exclPlay !== currentProfile.exclusive_playback) {
             currentProfile.exclusive_playback = exclPlay;
             savePreference('exclusive_playback', exclPlay);
+        }
+
+        // Save content language & region preferences
+        const newLang = modal.querySelector('input[name="edit-content-lang"]').value;
+        const newRegion = modal.querySelector('input[name="edit-content-region"]').value;
+        if (newLang !== (currentProfile.content_lang || 'auto')) {
+            currentProfile.content_lang = newLang;
+            localStorage.setItem('contentLang', newLang);
+            savePreference('content_lang', newLang);
+        }
+        if (newRegion !== (currentProfile.content_region || 'auto')) {
+            currentProfile.content_region = newRegion;
+            localStorage.setItem('contentRegion', newRegion);
+            savePreference('content_region', newRegion);
         }
 
         if (form._cleanupEmojiListener) form._cleanupEmojiListener();

@@ -481,9 +481,10 @@ function createVideoCard(item) {
         const badgeClass = item.type === 'playlist' ? 'badge-playlist' : 'badge-mix';
         const badgeLabel = item.type === 'playlist' ? 'Playlist' : 'Mix';
         const countBadge = item.video_count ? `<span class="video-count">${escapeHtml(item.video_count)}</span>` : '';
-        const firstVid = item.first_video_id || item.id;
+        const firstVid = item.first_video_id || '';
         const plId = item.playlist_id || item.id;
-        return `<a class="video-card" href="/watch?v=${escapeAttr(firstVid)}&list=${escapeAttr(plId)}" data-id="${escapeAttr(firstVid)}" data-title="${escapeAttr(item.title)}" data-channel="${escapeAttr(item.channel || '')}" data-duration="0" data-playlist-id="${escapeAttr(plId)}" data-item-type="${escapeAttr(item.type)}">
+        const href = firstVid ? `/watch?v=${escapeAttr(firstVid)}&list=${escapeAttr(plId)}` : `/playlist?list=${escapeAttr(plId)}`;
+        return `<a class="video-card" href="${href}" data-id="${escapeAttr(firstVid)}" data-title="${escapeAttr(item.title)}" data-channel="${escapeAttr(item.channel || '')}" data-duration="0" data-playlist-id="${escapeAttr(plId)}" data-item-type="${escapeAttr(item.type)}">
             <div class="thumbnail-container">
                 <img src="${escapeAttr(item.thumbnail)}" alt="${escapeHtml(item.title)}" loading="lazy">
                 ${countBadge}
@@ -523,6 +524,10 @@ function attachCardListeners(container) {
                 if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
                 e.preventDefault();
                 const videoId = card.dataset.id;
+                if (!videoId) {
+                    window.location.href = `/playlist?list=${encodeURIComponent(playlistId)}`;
+                    return;
+                }
                 const title = card.dataset.title;
                 const channel = card.dataset.channel;
                 _startQueue(videoId, title, channel, playlistId);
@@ -627,6 +632,10 @@ function attachRelatedListeners() {
                 if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
                 e.preventDefault();
                 const videoId = card.dataset.id;
+                if (!videoId) {
+                    window.location.href = `/playlist?list=${encodeURIComponent(playlistId)}`;
+                    return;
+                }
                 const title = card.dataset.title;
                 const channel = card.dataset.channel;
                 _startQueue(videoId, title, channel, playlistId);

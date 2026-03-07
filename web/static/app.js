@@ -354,15 +354,10 @@ window.addEventListener('popstate', (e) => {
         }
     } else {
         document.title = 'PYTR';
-        if (e.state && e.state.view === 'history') {
+        const view = e.state && e.state.view;
+        if (view === 'history' || view === 'favorites' || view === 'discover') {
             showListView();
-            loadHistory();
-        } else if (e.state && e.state.view === 'favorites') {
-            showListView();
-            loadFavorites();
-        } else if (e.state && e.state.view === 'channels') {
-            showListView();
-            loadChannels();
+            _loadMainTab(view);
         } else {
             // Default (home) = remembered tab
             showListView();
@@ -439,15 +434,16 @@ function handleInitialRoute() {
     } else if (path === '/history') {
         history.replaceState({ view: 'history' }, '', '/');
         showListView();
-        loadHistory();
+        _loadMainTab('history');
     } else if (path === '/favorites') {
         history.replaceState({ view: 'favorites' }, '', '/');
         showListView();
-        loadFavorites();
+        _loadMainTab('favorites');
     } else if (path === '/channels') {
-        history.replaceState({ view: 'channels' }, '', '/');
+        history.replaceState({ view: 'favorites' }, '', '/');
         showListView();
-        loadChannels();
+        localStorage.setItem('lastFavSub', 'fav-channels');
+        _loadMainTab('favorites');
     } else if (path === '/remote') {
         history.replaceState({ view: 'home' }, '', '/');
         showListView();
@@ -527,72 +523,139 @@ async function loadListPage(endpoint, title, {showClear = false, removable = fal
 
 let _favFilters = { video: true, playlist: true, mix: true };
 
-async function _probeHomeTabs() {
-    const [hResp, fResp, cResp] = await Promise.all([
-        fetch('/api/profiles/history?limit=1').then(r => r.ok ? r.json() : []),
-        fetch('/api/profiles/favorites?limit=1').then(r => r.ok ? r.json() : []),
-        fetch('/api/profiles/channels').then(r => r.ok ? r.json() : []),
-    ]);
-    return {
-        history: hResp.length > 0,
-        favorites: fResp.length > 0,
-        channels: cResp.length > 0,
-    };
-}
+const subTabs = document.getElementById('sub-tabs');
 
-function _updateTabVisibility(counts) {
-    listTabs.querySelectorAll('.list-tab').forEach(btn => {
-        btn.classList.toggle('hidden', !counts[btn.dataset.tab]);
+const _discoverCategories = [
+    { key: 'news', label: 'News' },
+    { key: 'sports', label: 'Sports' },
+    { key: 'gaming', label: 'Gaming' },
+    { key: 'music', label: 'Music' },
+    { key: 'live', label: 'Live' },
+];
+
+const _favSubTabs = [
+    { key: 'fav-videos', label: 'Videos' },
+    { key: 'fav-playlists', label: 'Playlists' },
+    { key: 'fav-channels', label: 'Channels' },
+];
+
+let _currentMainTab = null;
+
+function _buildSubTabs(items, onSelect) {
+    subTabs.innerHTML = '';
+    subTabs.classList.remove('hidden');
+    items.forEach(({ key, label }) => {
+        const btn = document.createElement('button');
+        btn.className = 'sub-tab';
+        btn.dataset.subtab = key;
+        btn.textContent = label;
+        btn.onclick = () => onSelect(key);
+        subTabs.appendChild(btn);
     });
 }
 
-function loadHistoryOrFavorites(tab, skipProbe = false) {
-    localStorage.setItem('lastHomeTab', tab);
+function _activateSubTab(key) {
+    subTabs.querySelectorAll('.sub-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.subtab === key);
+    });
+}
+
+function _hideSubTabs() {
+    subTabs.innerHTML = '';
+    subTabs.classList.add('hidden');
+}
+
+function _activateMainTab(tab) {
     listTabs.classList.remove('hidden');
     listTitle.classList.add('hidden');
-
     listTabs.querySelectorAll('.list-tab').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tab);
-        if (!skipProbe) btn.classList.remove('hidden');
-    });
-
-    // Attach tab click listeners (replace to avoid duplicates)
-    listTabs.querySelectorAll('.list-tab').forEach(btn => {
         btn.onclick = () => {
             if (btn.dataset.tab === tab) return;
-            const newTab = btn.dataset.tab;
-            history.replaceState({ view: newTab }, '', '/');
-            loadHistoryOrFavorites(newTab, true);
+            _switchMainTab(btn.dataset.tab);
         };
     });
-
-    // Probe counts and hide empty tabs — redirect if active tab is empty
-    if (!skipProbe) {
-        _probeHomeTabs().then(counts => {
-            _updateTabVisibility(counts);
-            // If active tab is empty, switch to one that has content
-            if (!counts[tab]) {
-                const fallback = ['history', 'favorites', 'channels'].find(t => counts[t]);
-                if (fallback) {
-                    history.replaceState({ view: fallback }, '', '/');
-                    loadHistoryOrFavorites(fallback, true);
-                }
-                // If nothing has content, current tab stays visible (shows "no results")
-            }
-        });
-    }
-
-    _loadTabContent(tab);
 }
 
-function _loadTabContent(tab) {
-    if (tab === 'favorites') {
-        _favFilters = { video: true, playlist: true, mix: true };
-        return loadFavoritesPage();
-    } else if (tab === 'channels') {
-        return loadChannelsPage();
+function _switchMainTab(tab) {
+    localStorage.setItem('lastHomeTab', tab);
+    history.replaceState({ view: tab }, '', '/');
+    _loadMainTab(tab);
+}
+
+function _loadMainTab(tab) {
+    const tabChanged = _currentMainTab !== tab;
+    _currentMainTab = tab;
+    _activateMainTab(tab);
+
+    if (tab === 'discover') {
+        if (tabChanged) _buildSubTabs(_discoverCategories, _loadDiscoverSub);
+        const subKey = localStorage.getItem('lastDiscoverSub') || 'news';
+        _loadDiscoverSub(subKey);
+    } else if (tab === 'favorites') {
+        if (tabChanged) _buildSubTabs(_favSubTabs, _loadFavoritesSub);
+        const subKey = localStorage.getItem('lastFavSub') || 'fav-videos';
+        _loadFavoritesSub(subKey);
     } else {
-        return loadListPage('/api/profiles/history?limit=50', 'Watch History', {showClear: true, removable: true, clearEndpoint: '/api/profiles/history', clearPrompt: 'Clear all watch history?', keepTabs: true});
+        _hideSubTabs();
+        _favFilters = { video: true, playlist: true, mix: true };
+        loadListPage('/api/profiles/history?limit=50', 'Watch History', {showClear: true, removable: true, clearEndpoint: '/api/profiles/history', clearPrompt: 'Clear all watch history?', keepTabs: true});
+    }
+}
+
+function _loadDiscoverSub(subKey) {
+    localStorage.setItem('lastDiscoverSub', subKey);
+    _activateSubTab(subKey);
+    _loadTrendingContent(subKey);
+}
+
+async function _loadTrendingContent(category) {
+    if (typeof _removeChannelTabs === 'function') _removeChannelTabs();
+    if (typeof _removeFilterToggles === 'function') _removeFilterToggles();
+    _removeFavFilterToggles();
+    listHeader.classList.remove('hidden');
+    clearListBtn.classList.add('hidden');
+    videoGrid.innerHTML = '<div class="loading-more"><div class="loading-spinner"></div></div>';
+    noResults.classList.add('hidden');
+    loadMoreContainer.classList.add('hidden');
+    _listGeneration++;
+    loadMoreObserver.disconnect();
+    searchInput.value = '';
+
+    try {
+        const lang = localStorage.getItem('contentLang') || 'auto';
+        const region = localStorage.getItem('contentRegion') || 'auto';
+        const params = new URLSearchParams();
+        if (lang !== 'auto') params.set('hl', lang);
+        if (region !== 'auto') params.set('gl', region);
+        const qs = params.toString();
+        const resp = await fetch(`/api/trending/${category}${qs ? '?' + qs : ''}`);
+        if (!resp.ok) throw new Error('Failed to load trending');
+        const data = await resp.json();
+        const items = data.results || [];
+        if (items.length === 0) {
+            videoGrid.innerHTML = '';
+            noResults.classList.remove('hidden');
+        } else {
+            renderVideos(items);
+        }
+    } catch (err) {
+        videoGrid.innerHTML = `<p class="error">Error: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
+function _loadFavoritesSub(subKey) {
+    localStorage.setItem('lastFavSub', subKey);
+    _activateSubTab(subKey);
+
+    if (subKey === 'fav-channels') {
+        loadChannelsPage();
+    } else if (subKey === 'fav-playlists') {
+        _favFilters = { video: false, playlist: true, mix: true };
+        loadFavoritesPage();
+    } else {
+        _favFilters = { video: true, playlist: false, mix: false };
+        loadFavoritesPage();
     }
 }
 
@@ -601,63 +664,10 @@ function _removeFavFilterToggles() {
     if (existing) existing.remove();
 }
 
-function _renderFavFilterToggles(items) {
-    _removeFavFilterToggles();
-    // Only show filters if there's a mix of types
-    const hasVideos = items.some(i => !i.item_type || i.item_type === 'video' || i.item_type === 'live');
-    const hasPlaylists = items.some(i => i.item_type === 'playlist');
-    const hasMixes = items.some(i => i.item_type === 'mix');
-    const typeCount = [hasVideos, hasPlaylists, hasMixes].filter(Boolean).length;
-    if (typeCount < 2) return;
-
-    const container = document.createElement('div');
-    container.id = 'fav-filter-toggles';
-    container.className = 'filter-toggles';
-
-    const group = document.createElement('div');
-    group.className = 'filter-group';
-
-    [
-        { key: 'video', label: 'Videos', show: hasVideos },
-        { key: 'playlist', label: 'Playlists', show: hasPlaylists },
-        { key: 'mix', label: 'Mixes', show: hasMixes },
-    ].forEach(({ key, label, show }) => {
-        if (!show) return;
-        const btn = document.createElement('button');
-        btn.className = `filter-btn${_favFilters[key] ? ' active' : ''}`;
-        btn.textContent = label;
-        btn.addEventListener('click', () => {
-            _favFilters[key] = !_favFilters[key];
-            btn.classList.toggle('active', _favFilters[key]);
-            _applyFavFilters(items);
-        });
-        group.appendChild(btn);
-    });
-
-    container.appendChild(group);
-    videoGrid.parentNode.insertBefore(container, videoGrid);
-}
-
-function _applyFavFilters(allItems) {
-    const filtered = allItems.filter(i => {
-        const t = i.item_type || 'video';
-        return _favFilters[t === 'live' ? 'video' : t];
-    });
-    if (filtered.length === 0) {
-        videoGrid.innerHTML = '';
-        noResults.classList.remove('hidden');
-    } else {
-        noResults.classList.add('hidden');
-        _renderFavoriteCards(filtered);
-    }
-}
-
 async function loadFavoritesPage() {
     if (typeof _removeChannelTabs === 'function') _removeChannelTabs();
     if (typeof _removeFilterToggles === 'function') _removeFilterToggles();
     listHeader.classList.remove('hidden');
-    listTabs.classList.remove('hidden');
-    listTitle.classList.add('hidden');
     clearListBtn.classList.remove('hidden');
     clearListBtn.textContent = 'Clear favorites';
     _clearListEndpoint = '/api/profiles/favorites';
@@ -670,15 +680,11 @@ async function loadFavoritesPage() {
     searchInput.value = '';
 
     try {
-        // Always fetch all items first to determine which filter buttons to show
         const allResp = await fetch('/api/profiles/favorites?limit=200');
         if (!allResp.ok) throw new Error('Failed to load favorites');
         const allItems = await allResp.json();
 
-        // Render filter toggles based on all items
-        _renderFavFilterToggles(allItems);
-
-        // Apply client-side filter
+        // Apply client-side filter based on active sub-tab
         const items = allItems.filter(i => { const t = i.item_type || 'video'; return _favFilters[t === 'live' ? 'video' : t]; });
 
         if (items.length === 0) {
@@ -750,8 +756,6 @@ async function loadChannelsPage() {
     if (typeof _removeFilterToggles === 'function') _removeFilterToggles();
     _removeFavFilterToggles();
     listHeader.classList.remove('hidden');
-    listTabs.classList.remove('hidden');
-    listTitle.classList.add('hidden');
     clearListBtn.classList.remove('hidden');
     clearListBtn.textContent = 'Clear channels';
     _clearListEndpoint = '/api/profiles/channels';
@@ -825,14 +829,14 @@ async function loadChannelsPage() {
     }
 }
 
-function loadHistory() { return loadHistoryOrFavorites('history'); }
-function loadFavorites() { return loadHistoryOrFavorites('favorites'); }
-function loadChannels() { return loadHistoryOrFavorites('channels'); }
+function loadHistory() { _switchMainTab('history'); }
+function loadFavorites() { _switchMainTab('favorites'); }
+function loadChannels() { _switchMainTab('favorites'); localStorage.setItem('lastFavSub', 'fav-channels'); }
 
 function loadHomeTab() {
-    const tab = localStorage.getItem('lastHomeTab') || 'history';
+    const tab = localStorage.getItem('lastHomeTab') || 'discover';
     history.replaceState({ view: tab }, '', '/');
-    loadHistoryOrFavorites(tab);
+    _loadMainTab(tab);
 }
 
 let _clearListEndpoint = '';
@@ -1501,7 +1505,7 @@ function _throttledBroadcast() {
 const _playbackChannel = new BroadcastChannel('pytr-playback');
 let _pausedByOtherTab = false;
 _playbackChannel.onmessage = () => {
-    if (!videoPlayer.paused && currentProfile?.exclusive_playback) {
+    if (!videoPlayer.paused && currentProfile && currentProfile.exclusive_playback) {
         _pausedByOtherTab = true;
         videoPlayer.pause();
     }
@@ -1511,7 +1515,7 @@ _playbackChannel.onmessage = () => {
 videoPlayer.addEventListener('timeupdate', _throttledBroadcast);
 videoPlayer.addEventListener('pause', () => _broadcastPlayerState());
 videoPlayer.addEventListener('play', () => {
-    if (currentProfile?.exclusive_playback) _playbackChannel.postMessage('pause');
+    if (currentProfile && currentProfile.exclusive_playback) _playbackChannel.postMessage('pause');
     _pausedByOtherTab = false;
     _broadcastPlayerState();
 });

@@ -17,6 +17,7 @@ Endpoints used:
   - GET  youtube.com/watch     — related videos & playlist contents (HTML scrape)
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -55,15 +56,68 @@ async def _fetch_client_version() -> str:
     return _cached_client_version
 
 
-def _build_context(version: str) -> dict:
-    return {
+_detected_region: str | None = None
+_detected_lang: str | None = None
+
+
+async def _detect_region() -> tuple[str | None, str]:
+    """Detect server region + language via free geo IP service. Cached after first call.
+
+    Returns (country_code, language_code). Primary language extracted from
+    ipapi.co's 'languages' field (e.g. "el-GR,en,fr" → "el").
+    """
+    global _detected_region, _detected_lang
+    if _detected_region is not None:
+        return (_detected_region or None, _detected_lang or "en")
+
+    # ipapi.co returns both country_code and languages in one call
+    try:
+        resp = await http_client.get("https://ipapi.co/json/", timeout=5.0)
+        resp.raise_for_status()
+        data = resp.json()
+        code = data.get("country_code", "")
+        # languages is like "el-GR,en,fr" — take the primary language code
+        langs = data.get("languages", "")
+        lang = langs.split(",")[0].split("-")[0].strip() if langs else ""
+        if re.fullmatch(r'[A-Z]{2}', code):
+            _detected_region = code
+            _detected_lang = lang if re.fullmatch(r'[a-z]{2}', lang) else "en"
+            log.info(f"Detected server region: {code}, language: {_detected_lang}")
+            return (code, _detected_lang)
+    except Exception as e:
+        log.warning(f"Region detection failed (ipapi.co): {e}")
+
+    # Fallback: ip-api.com (country only, no language)
+    try:
+        resp = await http_client.get(
+            "http://ip-api.com/json/?fields=countryCode", timeout=5.0)
+        resp.raise_for_status()
+        code = resp.json().get("countryCode", "")
+        if re.fullmatch(r'[A-Z]{2}', code):
+            _detected_region = code
+            _detected_lang = "en"
+            log.info(f"Detected server region: {code}, language: en (fallback)")
+            return (code, "en")
+    except Exception as e:
+        log.warning(f"Region detection failed (ip-api.com): {e}")
+
+    _detected_region = ""
+    _detected_lang = "en"
+    log.warning("Could not detect region, omitting gl parameter")
+    return (None, "en")
+
+
+def _build_context(version: str, gl: str | None = None, hl: str = "en") -> dict:
+    ctx = {
         "client": {
             "clientName": "WEB",
             "clientVersion": version,
-            "hl": "en",
-            "gl": "US",
+            "hl": hl,
         }
     }
+    if gl:
+        ctx["client"]["gl"] = gl
+    return ctx
 
 
 def _build_headers(version: str) -> dict:
@@ -213,8 +267,13 @@ def _parse_lockup_view_model(vm: dict) -> dict | None:
     if watch_ep:
         first_video_id = watch_ep.get("videoId", "")
         playlist_id = watch_ep.get("playlistId", "")
-
+    # Music uses watchPlaylistEndpoint (no first videoId, just playlistId)
     if not first_video_id:
+        wpl_ep = inner_cmd.get("watchPlaylistEndpoint", {})
+        if wpl_ep:
+            playlist_id = wpl_ep.get("playlistId", "")
+
+    if not first_video_id and not playlist_id:
         return None
 
     if not thumbnail:
@@ -250,10 +309,12 @@ def _extract_continuation_token(items: list) -> str | None:
 async def _innertube_post(endpoint: str, body: dict) -> dict:
     """POST to an InnerTube endpoint and return parsed JSON.
 
-    Automatically injects 'context' with the current client version.
+    Automatically injects 'context' with the current client version and
+    detected region (gl). Callers can override by providing their own 'context'.
     """
     version = await _fetch_client_version()
-    body.setdefault("context", _build_context(version))
+    gl, hl = await _detect_region()
+    body.setdefault("context", _build_context(version, gl=gl, hl=hl))
     body.setdefault("racyCheckOk", True)
     body.setdefault("contentCheckOk", True)
     resp = await http_client.post(
@@ -558,6 +619,162 @@ async def channel_next(continuation_token: str) -> tuple[list[dict], str | None]
         token = _extract_continuation_token(items)
 
     return results, token
+
+
+# ── Trending / Discover ──────────────────────────────────────────────────────
+
+# YouTube topic channels (work without authentication)
+_TRENDING_CHANNELS = {
+    "gaming":  "UCOpNcN46UbXVtpKMrmU4Abg",
+    "news":    "UCYfdidRxbB8Qhf0Nx7ioOYw",
+    "sports":  "UCEgdi0XIXXZ-qJOFPf4JSKw",
+    "live":    "UC4R8DWoMoI7CAwX8_LjQHig",
+    "music":   "UC-9-kyTW8ZkZNDHQJ6FgpwQ",
+}
+
+# Protobuf: field 2 = "trending"
+_TRENDING_PARAMS = "Egh0cmVuZGluZw=="
+
+
+def _parse_grid_video_renderer(renderer: dict) -> dict | None:
+    """Extract video info from a gridVideoRenderer object."""
+    video_id = renderer.get("videoId")
+    if not video_id:
+        return None
+
+    title_runs = renderer.get("title", {}).get("runs", [])
+    title = title_runs[0].get("text", "") if title_runs else ""
+
+    channel = ""
+    for key in ("shortBylineText", "longBylineText", "ownerText"):
+        ch_runs = renderer.get(key, {}).get("runs", [])
+        if ch_runs:
+            channel = ch_runs[0].get("text", "")
+            break
+
+    views = renderer.get("viewCountText", {}).get("simpleText", "")
+    published = renderer.get("publishedTimeText", {}).get("simpleText", "")
+
+    duration_text = renderer.get("lengthText", {})
+    duration_str = duration_text.get("simpleText", "")
+    if not duration_str:
+        runs = duration_text.get("runs", [])
+        if runs:
+            duration_str = runs[0].get("text", "")
+
+    duration = 0
+    if duration_str:
+        parts = duration_str.split(":")
+        try:
+            if len(parts) == 3:
+                duration = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+            elif len(parts) == 2:
+                duration = int(parts[0]) * 60 + int(parts[1])
+        except ValueError:
+            pass
+
+    is_live = any(
+        b.get("metadataBadgeRenderer", {}).get("label") == "LIVE"
+        for b in renderer.get("badges", [])
+    )
+
+    return {
+        "id": video_id,
+        "title": title,
+        "duration": duration,
+        "duration_str": duration_str or _format_duration(duration),
+        "channel": channel or "Unknown",
+        "published": published,
+        "is_live": is_live,
+        "thumbnail": f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg",
+    }
+
+
+async def fetch_trending(category: str, hl: str | None = None, gl: str | None = None) -> list[dict]:
+    """Fetch trending videos for a category via YouTube topic channels.
+
+    Uses InnerTube browse API with special YouTube topic channel IDs.
+    No authentication required. Region auto-detected from server IP.
+    Optional hl/gl overrides for content language/region (user preferences).
+
+    Returns list of video/playlist dicts (may be empty on error).
+    """
+    browse_id = _TRENDING_CHANNELS.get(category)
+    if not browse_id:
+        return []
+
+    try:
+        body = {"browseId": browse_id, "params": _TRENDING_PARAMS}
+        if hl or gl:
+            # Override auto-detected values with user preferences
+            version = await _fetch_client_version()
+            auto_gl, auto_hl = await _detect_region()
+            body["context"] = _build_context(version, gl=gl or auto_gl, hl=hl or auto_hl)
+        data = await _innertube_post("browse", body)
+    except Exception as e:
+        log.error(f"Trending fetch error ({category}): {e}")
+        return []
+
+    results = []
+    tabs = (data
+            .get("contents", {})
+            .get("twoColumnBrowseResultsRenderer", {})
+            .get("tabs", []))
+
+    for tab in tabs:
+        content = tab.get("tabRenderer", {}).get("content", {})
+
+        # Path 1: sectionListRenderer → shelfRenderer → gridRenderer/expandedShelf
+        for section in content.get("sectionListRenderer", {}).get("contents", []):
+            for item in section.get("itemSectionRenderer", {}).get("contents", []):
+                shelf = item.get("shelfRenderer", {})
+                if not shelf:
+                    continue
+                shelf_content = shelf.get("content", {})
+
+                for g in shelf_content.get("gridRenderer", {}).get("items", []):
+                    gvr = g.get("gridVideoRenderer")
+                    if gvr:
+                        video = _parse_grid_video_renderer(gvr)
+                        if video:
+                            results.append(video)
+
+                for g in shelf_content.get("expandedShelfContentsRenderer", {}).get("items", []):
+                    vr = g.get("videoRenderer")
+                    if vr:
+                        video = _parse_video_renderer(vr)
+                        if video:
+                            results.append(video)
+
+        # Path 2: richGridRenderer → richItemRenderer/richSectionRenderer
+        for item in content.get("richGridRenderer", {}).get("contents", []):
+            ri = item.get("richItemRenderer", {})
+            if ri:
+                vr = ri.get("content", {}).get("videoRenderer")
+                if vr:
+                    video = _parse_video_renderer(vr)
+                    if video:
+                        results.append(video)
+
+            rshelf = (item.get("richSectionRenderer", {})
+                      .get("content", {})
+                      .get("richShelfRenderer", {}))
+            if rshelf:
+                for si in rshelf.get("contents", []):
+                    ri2 = si.get("richItemRenderer", {})
+                    vr2 = ri2.get("content", {}).get("videoRenderer")
+                    if vr2:
+                        video = _parse_video_renderer(vr2)
+                        if video:
+                            results.append(video)
+                    # Music uses lockupViewModel (playlists)
+                    lvm = ri2.get("content", {}).get("lockupViewModel")
+                    if lvm:
+                        parsed = _parse_lockup_view_model(lvm)
+                        if parsed:
+                            results.append(parsed)
+
+    return results
 
 
 # ── Related Videos ───────────────────────────────────────────────────────────

@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response, Depends
 from auth import require_auth, get_session, extract_token
 from helpers import VIDEO_ID_RE, http_client, is_youtube_url
 from iterators import create_search, create_channel, create_channel_playlists, fetch_more
-from directcalls import fetch_related, fetch_playlist_contents, resolve_handle
+from directcalls import fetch_related, fetch_playlist_contents, resolve_handle, fetch_trending
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +58,19 @@ async def more(request: Request, cursor: str = Query(..., min_length=1), auth: b
         results, next_cursor = [], None
 
     return _json_with_cookie({'results': results, 'cursor': next_cursor}, token, request)
+
+
+_TRENDING_CATEGORIES = {"gaming", "news", "sports", "live", "music"}
+
+
+@router.get("/trending/{category}")
+async def get_trending(category: str, hl: str | None = None, gl: str | None = None,
+                       auth: bool = Depends(require_auth)):
+    """Get trending videos for a category (gaming, news, sports, live, music)."""
+    if category not in _TRENDING_CATEGORIES:
+        raise HTTPException(status_code=400, detail="Invalid category")
+    results = await fetch_trending(category, hl=hl, gl=gl)
+    return {"results": results}
 
 
 _CHANNEL_ID_RE = re.compile(r'^UC[a-zA-Z0-9_-]{22}$')
