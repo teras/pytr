@@ -231,6 +231,9 @@
                     });
                     listEl.appendChild(li);
                 });
+                // Auto-focus first server for D-pad navigation
+                var firstItem = listEl.querySelector('.server-item');
+                if (firstItem) firstItem.focus();
             }
 
             manualBtn.addEventListener('click', manualConnect);
@@ -281,6 +284,29 @@
                 d.textContent = s;
                 return d.innerHTML;
             }
+
+            // D-pad navigation for setup screen
+            document.addEventListener('keydown', function (e) {
+                if (appIframe) return;
+                var focusable = [].slice.call(document.querySelectorAll('.server-item, input, button'));
+                focusable = focusable.filter(function (el) { return el.offsetParent !== null; });
+                if (!focusable.length) return;
+                var idx = focusable.indexOf(document.activeElement);
+                if (idx < 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+                    e.preventDefault();
+                    focusable[0].focus();
+                    return;
+                }
+                if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+                    e.preventDefault();
+                    focusable[Math.min(idx + 1, focusable.length - 1)].focus();
+                } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+                    e.preventDefault();
+                    focusable[Math.max(idx - 1, 0)].focus();
+                } else if (e.key === 'Enter' && document.activeElement && document.activeElement.classList.contains('server-item')) {
+                    document.activeElement.click();
+                }
+            });
 
             // Back button: if iframe visible, forward to iframe. Else exit app.
             document.addEventListener('keydown', function (e) {

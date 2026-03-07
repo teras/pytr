@@ -15,3 +15,55 @@
     background: rgba(255,255,255,0.2) !important;
     border-radius: 3px !important;
 }
+
+/* Flexbox gap polyfill — WebOS Chromium ~79 does not support gap on flex containers.
+   Each rule below mirrors a flex+gap pair from style.css, using margins instead.
+   Row-direction containers use margin-right, column use margin-bottom,
+   wrapping containers use both. */
+
+/* Row-direction flex containers */
+header > *:not(:last-child) { margin-right: 16px; }
+.search-box > *:not(:last-child) { margin-right: 10px; }
+.video-title-row > *:not(:last-child) { margin-right: 12px; }
+.video-info-row > *:not(:last-child) { margin-right: 16px; }
+.video-info-right > *:not(:last-child) { margin-right: 12px; }
+.related-card > *:not(:last-child) { margin-right: 12px; }
+.queue-toggle-area > *:not(:last-child) { margin-right: 10px; }
+.queue-item > *:not(:last-child) { margin-right: 10px; }
+.pin-actions > *:not(:last-child) { margin-right: 10px; }
+.edit-pin-label > *:not(:last-child) { margin-right: 8px; }
+.locale-row > *:not(:last-child) { margin-right: 10px; }
+.profile-menu-profile > *:not(:last-child) { margin-right: 10px; }
+.cookie-toggle-row > *:not(:last-child) { margin-right: 10px; }
+.cookie-toggle-btns > *:not(:last-child) { margin-right: 2px; }
+.settings-profiles-header > *:not(:last-child) { margin-right: 10px; }
+.settings-profile-row > *:not(:last-child) { margin-right: 10px; }
+.tv-top-search > *:not(:last-child) { margin-right: 10px; }
+.tv-top-info-row > *:not(:last-child) { margin-right: 16px; }
+.tv-top-buttons > *:not(:last-child) { margin-right: 10px; }
+.tv-related-strip > *:not(:last-child) { margin-right: 16px; }
+.sb-toast > *:not(:last-child) { margin-right: 8px; }
+.sb-toggle-row > *:not(:last-child) { margin-right: 8px; }
+.sb-cat-row > *:not(:last-child) { margin-right: 6px; }
+.tv-osd > *:not(:last-child) { margin-right: 10px; }
+.osd-right-controls > *:not(:last-child) { margin-right: 6px; }
+.remote-section-header > *:not(:last-child) { margin-right: 10px; }
+.remote-tab-row > *:not(:last-child) { margin-right: 12px; }
+.remote-controls-footer > *:not(:last-child) { margin-right: 12px; }
+.rmp-row > *:not(:last-child) { margin-right: 10px; }
+.remote-disconnect-wrap > *:not(:last-child) { margin-right: 6px; }
+
+/* Column-direction flex containers */
+#related-videos > *:not(:last-child) { margin-bottom: 12px; }
+.profile-card > *:not(:last-child) { margin-bottom: 12px; }
+.profile-form > *:not(:last-child) { margin-bottom: 16px; }
+.edit-pin-section > *:not(:last-child) { margin-bottom: 8px; }
+.settings-profile-list > *:not(:last-child) { margin-bottom: 2px; }
+.tv-top-overlay > *:not(:last-child) { margin-bottom: 14px; }
+.sb-categories > *:not(:last-child) { margin-bottom: 4px; }
+.remote-mini-player > *:not(:last-child) { margin-bottom: 8px; }
+
+/* Wrapping flex containers (need both directions) */
+.filter-toggles > * { margin-right: 8px; margin-bottom: 8px; }
+#sub-tabs > * { margin-right: 6px; margin-bottom: 6px; }
+.profile-cards > * { margin-right: 24px; margin-bottom: 24px; }

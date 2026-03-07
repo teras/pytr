@@ -266,6 +266,14 @@ function showListView() {
     if (typeof _removeFollowButton === 'function') _removeFollowButton();
 }
 
+function _tvAutoFocus() {
+    if (typeof _tvSetFocus === 'function' && window._tv && window._tv.isTvActive()) {
+        if (window._tv.isPlayerMode()) window._tv.exitPlayerMode();
+        var el = document.getElementById('logo-link');
+        if (el) _tvSetFocus(el);
+    }
+}
+
 function showVideoView() {
     listView.classList.add('hidden');
     videoView.classList.remove('hidden');
@@ -452,6 +460,7 @@ function handleInitialRoute() {
         // Home page = remembered tab
         showListView();
         loadHomeTab();
+        _tvAutoFocus();
     }
 }
 
@@ -1218,6 +1227,7 @@ document.getElementById('logo-link').addEventListener('click', (e) => {
     document.title = 'PYTR';
     showListView();
     loadHomeTab();
+    _tvAutoFocus();
 });
 
 // For non-DASH/HLS fallback: show resolution from video element
