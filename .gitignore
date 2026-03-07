@@ -29,3 +29,6 @@ clients/android/pytr-tv.apk
 
 # Build output
 build/
+
+# Generated at build time
+web/static/version.txt

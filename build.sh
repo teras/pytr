@@ -6,6 +6,22 @@ NO_DOCKER=false
 for arg in "$@"; do
     case "$arg" in
         --no-docker) NO_DOCKER=true ;;
+        --decode-version)
+            V="${2#dev-}"
+            if ! [[ "$V" =~ ^[0-9]+$ ]]; then
+                echo "Usage: $0 --decode-version <dev-NNNNNN | NNNNNN>" >&2; exit 1
+            fi
+            NOW_MIN=$(( $(date +%s) / 60 ))
+            CYCLE=1000000
+            NOW_MOD=$(( NOW_MIN % CYCLE ))
+            if [ "$V" -le "$NOW_MOD" ]; then
+                EPOCH_MIN=$(( NOW_MIN - NOW_MOD + V ))
+            else
+                EPOCH_MIN=$(( NOW_MIN - NOW_MOD - CYCLE + V ))
+            fi
+            echo "$(date -d @$(( EPOCH_MIN * 60 )) '+%Y-%m-%d %H:%M') ($(( (NOW_MIN - EPOCH_MIN) / 60 ))h $(( (NOW_MIN - EPOCH_MIN) % 60 ))m ago)"
+            exit 0
+            ;;
     esac
 done
 
@@ -44,6 +60,11 @@ if [ ${#missing[@]} -gt 0 ]; then
 fi
 
 mkdir -p build
+
+# ── Generate build version ──────────────────────────────────────────
+BUILD_VERSION="${BUILD_VERSION:-dev-$(( ($(date +%s) / 60) % 1000000 ))}"
+echo "$BUILD_VERSION" > web/static/version.txt
+echo "── Build version: $BUILD_VERSION ──"
 
 # ── Build Android APK ────────────────────────────────────────────────
 build_apk() {

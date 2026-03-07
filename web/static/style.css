@@ -111,11 +111,17 @@ header {
     box-shadow: none !important;
 }
 
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+}
+
 .profile-switcher-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-left: auto;
     padding: 0;
     background: none;
     border: none;
@@ -1634,6 +1640,12 @@ h1 {
 
 .profile-menu-logout:hover {
     color: var(--color-danger);
+}
+
+.build-version {
+    font-size: 11px;
+    color: #aaa;
+    white-space: nowrap;
 }
 
 .profile-menu-profile {

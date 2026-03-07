@@ -323,6 +323,7 @@ async function checkProfile() {
         } else if (data.state === 'ready') {
             currentProfile = data.profile;
             window._cookiesAvailable = !!data.cookies_available;
+            if (data.version) window._pytrVersion = data.version;
             applyProfilePrefs();
             updateProfileButton();
             profileOverlay.innerHTML = '';
@@ -501,6 +502,11 @@ function updateProfileButton() {
     const display = currentProfile.avatar_emoji || currentProfile.name.charAt(0).toUpperCase();
     profileSwitcherBtn.innerHTML = `<span class="avatar-base profile-avatar-small" style="background:${currentProfile.avatar_color};color:${emojiColor(currentProfile.avatar_color)}">${display}</span>`;
     profileSwitcherBtn.classList.remove('hidden');
+    var versionEl = document.getElementById('build-version');
+    if (versionEl && window._pytrVersion) {
+        versionEl.textContent = window._pytrVersion;
+        versionEl.classList.remove('hidden');
+    }
 }
 
 // ── Profile Selector ───────────────────────────────────────────────────────

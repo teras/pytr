@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Profile management routes."""
 import json
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
@@ -10,6 +11,9 @@ from pydantic import BaseModel, Field
 from auth import require_auth, require_profile, get_profile_id, get_session, verify_session, require_admin
 from helpers import maybe_long_cleanup, COOKIES_FILE
 import profiles_db as db
+
+_VERSION_FILE = Path(__file__).resolve().parent.parent / "static" / "version.txt"
+BUILD_VERSION = _VERSION_FILE.read_text().strip() if _VERSION_FILE.is_file() else "dev"
 
 router = APIRouter(prefix="/api/profiles")
 
@@ -83,14 +87,14 @@ async def boot(request: Request):
     """Single endpoint to determine app state on load."""
     profiles = db.list_profiles()
     if not profiles and not db.get_app_password():
-        return {"state": "first-run"}
+        return {"state": "first-run", "version": BUILD_VERSION}
     if not verify_session(request):
-        return {"state": "login-required"}
+        return {"state": "login-required", "version": BUILD_VERSION}
     pid = get_profile_id(request)
     if pid:
         profile = db.get_profile(pid)
         if profile:
-            return {"state": "ready", "profile": profile, "cookies_available": COOKIES_FILE.is_file()}
+            return {"state": "ready", "profile": profile, "cookies_available": COOKIES_FILE.is_file(), "version": BUILD_VERSION}
     # Hourly cleanup (cache expiry, etc.) — runs here and in list_profiles because
     # these are the only idle-state endpoints hit regularly. Not needed in the
     # "ready" branch above since that returns immediately without listing.
