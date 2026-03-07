@@ -18,3 +18,19 @@ services:
       dockerfile: Dockerfile.discovery
     network_mode: host
     restart: unless-stopped
+
+  cookie-beast:
+    build: ./cookie-beast
+    profiles: [cookies]
+    restart: unless-stopped
+    volumes:
+      - ./data:/data
+    environment:
+      - PYTR_UID=${UID:-1000}
+      - PYTR_GID=${GID:-1000}
+      - USER=beast
+      - COOKIES_INPUT=/data/cookies.txt
+      - COOKIES_OUTPUT=/data/cookies.txt
+      - MIN_INTERVAL=900
+      - MAX_INTERVAL=3600
+    shm_size: 2g

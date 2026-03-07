@@ -90,16 +90,28 @@ sudo firewall-cmd --add-port=5444/udp   # TV auto-discovery
 
 ### 🍪 YouTube Cookies
 
-To access age-restricted content, extract YouTube cookies from your browser:
+Age-restricted content requires YouTube cookies. Two steps: extract them, then optionally keep them fresh.
+
+#### Step 1: Extract cookies
 
 ```bash
 pip install yt-dlp   # if not already installed
 python3 extract-cookies.py
 ```
 
-The script supports Firefox, Chrome, Chromium, Brave, and Edge. It will ask you to select your browser, then extract only YouTube/Google cookies to `data/cookies.txt`.
+The script supports Firefox, Chrome, Chromium, Brave, and Edge. It will ask you to select your browser, then extract only YouTube/Google cookies to `data/cookies.txt`. Cookies are picked up automatically — no restart needed.
 
-Cookies are picked up automatically — no restart needed.
+#### Step 2: Keep cookies fresh (optional)
+
+YouTube cookies expire over time. Cookie Beast runs a headless Firefox session that periodically refreshes them so they stay valid.
+
+Use `--profile cookies` instead of the regular `docker compose up -d`:
+
+```bash
+docker compose --profile cookies up -d
+```
+
+This starts everything normally, plus cookie-beast in the background to refresh `data/cookies.txt` every 15–60 minutes.
 
 ### 👤 Non-default UID/GID
 
