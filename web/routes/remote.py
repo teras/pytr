@@ -15,20 +15,22 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 # ── In-memory state ─────────────────────────────────────────────────────────
+# conn_key = f"{token}:{tab_id}" — unique per browser tab
 
-_connections: dict[str, WebSocket] = {}       # session_token → WebSocket
-_device_states: dict[str, dict] = {}          # session_token → latest player state
-_pairings: dict[str, str] = {}                # remote_token → target_token
-_token_to_profile: dict[str, int] = {}        # session_token → profile_id
-_token_to_name: dict[str, str] = {}           # session_token → device_name (cached)
-_last_position_save: dict[str, float] = {}    # session_token → last save timestamp
+_connections: dict[str, WebSocket] = {}       # conn_key → WebSocket
+_device_states: dict[str, dict] = {}          # conn_key → latest player state
+_pairings: dict[str, str] = {}                # remote_conn_key → target_conn_key
+_conn_to_token: dict[str, str] = {}           # conn_key → token
+_token_to_profile: dict[str, int] = {}        # token → profile_id (session-level)
+_token_to_name: dict[str, str] = {}           # token → device_name (session-level)
+_last_position_save: dict[str, float] = {}    # conn_key → last save timestamp
 
 _POSITION_SAVE_INTERVAL = 5  # save to DB at most every 5 seconds
 
 
-def _device_id_from_token(token: str) -> str:
-    """Deterministic, non-reversible device_id from session token."""
-    return hashlib.sha256(token.encode()).hexdigest()[:12]
+def _device_id_from_key(conn_key: str) -> str:
+    """Deterministic, non-reversible device_id from conn_key."""
+    return hashlib.sha256(conn_key.encode()).hexdigest()[:12]
 
 
 def _get_token_from_ws(websocket: WebSocket) -> str | None:
@@ -49,6 +51,7 @@ async def _send_json(ws: WebSocket, data: dict):
 @router.websocket("/api/ws")
 async def websocket_endpoint(websocket: WebSocket):
     token = _get_token_from_ws(websocket)
+    tab_id = websocket.query_params.get("tab", "default")
 
     # If no cookie, accept and wait for first-message auth (Bearer)
     if not token:
@@ -78,150 +81,164 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.accept()
 
     profile_id = session["profile_id"]
+    conn_key = f"{token}:{tab_id}"
+
+    # If same conn_key already exists (tab reconnect), close the old WS
+    old_ws = _connections.get(conn_key)
+    if old_ws:
+        try:
+            await old_ws.close(code=1000, reason="Replaced by new connection")
+        except Exception:
+            pass
 
     # Register connection
-    device_id = _device_id_from_token(token)
-    _connections[token] = websocket
+    _connections[conn_key] = websocket
+    _conn_to_token[conn_key] = token
     _token_to_profile[token] = profile_id
 
-    # Cache device name
-    sessions = profiles_db.get_online_sessions(profile_id)
-    for s in sessions:
-        if s["token"] == token:
-            _token_to_name[token] = s["device_name"]
-            break
+    # Cache device name (session-level, only if not already cached)
+    if token not in _token_to_name:
+        sessions = profiles_db.get_online_sessions(profile_id)
+        for s in sessions:
+            if s["token"] == token:
+                _token_to_name[token] = s["device_name"]
+                break
 
-    log.info(f"WebSocket connected: device={device_id} profile={profile_id}")
+    log.info(f"WebSocket connected: device={_device_id_from_key(conn_key)} profile={profile_id} tab={tab_id}")
 
     try:
         while True:
             data = await websocket.receive_json()
-            await _handle_message(token, data)
+            await _handle_message(conn_key, data)
     except WebSocketDisconnect:
         pass
     except Exception as e:
         log.warning(f"WebSocket error: {e}")
     finally:
-        await _cleanup_connection(token, websocket)
+        await _cleanup_connection(conn_key, websocket)
 
 
-async def _cleanup_connection(token: str, old_ws: WebSocket):
-    """Clean up when a device disconnects.
-
-    If the same token has already reconnected (new WS replaced old in
-    _connections), skip cleanup to avoid destroying the new connection.
-    """
-    if _connections.get(token) is not old_ws:
+async def _cleanup_connection(conn_key: str, old_ws: WebSocket):
+    """Clean up when a tab disconnects."""
+    if _connections.get(conn_key) is not old_ws:
         log.info(f"WebSocket replaced (reconnect), skipping cleanup")
         return
 
-    log.info(f"WebSocket disconnected: device={_device_id_from_token(token)}")
+    log.info(f"WebSocket disconnected: device={_device_id_from_key(conn_key)}")
+
+    token = _conn_to_token.get(conn_key)
 
     # Flush final position save
-    state = _device_states.get(token)
+    state = _device_states.get(conn_key)
     if state:
-        _last_position_save.pop(token, None)  # force save (no throttle)
-        _save_position_from_state(token, state)
+        _last_position_save.pop(conn_key, None)  # force save (no throttle)
+        _save_position_from_state(conn_key, state)
 
-    _connections.pop(token, None)
-    _device_states.pop(token, None)
-    _token_to_profile.pop(token, None)
-    _token_to_name.pop(token, None)
-    _last_position_save.pop(token, None)
+    _connections.pop(conn_key, None)
+    _device_states.pop(conn_key, None)
+    _conn_to_token.pop(conn_key, None)
+    _last_position_save.pop(conn_key, None)
 
-    # If this was a target device, notify all remotes controlling it
-    remotes_to_notify = [r for r, t in _pairings.items() if t == token]
-    for remote_token in remotes_to_notify:
-        _pairings.pop(remote_token, None)
-        ws = _connections.get(remote_token)
+    # Only clean session-level dicts when no more conn_keys reference this token
+    if token and not any(t == token for t in _conn_to_token.values()):
+        _token_to_profile.pop(token, None)
+        _token_to_name.pop(token, None)
+
+    # If this was a target, notify all remotes controlling it
+    remotes_to_notify = [r for r, t in _pairings.items() if t == conn_key]
+    for remote_ck in remotes_to_notify:
+        _pairings.pop(remote_ck, None)
+        ws = _connections.get(remote_ck)
         if ws:
             await _send_json(ws, {"type": "target_disconnected"})
 
     # If this was a remote, notify the target
-    target_token = _pairings.pop(token, None)
-    if target_token:
-        ws = _connections.get(target_token)
+    target_ck = _pairings.pop(conn_key, None)
+    if target_ck:
+        ws = _connections.get(target_ck)
         if ws:
             await _send_json(ws, {"type": "remote_disconnected"})
 
 
-async def _handle_message(sender_token: str, data: dict):
+async def _handle_message(sender_ck: str, data: dict):
     msg_type = data.get("type")
 
     if msg_type == "pair":
-        await _handle_pair(sender_token, data)
+        await _handle_pair(sender_ck, data)
     elif msg_type == "unpair":
-        await _handle_unpair(sender_token)
+        await _handle_unpair(sender_ck)
     elif msg_type == "command":
-        await _handle_command(sender_token, data)
+        await _handle_command(sender_ck, data)
     elif msg_type == "state":
-        await _handle_state(sender_token, data)
+        await _handle_state(sender_ck, data)
 
 
-async def _handle_pair(remote_token: str, data: dict):
+async def _handle_pair(remote_ck: str, data: dict):
     target_device_id = data.get("device_id")
+    remote_token = _conn_to_token.get(remote_ck)
     remote_profile = _token_to_profile.get(remote_token)
 
     # Find matching device — only within the same profile
-    target_token = None
-    for t in _connections:
-        if _token_to_profile.get(t) == remote_profile and _device_id_from_token(t) == target_device_id:
-            target_token = t
+    target_ck = None
+    for ck in _connections:
+        ck_token = _conn_to_token.get(ck)
+        if _token_to_profile.get(ck_token) == remote_profile and _device_id_from_key(ck) == target_device_id:
+            target_ck = ck
             break
 
-    if not target_token:
-        ws = _connections.get(remote_token)
+    if not target_ck:
+        ws = _connections.get(remote_ck)
         if ws:
             await _send_json(ws, {"type": "error", "message": "Device not found or offline"})
         return
 
     # Unpair previous if any
-    old_target = _pairings.get(remote_token)
-    if old_target and old_target != target_token:
+    old_target = _pairings.get(remote_ck)
+    if old_target and old_target != target_ck:
         ws = _connections.get(old_target)
         if ws:
             await _send_json(ws, {"type": "remote_disconnected"})
 
-    _pairings[remote_token] = target_token
+    _pairings[remote_ck] = target_ck
 
     # Notify remote
-    target_name = _token_to_name.get(target_token, "Device")
-    ws = _connections.get(remote_token)
+    target_token = _conn_to_token.get(target_ck)
+    target_name = _token_to_name.get(target_token, "Device") if target_token else "Device"
+    ws = _connections.get(remote_ck)
     if ws:
         msg = {"type": "paired", "device_name": target_name}
-        # Send cached state if available
-        state = _device_states.get(target_token)
+        state = _device_states.get(target_ck)
         if state:
             msg["state"] = state
         await _send_json(ws, msg)
 
     # Notify target
-    remote_name = _token_to_name.get(remote_token, "Remote")
-    ws = _connections.get(target_token)
+    remote_name = _token_to_name.get(remote_token, "Remote") if remote_token else "Remote"
+    ws = _connections.get(target_ck)
     if ws:
         await _send_json(ws, {"type": "remote_connected", "remote_name": remote_name})
 
 
-async def _handle_unpair(remote_token: str):
-    target_token = _pairings.pop(remote_token, None)
-    if target_token:
-        ws = _connections.get(target_token)
+async def _handle_unpair(remote_ck: str):
+    target_ck = _pairings.pop(remote_ck, None)
+    if target_ck:
+        ws = _connections.get(target_ck)
         if ws:
             await _send_json(ws, {"type": "remote_disconnected"})
 
 
-async def _handle_command(remote_token: str, data: dict):
-    target_token = _pairings.get(remote_token)
-    if not target_token:
-        ws = _connections.get(remote_token)
+async def _handle_command(remote_ck: str, data: dict):
+    target_ck = _pairings.get(remote_ck)
+    if not target_ck:
+        ws = _connections.get(remote_ck)
         if ws:
             await _send_json(ws, {"type": "error", "message": "Not paired with any device"})
         return
 
-    ws = _connections.get(target_token)
+    ws = _connections.get(target_ck)
     if not ws:
-        _pairings.pop(remote_token, None)
-        ws = _connections.get(remote_token)
+        _pairings.pop(remote_ck, None)
+        ws = _connections.get(remote_ck)
         if ws:
             await _send_json(ws, {"type": "target_disconnected"})
         return
@@ -230,31 +247,32 @@ async def _handle_command(remote_token: str, data: dict):
     await _send_json(ws, {"type": "command", "action": data.get("action"), **{k: v for k, v in data.items() if k not in ("type",)}})
 
 
-async def _handle_state(sender_token: str, data: dict):
+async def _handle_state(sender_ck: str, data: dict):
     state = {k: v for k, v in data.items() if k != "type"}
 
     # If video changed, flush the old position first
-    old_state = _device_states.get(sender_token)
+    old_state = _device_states.get(sender_ck)
     if old_state and old_state.get("videoId") and old_state["videoId"] != state.get("videoId"):
-        _last_position_save.pop(sender_token, None)  # bypass throttle
-        _save_position_from_state(sender_token, old_state)
+        _last_position_save.pop(sender_ck, None)  # bypass throttle
+        _save_position_from_state(sender_ck, old_state)
 
-    _device_states[sender_token] = state
+    _device_states[sender_ck] = state
 
     # Save position to DB (throttled)
-    _save_position_from_state(sender_token, state)
+    _save_position_from_state(sender_ck, state)
 
     # Forward to all paired remotes
-    for remote_token, target_token in _pairings.items():
-        if target_token == sender_token:
-            ws = _connections.get(remote_token)
+    for remote_ck, target_ck in _pairings.items():
+        if target_ck == sender_ck:
+            ws = _connections.get(remote_ck)
             if ws:
                 await _send_json(ws, {"type": "state", **state})
 
 
-def _save_position_from_state(token: str, state: dict):
+def _save_position_from_state(conn_key: str, state: dict):
     """Save playback position to DB, throttled to every 5 seconds."""
-    profile_id = _token_to_profile.get(token)
+    token = _conn_to_token.get(conn_key)
+    profile_id = _token_to_profile.get(token) if token else None
     if not profile_id:
         return
 
@@ -265,11 +283,11 @@ def _save_position_from_state(token: str, state: dict):
         return
 
     now = time.time()
-    last_save = _last_position_save.get(token, 0)
+    last_save = _last_position_save.get(conn_key, 0)
     if now - last_save < _POSITION_SAVE_INTERVAL:
         return
 
-    _last_position_save[token] = now
+    _last_position_save[conn_key] = now
 
     title = state.get("title", "")
     channel = state.get("channel", "")
@@ -297,20 +315,46 @@ def _save_position_from_state(token: str, state: dict):
 
 @router.get("/api/remote/devices")
 async def list_devices(request: Request, profile_id: int = Depends(require_profile)):
-    """List connected devices for the current profile."""
+    """List connected devices for the current profile, grouped by device."""
     token, _ = extract_token(request)
-    devices = []
-    for dev_token in _connections:
-        if _token_to_profile.get(dev_token) != profile_id:
+    tab_id = request.query_params.get("tab_id", "default")
+    self_ck = f"{token}:{tab_id}" if token else None
+
+    # Group conn_keys by token (device)
+    device_groups: dict[str, list[str]] = {}
+    for ck in _connections:
+        ck_token = _conn_to_token.get(ck)
+        if not ck_token:
             continue
-        if dev_token == token:
+        if _token_to_profile.get(ck_token) != profile_id:
+            continue
+        if ck == self_ck:
             continue  # exclude self
-        if dev_token in _pairings:
-            continue  # exclude devices acting as remote controllers
+        if ck in _pairings:
+            continue  # exclude tabs acting as remote controllers
+        device_groups.setdefault(ck_token, []).append(ck)
+
+    devices = []
+    for dev_token, conn_keys in device_groups.items():
+        tabs = []
+        for ck in conn_keys:
+            state = _device_states.get(ck)
+            tab_info = {
+                "device_id": _device_id_from_key(ck),
+            }
+            if state:
+                tab_info["video_title"] = state.get("title", "")
+                tab_info["video_thumbnail"] = state.get("thumbnail", "")
+                if state.get("paused"):
+                    tab_info["status"] = "paused"
+                else:
+                    tab_info["status"] = "playing"
+            else:
+                tab_info["status"] = "idle"
+            tabs.append(tab_info)
         devices.append({
-            "device_id": _device_id_from_token(dev_token),
             "device_name": _token_to_name.get(dev_token, "Unknown Device"),
-            "has_state": dev_token in _device_states,
+            "tabs": tabs,
         })
     return devices
 

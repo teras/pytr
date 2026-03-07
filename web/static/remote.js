@@ -31,11 +31,14 @@ async function enterRemoteMode() {
     loadMoreContainer.classList.add('hidden');
 
     try {
-        const resp = await fetch('/api/remote/devices');
+        const resp = await fetch(`/api/remote/devices?tab_id=${_tabId}`);
         if (!resp.ok) throw new Error('Failed to fetch devices');
         const devices = await resp.json();
 
-        if (devices.length === 0) {
+        // Count total tabs across all devices
+        const totalTabs = devices.reduce((sum, d) => sum + d.tabs.length, 0);
+
+        if (totalTabs === 0) {
             videoGrid.innerHTML = `
                 <div class="remote-empty">
                     <div class="remote-empty-icon">📡</div>
@@ -48,12 +51,24 @@ async function enterRemoteMode() {
         }
 
         videoGrid.innerHTML = `
-            <div class="remote-device-grid">
+            <div class="remote-device-list">
                 ${devices.map(d => `
-                    <div class="remote-device-card" data-device-id="${escapeAttr(d.device_id)}">
-                        <div class="remote-device-icon">${_deviceIcon(d.device_name)}</div>
-                        <div class="remote-device-name">${escapeHtml(d.device_name || 'Unknown Device')}</div>
-                        ${d.has_state ? '<div class="remote-device-status">Now playing</div>' : '<div class="remote-device-status">Idle</div>'}
+                    <div class="remote-device-section">
+                        <div class="remote-section-header">
+                            <span class="remote-section-icon">${_deviceIcon(d.device_name)}</span>
+                            <span class="remote-section-name">${escapeHtml(d.device_name || 'Unknown Device')}</span>
+                        </div>
+                        ${d.tabs.map(tab => `
+                            <div class="remote-tab-row" data-device-id="${escapeAttr(tab.device_id)}">
+                                ${tab.video_thumbnail
+                                    ? `<img class="remote-tab-thumb" src="${escapeAttr(tab.video_thumbnail)}" alt="">`
+                                    : '<div class="remote-tab-thumb-placeholder"></div>'}
+                                <div class="remote-tab-info">
+                                    <div class="remote-tab-title">${escapeHtml(tab.video_title || 'No video')}</div>
+                                    <div class="remote-tab-status ${tab.status === 'playing' ? 'remote-status-playing' : tab.status === 'paused' ? 'remote-status-paused' : ''}">${tab.status === 'playing' ? 'Now playing' : tab.status === 'paused' ? 'Paused' : 'Idle'}</div>
+                                </div>
+                            </div>
+                        `).join('')}
                     </div>
                 `).join('')}
             </div>
@@ -63,9 +78,9 @@ async function enterRemoteMode() {
             </div>`;
 
         // Click handlers
-        videoGrid.querySelectorAll('.remote-device-card').forEach(card => {
-            card.addEventListener('click', () => {
-                const deviceId = card.dataset.deviceId;
+        videoGrid.querySelectorAll('.remote-tab-row').forEach(row => {
+            row.addEventListener('click', () => {
+                const deviceId = row.dataset.deviceId;
                 _pairWithDevice(deviceId);
             });
         });

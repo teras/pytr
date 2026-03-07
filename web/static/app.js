@@ -1357,10 +1357,11 @@ let _wsReconnectTimer = null;
 let _wsStateThrottle = null;
 let _wsConnected = false;
 let _wsReconnectDelay = 500;
+const _tabId = Math.random().toString(36).slice(2, 10);
 function connectWebSocket() {
     if (_ws && (_ws.readyState === WebSocket.OPEN || _ws.readyState === WebSocket.CONNECTING)) return;
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    _ws = new WebSocket(`${proto}//${location.host}/api/ws`);
+    _ws = new WebSocket(`${proto}//${location.host}/api/ws?tab=${_tabId}`);
 
     _ws.onopen = () => {
         _wsConnected = true;

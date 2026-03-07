@@ -2496,65 +2496,83 @@ body.theater-mode .video-sidebar {
     margin-left: auto;
     margin-right: auto;
 }
-.remote-device-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 16px;
-    padding: 16px 0;
+.remote-device-list {
+    max-width: 600px;
+    margin: 16px auto;
 }
-.remote-device-card {
+.remote-device-section {
     background: #1a1a1a;
     border-radius: 12px;
-    padding: 24px 16px;
-    text-align: center;
-    cursor: pointer;
-    transition: background 0.2s, transform 0.15s;
     border: 1px solid #282828;
-}
-.remote-device-card:hover {
-    background: #252525;
-    transform: translateY(-2px);
-    border-color: #3ea6ff;
-}
-.remote-device-icon {
-    font-size: 36px;
     margin-bottom: 12px;
+    overflow: hidden;
 }
-.remote-device-name {
+.remote-section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid #282828;
+}
+.remote-section-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+}
+.remote-section-name {
     font-size: 14px;
     font-weight: 600;
     color: #f1f1f1;
-    margin-bottom: 4px;
 }
-.remote-device-status {
+.remote-tab-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.remote-tab-row:hover {
+    background: #252525;
+}
+.remote-tab-row + .remote-tab-row {
+    border-top: 1px solid #222;
+}
+.remote-tab-thumb {
+    width: 64px;
+    height: 36px;
+    border-radius: 4px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: #111;
+}
+.remote-tab-thumb-placeholder {
+    width: 64px;
+    height: 36px;
+    border-radius: 4px;
+    background: #222;
+    flex-shrink: 0;
+}
+.remote-tab-info {
+    min-width: 0;
+    flex: 1;
+}
+.remote-tab-title {
+    font-size: 13px;
+    color: #f1f1f1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.remote-tab-status {
     font-size: 12px;
     color: #888;
+    margin-top: 2px;
 }
-/* Narrow screens: list layout */
-@media (max-width: 480px) {
-    .remote-device-grid {
-        grid-template-columns: 1fr;
-        gap: 8px;
-    }
-    .remote-device-card {
-        display: flex;
-        align-items: center;
-        text-align: left;
-        padding: 12px 16px;
-        gap: 12px;
-    }
-    .remote-device-icon {
-        font-size: 28px;
-        margin-bottom: 0;
-        flex-shrink: 0;
-    }
-    .remote-device-name {
-        margin-bottom: 0;
-    }
-    .remote-device-status {
-        margin-left: auto;
-        flex-shrink: 0;
-    }
+.remote-status-playing {
+    color: #3ea6ff;
+}
+.remote-status-paused {
+    color: #e8a63a;
 }
 .remote-controls-footer {
     display: flex;
