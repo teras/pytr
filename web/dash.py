@@ -3,6 +3,7 @@
 """DASH streaming: MPD manifest generation, YouTube CDN proxy."""
 import asyncio
 import logging
+import re
 import time
 from urllib.parse import quote
 from xml.sax.saxutils import escape as xml_escape
@@ -39,6 +40,19 @@ async def proxy_range_request(request: Request, video_url: str, filesize: int = 
 
     upstream_headers = {}
     if range_header:
+        # Fix dash.js 32-bit overflow: for files >4GB, the end byte of the
+        # last segment wraps around due to 32-bit truncation in the SIDX parser.
+        # The start is always correct, so reconstruct end's high bits from it.
+        m = re.match(r'bytes=(\d+)-(\d+)', range_header)
+        if m:
+            start, end = int(m.group(1)), int(m.group(2))
+            if start > end:
+                end = ((start >> 32) << 32) | (end & 0xFFFFFFFF)
+                if start > end:
+                    # Segment crosses a 4GB boundary — carry into next block
+                    end += (1 << 32)
+                range_header = f'bytes={start}-{end}'
+                log.info(f"Fixed 32-bit overflow in Range header: bytes={start}-{end}")
         upstream_headers['Range'] = range_header
     elif filesize:
         upstream_headers['Range'] = 'bytes=0-'
@@ -51,6 +65,15 @@ async def proxy_range_request(request: Request, video_url: str, filesize: int = 
     except Exception as e:
         log.warning(f"Upstream connection error: {e}")
         raise HTTPException(status_code=502, detail="Upstream connection failed")
+
+    if upstream.status_code == 416:
+        # Range not satisfiable — return empty response so dash.js ends gracefully
+        log.warning(f"416 Range Not Satisfiable: requested={range_header}")
+        await upstream.aclose()
+        return Response(status_code=200, content=b'', headers={
+            'Content-Length': '0',
+            'Access-Control-Allow-Origin': '*',
+        })
 
     if upstream.status_code >= 400:
         await upstream.aclose()
@@ -165,7 +188,6 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
         info = await asyncio.to_thread(get_video_info, video_id, cookies)
     except Exception as e:
         err_msg = str(e)
-        import re
         clean_msg = re.sub(r'^(?:ERROR:\s*)?\[youtube\]\s*[\w-]+:\s*', '', err_msg)
         if 'Sign in' in err_msg or 'bot' in err_msg:
             return JSONResponse(status_code=503, content={
