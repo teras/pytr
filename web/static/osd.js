@@ -294,6 +294,7 @@ function formatTime(s, refS) {
             if (e.target.closest('.tv-osd-bar') || e.target.closest('.sb-toast') || e.target.closest('.osd-right-controls')) return;
             const video = _getVideo();
             if (!video || !_isVideoView()) return;
+            if (typeof currentPlayerType !== 'undefined' && currentPlayerType === null) return;
             video.paused ? video.play() : video.pause();
             showOsd();
         });

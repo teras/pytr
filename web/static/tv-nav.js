@@ -216,8 +216,9 @@
         if (!video || !isVideoView()) return false;
         switch (e.key) {
             case 'MediaPlayPause':
-                e.preventDefault(); video.paused ? video.play() : video.pause();
-                showOsd(); return true;
+                e.preventDefault();
+                if (currentPlayerType !== null) { video.paused ? video.play() : video.pause(); showOsd(); }
+                return true;
             case 'MediaStop':
                 e.preventDefault(); video.pause(); history.back(); return true;
             case 'MediaFastForward': case 'MediaTrackNext':
@@ -279,8 +280,8 @@
                     }
                     if (e.key === ' ' || e.key === 'Enter') {
                         e.preventDefault();
-                        video.paused ? video.play() : video.pause();
-                        showOsd(); return;
+                        if (currentPlayerType !== null) { video.paused ? video.play() : video.pause(); showOsd(); }
+                        return;
                     }
                 }
             }
@@ -377,8 +378,7 @@
             }
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                video.paused ? video.play() : video.pause();
-                showOsd();
+                if (currentPlayerType !== null) { video.paused ? video.play() : video.pause(); showOsd(); }
                 return;
             }
             return;
@@ -428,7 +428,7 @@
                 if (currentEl.id === 'player-container') {
                     enterPlayerMode();
                     const video = getVideo();
-                    if (video) { video.paused ? video.play() : video.pause(); showOsd(); }
+                    if (video && currentPlayerType !== null) { video.paused ? video.play() : video.pause(); showOsd(); }
                     return;
                 }
                 currentEl.click();
