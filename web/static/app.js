@@ -965,6 +965,7 @@ async function playVideo(videoId, title, channel, duration, startTime) {
         if (typeof initSponsorBlock === 'function') initSponsorBlock(videoId);
 
         const resp = await fetch(appendCookieParam(`/api/info/${videoId}`));
+        if (currentVideoId !== videoId) return; // user navigated away
         const info = await resp.json();
 
         if (!resp.ok) {
@@ -1023,6 +1024,7 @@ async function playVideo(videoId, title, channel, duration, startTime) {
             if (info.has_multi_audio && info.hls_manifest_url && Hls.isSupported()) {
                 try {
                     const audioResp = await fetch(`/api/hls/audio-tracks/${videoId}`);
+                    if (currentVideoId !== videoId) return;
                     const data = await audioResp.json();
                     hlsAudioTracks = data.audio_tracks || [];
                     if (hlsAudioTracks.length > 1) {
