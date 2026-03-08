@@ -35,8 +35,10 @@
     let _toastEl = null;
     let _prefs = null; // {enabled: bool, categories: string[]}
     let _isAutoSeek = false; // flag to distinguish auto-skip seeks from user seeks
-    let _suppressedSeg = null; // segment suppressed because user seeked into it
+    let _suppressedSegs = new Set(); // segment keys suppressed because user seeked into them or skip couldn't clear
     let _skipDepth = 0; // recursion guard for _doSkip ↔ _scheduleSkip
+
+    function _segKey(seg) { return seg[0] + ':' + seg[1]; }
 
     // ── Preferences ──────────────────────────────────────────────────────────
 
@@ -87,7 +89,7 @@
         _highlight = null;
         _videoId = null;
         _isAutoSeek = false;
-        _suppressedSeg = null;
+        _suppressedSegs = new Set();
         _skipDepth = 0;
         if (_skipTimer) { clearTimeout(_skipTimer); _skipTimer = null; }
         _dismissToast();
@@ -121,7 +123,7 @@
             const end = seg.segment[1];
             if (now >= end) continue;
             if (now >= start - 0.5 && now < end) {
-                if (_suppressedSeg && seg.segment[0] === _suppressedSeg[0] && seg.segment[1] === _suppressedSeg[1]) continue;
+                if (_suppressedSegs.has(_segKey(seg.segment))) continue;
                 _doSkip(video, seg);
                 return;
             }
@@ -164,7 +166,7 @@
         _isAutoSeek = true;
         video.currentTime = target;
         // If we couldn't skip fully past the segment, suppress it to avoid re-triggering
-        if (target < seg.segment[1]) _suppressedSeg = seg.segment;
+        if (target < seg.segment[1]) _suppressedSegs.add(_segKey(seg.segment));
         _showToast(seg.category, skipFrom);
         // Use depth guard: if currentTime didn't actually change (e.g. autoplay blocked),
         // _scheduleSkip would see the old position and call _doSkip again → infinite recursion
@@ -242,22 +244,25 @@
                 if (_skipTimer) { clearTimeout(_skipTimer); _skipTimer = null; }
                 // Suppress the segment the user seeked into
                 const t = video.currentTime;
-                _suppressedSeg = null;
+                _suppressedSegs = new Set();
                 for (const seg of _segments) {
                     if (!_isCategoryEnabled(seg.category)) continue;
                     if (t >= seg.segment[0] - 0.5 && t < seg.segment[1]) {
-                        _suppressedSeg = seg.segment;
+                        _suppressedSegs.add(_segKey(seg.segment));
                         break;
                     }
                 }
             }
         });
         video.addEventListener('timeupdate', () => {
-            // Clear suppression once user leaves the suppressed segment
-            if (_suppressedSeg) {
+            // Clear suppression once user leaves a suppressed segment
+            if (_suppressedSegs.size) {
                 const t = video.currentTime;
-                if (t < _suppressedSeg[0] - 0.5 || t >= _suppressedSeg[1]) {
-                    _suppressedSeg = null;
+                for (const key of _suppressedSegs) {
+                    const [s, e] = key.split(':').map(Number);
+                    if (t < s - 0.5 || t >= e) {
+                        _suppressedSegs.delete(key);
+                    }
                 }
             }
         });
