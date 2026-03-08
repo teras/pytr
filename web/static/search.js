@@ -618,6 +618,7 @@ function createRelatedCard(video) {
         <div class="related-info">
             <div class="related-title">${escapeHtml(video.title)}</div>
             ${video.channel ? `<div class="related-channel">${escapeHtml(video.channel)}</div>` : ''}
+            ${video.views || video.date || video.published ? `<div class="related-meta">${[video.views, video.date || video.published].filter(Boolean).map(escapeHtml).join(' \u00b7 ')}</div>` : ''}
         </div>
     </a>`;
 }

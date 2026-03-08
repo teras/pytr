@@ -172,6 +172,14 @@ def _parse_video_renderer(renderer: dict) -> dict | None:
     # Published time: relative text like "2 days ago", "3 months ago"
     published = renderer.get("publishedTimeText", {}).get("simpleText", "")
 
+    # View count: short form like "1.4M views"
+    views_obj = renderer.get("shortViewCountText", {})
+    views = views_obj.get("simpleText", "")
+    if not views:
+        runs = views_obj.get("runs", [])
+        if runs:
+            views = "".join(r.get("text", "") for r in runs)
+
     # Live badge: badges[] → metadataBadgeRenderer.label == "LIVE"
     is_live = any(
         b.get("metadataBadgeRenderer", {}).get("label") == "LIVE"
@@ -185,6 +193,7 @@ def _parse_video_renderer(renderer: dict) -> dict | None:
         "duration_str": duration_str or _format_duration(duration),
         "channel": channel or "Unknown",
         "published": published,
+        "views": views,
         "is_live": is_live,
         "thumbnail": f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg",
     }
@@ -203,6 +212,49 @@ def _extract_lockup_channel(metadata: dict) -> str:
     return ""
 
 
+def _extract_lockup_metadata(metadata: dict) -> dict:
+    """Extract all metadata parts from lockupMetadataViewModel's metadata rows.
+
+    Returns dict with channel, views, date extracted from metadataRows.
+    Typical layout: row0=[channel, views], row1=[date] (but varies).
+    """
+    rows = (metadata
+            .get("metadata", {})
+            .get("contentMetadataViewModel", {})
+            .get("metadataRows", []))
+    # Collect all text parts in order
+    all_parts = []
+    for row in rows:
+        for part in row.get("metadataParts", []):
+            text = part.get("text", {}).get("content", "")
+            if text:
+                all_parts.append(text)
+
+    result = {"channel": "", "views": "", "date": ""}
+    if not all_parts:
+        return result
+
+    # First part is always channel name
+    result["channel"] = all_parts[0]
+
+    # Remaining parts: classify by content
+    for part in all_parts[1:]:
+        lower = part.lower()
+        if ("view" in lower or "watching" in lower
+                or "visualiz" in lower  # Spanish/Portuguese
+                or "vue" in lower       # French
+                or "aufrufe" in lower   # German
+                or "visning" in lower   # Swedish/Norwegian
+                or "再生" in lower       # Japanese
+                or "조회" in lower):     # Korean
+            result["views"] = part
+        else:
+            # Assume it's a date/time string (e.g. "3 days ago", "Streamed 2 hours ago")
+            result["date"] = part
+
+    return result
+
+
 def _extract_lockup_duration(vm: dict) -> str:
     """Extract duration string from lockupViewModel overlay badges."""
     content_image = vm.get("contentImage", {})
@@ -211,6 +263,14 @@ def _extract_lockup_duration(vm: dict) -> str:
                 .get("primaryThumbnail", {}).get("thumbnailViewModel")
                 or {})
     for overlay in thumb_vm.get("overlays", []):
+        # New format: thumbnailBottomOverlayViewModel.badges[]
+        bottom = overlay.get("thumbnailBottomOverlayViewModel", {})
+        for b in bottom.get("badges", []):
+            bvm = b.get("thumbnailBadgeViewModel", {})
+            text = bvm.get("text", "")
+            if text:
+                return text
+        # Legacy format: thumbnailOverlayBadgeViewModel.thumbnailBadges[]
         badge = overlay.get("thumbnailOverlayBadgeViewModel", {})
         for b in badge.get("thumbnailBadges", []):
             if "thumbnailBadgeViewModel" in b:
@@ -786,13 +846,15 @@ def _parse_related_video(vm: dict, content_id: str) -> dict | None:
     if not title:
         return None
 
-    channel = _extract_lockup_channel(metadata)
+    meta = _extract_lockup_metadata(metadata)
     duration_str = _extract_lockup_duration(vm)
 
     return {
         "id": content_id,
         "title": title,
-        "channel": channel,
+        "channel": meta["channel"],
+        "views": meta["views"],
+        "date": meta["date"],
         "duration_str": duration_str,
         "thumbnail": f"https://i.ytimg.com/vi/{content_id}/mqdefault.jpg",
     }

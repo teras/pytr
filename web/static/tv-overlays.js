@@ -483,7 +483,9 @@
             badge = `<span class="duration">${escapeHtml(item.duration_str)}</span>`;
         }
         const thumb = item.thumbnail || `https://i.ytimg.com/vi/${encodeURIComponent(item.id || '')}/mqdefault.jpg`;
-        card.innerHTML = `<div class="thumbnail-container"><img src="${escapeAttr(thumb)}" loading="lazy">${badge}</div><div class="related-info"><div class="related-title">${escapeHtml(item.title || '')}</div>${item.channel ? `<div class="related-channel">${escapeHtml(item.channel)}</div>` : ''}</div>`;
+        const metaParts = [item.views, item.date || item.published].filter(Boolean).map(escapeHtml);
+        const metaHtml = metaParts.length ? `<div class="related-meta">${metaParts.join(' \u00b7 ')}</div>` : '';
+        card.innerHTML = `<div class="thumbnail-container"><img src="${escapeAttr(thumb)}" loading="lazy">${badge}</div><div class="related-info"><div class="related-title">${escapeHtml(item.title || '')}</div>${item.channel ? `<div class="related-channel">${escapeHtml(item.channel)}</div>` : ''}${metaHtml}</div>`;
         card.addEventListener('click', (e) => {
             e.preventDefault();
             hideBottom();

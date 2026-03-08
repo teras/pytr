@@ -700,6 +700,8 @@ h1 {
 .related-card .related-info {
     flex: 1;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
 }
 
 .related-card .related-title {
@@ -717,6 +719,15 @@ h1 {
     font-size: 12px;
     color: var(--color-text-muted);
     margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.related-card .related-meta {
+    font-size: 11px;
+    color: color-mix(in srgb, var(--color-text-muted) 75%, transparent);
+    margin-top: auto;
 }
 
 /* Playlist/Mix Badge */
@@ -2217,6 +2228,10 @@ body.tv-nav-active .video-details {
 
 .tv-related-strip .related-card .related-channel {
     font-size: 11px;
+}
+
+.tv-related-strip .related-card .related-meta {
+    font-size: 10px;
 }
 
 .tv-queue-card.active {
