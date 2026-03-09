@@ -108,19 +108,41 @@
             var savedDeviceName = store.deviceName || 'LG TV';
             var currentServerUrl = store.url || '';
             var appIframe = null;
+            var savedServerPollTimer = null;
+            var POLL_INTERVAL = 3000;
 
             deviceNameInput.value = savedDeviceName;
 
             // ── Entry point ──────────────────────────────────────────────────
             if (currentServerUrl && savedToken) {
-                showIframe(currentServerUrl);
+                // Test saved server before showing iframe
+                testSavedServer(currentServerUrl);
             } else {
                 showDiscovery();
+            }
+
+            function testSavedServer(address) {
+                var controller = new AbortController();
+                var timeout = setTimeout(function () { controller.abort(); }, 4000);
+
+                fetch(address + '/api/profiles/boot', { mode: 'cors', signal: controller.signal })
+                    .then(function (r) {
+                        clearTimeout(timeout);
+                        if (!r.ok) throw new Error('Bad response');
+                        showIframe(address);
+                    })
+                    .catch(function () {
+                        clearTimeout(timeout);
+                        // Server is down — show discovery and poll saved server
+                        showDiscovery();
+                        startSavedServerPoll(address);
+                    });
             }
 
             // ── Iframe management ────────────────────────────────────────────
 
             function showIframe(address) {
+                stopSavedServerPoll();
                 currentServerUrl = address;
                 setupScreen.classList.add('hidden');
 
@@ -133,7 +155,36 @@
                 document.body.appendChild(appIframe);
             }
 
+            // ── Saved server polling (while on setup screen) ──────────────
+
+            function startSavedServerPoll(address) {
+                stopSavedServerPoll();
+                savedServerPollTimer = setInterval(function () {
+                    var controller = new AbortController();
+                    var timeout = setTimeout(function () { controller.abort(); }, 4000);
+
+                    fetch(address + '/api/profiles/boot', { mode: 'cors', signal: controller.signal })
+                        .then(function (r) {
+                            clearTimeout(timeout);
+                            if (!r.ok) throw new Error('Bad response');
+                            stopSavedServerPoll();
+                            showIframe(address);
+                        })
+                        .catch(function () {
+                            clearTimeout(timeout);
+                        });
+                }, POLL_INTERVAL);
+            }
+
+            function stopSavedServerPoll() {
+                if (savedServerPollTimer) {
+                    clearInterval(savedServerPollTimer);
+                    savedServerPollTimer = null;
+                }
+            }
+
             function destroyIframe() {
+                stopSavedServerPoll();
                 if (appIframe) {
                     appIframe.remove();
                     appIframe = null;
@@ -163,6 +214,14 @@
                         savedToken = e.data.token || '';
                         store.token = savedToken;
                         saveStore();
+                        break;
+
+                    case 'pytr-server-down':
+                        if (appIframe) appIframe.remove();
+                        appIframe = null;
+                        setupScreen.classList.remove('hidden');
+                        showDiscovery();
+                        startSavedServerPoll(currentServerUrl);
                         break;
 
                     case 'pytr-change-server':

@@ -5,12 +5,19 @@ package onl.ycode.pytr
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.widget.*
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.atomic.AtomicBoolean
 
 class SetupActivity : Activity() {
+    companion object {
+        const val RECONNECT_INTERVAL_MS = 3000L
+    }
+
     private lateinit var discovery: ServerDiscovery
     private lateinit var serverList: ListView
     private lateinit var discoveryStatus: TextView
@@ -21,16 +28,25 @@ class SetupActivity : Activity() {
 
     private val servers = mutableListOf<DiscoveredServer>()
     private lateinit var adapter: ArrayAdapter<DiscoveredServer>
+    private val handler = Handler(Looper.getMainLooper())
+    private val pollingActive = AtomicBoolean(false)
+    private var launching = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Skip setup if server already configured
-        PreferenceHelper.getServerUrl(this)?.let { url ->
-            launchMain(url)
+        // If saved server exists, test it before launching
+        val savedUrl = PreferenceHelper.getServerUrl(this)
+        if (savedUrl != null) {
+            // Test connection in background, show setup screen meanwhile
+            showSetupScreen(savedUrl)
             return
         }
 
+        showSetupScreen(null)
+    }
+
+    private fun showSetupScreen(savedUrl: String?) {
         setContentView(R.layout.activity_setup)
 
         discoveryStatus = findViewById(R.id.discoveryStatus)
@@ -70,6 +86,55 @@ class SetupActivity : Activity() {
             }
         }
         discovery.startDiscovery()
+
+        // If we have a saved server, start polling it in the background
+        if (savedUrl != null) {
+            startPolling(savedUrl)
+        }
+    }
+
+    private fun startPolling(url: String) {
+        pollingActive.set(true)
+        schedulePoll(url)
+    }
+
+    private fun stopPolling() {
+        pollingActive.set(false)
+        handler.removeCallbacksAndMessages(null)
+    }
+
+    private fun schedulePoll(url: String) {
+        if (!pollingActive.get()) return
+        // First poll immediately, subsequent ones after interval
+        doPoll(url)
+    }
+
+    private fun doPoll(url: String) {
+        if (!pollingActive.get()) return
+
+        Thread {
+            val alive = try {
+                val conn = URL("$url/api/profiles/boot").openConnection() as HttpURLConnection
+                conn.connectTimeout = 5000
+                conn.readTimeout = 5000
+                conn.requestMethod = "GET"
+                val code = conn.responseCode
+                conn.disconnect()
+                code in 200..499
+            } catch (_: Exception) {
+                false
+            }
+
+            runOnUiThread {
+                if (!pollingActive.get() || launching) return@runOnUiThread
+                if (alive) {
+                    stopPolling()
+                    launchMain(url)
+                } else {
+                    handler.postDelayed({ doPoll(url) }, RECONNECT_INTERVAL_MS)
+                }
+            }
+        }.start()
     }
 
     private fun testAndConnect(url: String) {
@@ -107,6 +172,9 @@ class SetupActivity : Activity() {
     }
 
     private fun launchMain(url: String) {
+        if (launching) return
+        launching = true
+        stopPolling()
         val intent = Intent(this, MainActivity::class.java)
         intent.putExtra("server_url", url)
         startActivity(intent)
@@ -115,6 +183,7 @@ class SetupActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        stopPolling()
         if (::discovery.isInitialized) {
             discovery.stopDiscovery()
         }

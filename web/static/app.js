@@ -1373,6 +1373,8 @@ let _wsReconnectTimer = null;
 let _wsStateThrottle = null;
 let _wsConnected = false;
 let _wsReconnectDelay = 500;
+let _wsConsecutiveFailures = 0;
+let _serverDownNotified = false;
 const _tabId = Math.random().toString(36).slice(2, 10);
 function connectWebSocket() {
     if (_ws && (_ws.readyState === WebSocket.OPEN || _ws.readyState === WebSocket.CONNECTING)) return;
@@ -1381,6 +1383,8 @@ function connectWebSocket() {
 
     _ws.onopen = () => {
         _wsConnected = true;
+        _wsConsecutiveFailures = 0;
+        _serverDownNotified = false;
         if (_wsReconnectTimer) { clearTimeout(_wsReconnectTimer); _wsReconnectTimer = null; }
         // _onWsReconnected returns true if auto-repair started (backoff resets on pair success instead)
         const autoRepairing = typeof _onWsReconnected === 'function' && _onWsReconnected();
@@ -1390,6 +1394,12 @@ function connectWebSocket() {
     _ws.onclose = () => {
         _wsConnected = false;
         _ws = null;
+        _wsConsecutiveFailures++;
+        console.warn('[PYTR] WS onclose, consecutive failures:', _wsConsecutiveFailures);
+        if (_wsConsecutiveFailures >= 3 && !_serverDownNotified) {
+            console.warn('[PYTR] Server down detected, notifying...');
+            _notifyServerDown();
+        }
         if (typeof _onWsDisconnected === 'function') _onWsDisconnected();
         // Auto-reconnect with exponential backoff (500ms → 1s → 2s → 4s → 5s max)
         if (!_wsReconnectTimer) {
@@ -1421,6 +1431,18 @@ document.addEventListener('visibilitychange', () => {
         connectWebSocket();
     }
 });
+
+function _notifyServerDown() {
+    _serverDownNotified = true;
+    const tvMode = localStorage.getItem('tv-mode');
+    console.warn('[PYTR] _notifyServerDown, tv-mode:', tvMode);
+    if (tvMode === 'webos') {
+        window.parent.postMessage({ type: 'pytr-server-down' }, window._pytrParentOrigin());
+    } else if (tvMode === 'android') {
+        console.warn('[PYTR] Navigating to pytr://server-down');
+        window.location.href = 'pytr://server-down';
+    }
+}
 
 function wsSend(data) {
     if (_ws && _ws.readyState === WebSocket.OPEN) {

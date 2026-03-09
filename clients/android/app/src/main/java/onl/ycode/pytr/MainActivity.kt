@@ -64,8 +64,14 @@ class MainActivity : Activity() {
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                if (request.url.toString().startsWith("pytr://setup")) {
+                val url = request.url.toString()
+                if (url.startsWith("pytr://setup")) {
                     PreferenceHelper.clearServerUrl(this@MainActivity)
+                    startActivity(Intent(this@MainActivity, SetupActivity::class.java))
+                    finish()
+                    return true
+                }
+                if (url.startsWith("pytr://server-down")) {
                     startActivity(Intent(this@MainActivity, SetupActivity::class.java))
                     finish()
                     return true
@@ -98,11 +104,10 @@ class MainActivity : Activity() {
             override fun onReceivedError(
                 view: WebView, request: WebResourceRequest, error: WebResourceError
             ) {
-                // Only reset to setup after repeated main frame failures
+                // Go to setup (which will poll saved server) after repeated main frame failures
                 if (request.isForMainFrame) {
                     consecutiveErrors++
                     if (consecutiveErrors >= MAX_LOAD_ERRORS) {
-                        PreferenceHelper.clearServerUrl(this@MainActivity)
                         startActivity(Intent(this@MainActivity, SetupActivity::class.java))
                         finish()
                     }
@@ -110,7 +115,12 @@ class MainActivity : Activity() {
             }
         }
 
-        webView.webChromeClient = WebChromeClient()
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
+                android.util.Log.d("PYTR-JS", "${msg.messageLevel()}: ${msg.message()}")
+                return true
+            }
+        }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
