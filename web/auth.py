@@ -959,9 +959,24 @@ async def link_page(request: Request, code: str = ""):
     return HTMLResponse(LINK_PAGE)
 
 
+def _ensure_admin_profile(request: Request):
+    """Require admin, auto-assigning the first admin profile if session has none."""
+    token, session = extract_token(request)
+    if token and session and session.get("profile_id") is None:
+        # Session exists but no profile selected — try to auto-assign an admin
+        for p in profiles_db.list_profiles():
+            if p["is_admin"]:
+                profiles_db.set_session_profile(token, p["id"])
+                # Invalidate cached auth result so require_admin sees the update
+                if hasattr(request.state, '_auth_result'):
+                    del request.state._auth_result
+                break
+    require_admin(request)
+
+
 @router.post("/api/pair/approve")
 async def pair_approve(request: Request, body: dict, auth: bool = Depends(require_auth)):
-    require_admin(request)
+    _ensure_admin_profile(request)
     code = body.get("code", "").upper()
     req = PAIRING_REQUESTS.get(code)
     if not req or req["expires_at"] < time.time():
@@ -981,7 +996,7 @@ async def pair_approve(request: Request, body: dict, auth: bool = Depends(requir
 
 @router.post("/api/pair/deny")
 async def pair_deny(request: Request, body: dict, auth: bool = Depends(require_auth)):
-    require_admin(request)
+    _ensure_admin_profile(request)
     code = body.get("code", "").upper()
     req = PAIRING_REQUESTS.get(code)
     if not req or req["expires_at"] < time.time():
