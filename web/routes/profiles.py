@@ -99,7 +99,7 @@ async def boot(request: Request):
     # these are the only idle-state endpoints hit regularly. Not needed in the
     # "ready" branch above since that returns immediately without listing.
     maybe_long_cleanup()
-    return {"state": "profile-select", "profiles": profiles}
+    return {"state": "profile-select", "profiles": profiles, "version": BUILD_VERSION}
 
 
 @router.get("")

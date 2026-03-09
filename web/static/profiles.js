@@ -310,6 +310,7 @@ async function checkProfile() {
         const resp = await fetch('/api/profiles/boot');
         if (!resp.ok) throw new Error('Boot failed');
         const data = await resp.json();
+        if (data.version) window._pytrVersion = data.version;
 
         if (data.state === 'login-required') {
             if (window._pytrIsIframe) {
@@ -323,7 +324,6 @@ async function checkProfile() {
         } else if (data.state === 'ready') {
             currentProfile = data.profile;
             window._cookiesAvailable = !!data.cookies_available;
-            if (data.version) window._pytrVersion = data.version;
             applyProfilePrefs();
             updateProfileButton();
             profileOverlay.innerHTML = '';
