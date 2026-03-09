@@ -180,9 +180,10 @@ def _parse_video_renderer(renderer: dict) -> dict | None:
         if runs:
             views = "".join(r.get("text", "") for r in runs)
 
-    # Live badge: badges[] → metadataBadgeRenderer.label == "LIVE"
+    # Live badge: badges[] → metadataBadgeRenderer.style == "BADGE_STYLE_TYPE_LIVE_NOW"
+    # (label is locale-dependent, e.g. "LIVE", "ΖΩΝΤΑΝΑ", etc.)
     is_live = any(
-        b.get("metadataBadgeRenderer", {}).get("label") == "LIVE"
+        b.get("metadataBadgeRenderer", {}).get("style") == "BADGE_STYLE_TYPE_LIVE_NOW"
         for b in renderer.get("badges", [])
     )
 
@@ -190,7 +191,7 @@ def _parse_video_renderer(renderer: dict) -> dict | None:
         "id": video_id,
         "title": title,
         "duration": duration,
-        "duration_str": duration_str or _format_duration(duration),
+        "duration_str": duration_str or ("" if is_live else _format_duration(duration)),
         "channel": channel or "Unknown",
         "published": published,
         "views": views,
@@ -734,7 +735,7 @@ def _parse_grid_video_renderer(renderer: dict) -> dict | None:
             pass
 
     is_live = any(
-        b.get("metadataBadgeRenderer", {}).get("label") == "LIVE"
+        b.get("metadataBadgeRenderer", {}).get("style") == "BADGE_STYLE_TYPE_LIVE_NOW"
         for b in renderer.get("badges", [])
     )
 
@@ -742,7 +743,7 @@ def _parse_grid_video_renderer(renderer: dict) -> dict | None:
         "id": video_id,
         "title": title,
         "duration": duration,
-        "duration_str": duration_str or _format_duration(duration),
+        "duration_str": duration_str or ("" if is_live else _format_duration(duration)),
         "channel": channel or "Unknown",
         "published": published,
         "is_live": is_live,
