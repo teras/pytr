@@ -601,7 +601,8 @@ function createRelatedCard(video) {
         const countBadge = video.video_count ? `<span class="video-count">${escapeHtml(video.video_count)}</span>` : '';
         badge = `${countBadge}<span class="badge-${escapeAttr(video.type)}">${label}</span>`;
     } else {
-        badge = video.duration_str ? `<span class="duration">${escapeHtml(video.duration_str)}</span>` : '';
+        badge = video.is_live ? '<span class="duration live">LIVE</span>'
+              : video.duration_str ? `<span class="duration">${escapeHtml(video.duration_str)}</span>` : '';
     }
 
     const dataAttrs = isMixOrPlaylist

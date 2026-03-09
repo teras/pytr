@@ -479,6 +479,8 @@
             const label = item.type === 'playlist' ? 'Playlist' : 'Mix';
             badge = (item.video_count ? `<span class="video-count">${escapeHtml(String(item.video_count))}</span>` : '') +
                     `<span class="badge-${item.type === 'mix' ? 'mix' : 'playlist'}">${label}</span>`;
+        } else if (item.is_live) {
+            badge = '<span class="duration live">LIVE</span>';
         } else if (item.duration_str) {
             badge = `<span class="duration">${escapeHtml(item.duration_str)}</span>`;
         }

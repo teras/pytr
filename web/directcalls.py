@@ -217,47 +217,38 @@ def _extract_lockup_metadata(metadata: dict) -> dict:
     """Extract all metadata parts from lockupMetadataViewModel's metadata rows.
 
     Returns dict with channel, views, date extracted from metadataRows.
-    Typical layout: row0=[channel, views], row1=[date] (but varies).
+    Layout is positional: row 0 = [channel], row 1 = [views, date].
     """
     rows = (metadata
             .get("metadata", {})
             .get("contentMetadataViewModel", {})
             .get("metadataRows", []))
-    # Collect all text parts in order
-    all_parts = []
-    for row in rows:
-        for part in row.get("metadataParts", []):
-            text = part.get("text", {}).get("content", "")
-            if text:
-                all_parts.append(text)
 
     result = {"channel": "", "views": "", "date": ""}
-    if not all_parts:
-        return result
 
-    # First part is always channel name
-    result["channel"] = all_parts[0]
+    # Row 0, part 0: channel name
+    if rows:
+        parts0 = rows[0].get("metadataParts", [])
+        if parts0:
+            result["channel"] = parts0[0].get("text", {}).get("content", "")
 
-    # Remaining parts: classify by content
-    for part in all_parts[1:]:
-        lower = part.lower()
-        if ("view" in lower or "watching" in lower
-                or "visualiz" in lower  # Spanish/Portuguese
-                or "vue" in lower       # French
-                or "aufrufe" in lower   # German
-                or "visning" in lower   # Swedish/Norwegian
-                or "再生" in lower       # Japanese
-                or "조회" in lower):     # Korean
-            result["views"] = part
-        else:
-            # Assume it's a date/time string (e.g. "3 days ago", "Streamed 2 hours ago")
-            result["date"] = part
+    # Row 1: views (part 0) and date (part 1)
+    if len(rows) > 1:
+        parts1 = rows[1].get("metadataParts", [])
+        if parts1:
+            result["views"] = parts1[0].get("text", {}).get("content", "")
+        if len(parts1) > 1:
+            result["date"] = parts1[1].get("text", {}).get("content", "")
 
     return result
 
 
-def _extract_lockup_duration(vm: dict) -> str:
-    """Extract duration string from lockupViewModel overlay badges."""
+def _extract_lockup_overlay(vm: dict) -> tuple[str, bool]:
+    """Extract duration/count string and live status from lockupViewModel overlay badges.
+
+    Returns (text, is_live). Uses badgeStyle to detect live streams
+    (language-independent) instead of matching badge text.
+    """
     content_image = vm.get("contentImage", {})
     thumb_vm = (content_image.get("thumbnailViewModel")
                 or content_image.get("collectionThumbnailViewModel", {})
@@ -270,13 +261,17 @@ def _extract_lockup_duration(vm: dict) -> str:
             bvm = b.get("thumbnailBadgeViewModel", {})
             text = bvm.get("text", "")
             if text:
-                return text
+                is_live = bvm.get("badgeStyle") == "THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE"
+                return text, is_live
         # Legacy format: thumbnailOverlayBadgeViewModel.thumbnailBadges[]
         badge = overlay.get("thumbnailOverlayBadgeViewModel", {})
         for b in badge.get("thumbnailBadges", []):
             if "thumbnailBadgeViewModel" in b:
-                return b["thumbnailBadgeViewModel"].get("text", "")
-    return ""
+                bvm = b["thumbnailBadgeViewModel"]
+                text = bvm.get("text", "")
+                is_live = bvm.get("badgeStyle") == "THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE"
+                return text, is_live
+    return "", False
 
 
 def _parse_lockup_view_model(vm: dict) -> dict | None:
@@ -306,7 +301,7 @@ def _parse_lockup_view_model(vm: dict) -> dict | None:
     channel = _extract_lockup_channel(metadata)
 
     # Video count from overlay badge (e.g. "22 videos")
-    video_count = _extract_lockup_duration(vm)
+    video_count, _ = _extract_lockup_overlay(vm)
 
     # Thumbnail
     content_image = vm.get("contentImage", {})
@@ -566,20 +561,17 @@ async def channel_first(channel_id: str) -> tuple[str, str, str, list[dict], str
             break
     if not subscriber_count:
         # pageHeaderRenderer stores it in content → metadata
+        # Layout is positional: row 0 = [@handle], row 1 = [subscribers, videos]
         meta_rows = (header.get("pageHeaderRenderer", {})
                      .get("content", {})
                      .get("pageHeaderViewModel", {})
                      .get("metadata", {})
                      .get("contentMetadataViewModel", {})
                      .get("metadataRows", []))
-        for row in meta_rows:
-            for part in row.get("metadataParts", []):
-                txt = part.get("text", {}).get("content", "")
-                if "subscriber" in txt.lower():
-                    subscriber_count = txt
-                    break
-            if subscriber_count:
-                break
+        if len(meta_rows) > 1:
+            parts = meta_rows[1].get("metadataParts", [])
+            if parts:
+                subscriber_count = parts[0].get("text", {}).get("content", "")
 
     results = []
     token = None
@@ -848,17 +840,20 @@ def _parse_related_video(vm: dict, content_id: str) -> dict | None:
         return None
 
     meta = _extract_lockup_metadata(metadata)
-    duration_str = _extract_lockup_duration(vm)
+    duration_str, is_live = _extract_lockup_overlay(vm)
 
-    return {
+    result = {
         "id": content_id,
         "title": title,
         "channel": meta["channel"],
         "views": meta["views"],
         "date": meta["date"],
-        "duration_str": duration_str,
+        "duration_str": "" if is_live else duration_str,
         "thumbnail": f"https://i.ytimg.com/vi/{content_id}/mqdefault.jpg",
     }
+    if is_live:
+        result["is_live"] = True
+    return result
 
 
 def _extract_yt_initial_data(html: str) -> dict | None:
