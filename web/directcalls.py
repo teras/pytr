@@ -131,6 +131,24 @@ def _build_headers(version: str) -> dict:
 
 # ── Response parsers ─────────────────────────────────────────────────────────
 
+def _is_live_renderer(renderer: dict) -> bool:
+    """Detect live status from a videoRenderer/gridVideoRenderer.
+
+    Checks two YouTube signals (both use internal enum values, not localized):
+    1. badges[] → metadataBadgeRenderer.style == "BADGE_STYLE_TYPE_LIVE_NOW"
+    2. thumbnailOverlays[] → thumbnailOverlayTimeStatusRenderer.style == "LIVE"
+    """
+    if any(
+        b.get("metadataBadgeRenderer", {}).get("style") == "BADGE_STYLE_TYPE_LIVE_NOW"
+        for b in renderer.get("badges", [])
+    ):
+        return True
+    for overlay in renderer.get("thumbnailOverlays", []):
+        if overlay.get("thumbnailOverlayTimeStatusRenderer", {}).get("style") == "LIVE":
+            return True
+    return False
+
+
 def _parse_video_renderer(renderer: dict) -> dict | None:
     """Extract video info from a videoRenderer object."""
     video_id = renderer.get("videoId")
@@ -180,12 +198,7 @@ def _parse_video_renderer(renderer: dict) -> dict | None:
         if runs:
             views = "".join(r.get("text", "") for r in runs)
 
-    # Live badge: badges[] → metadataBadgeRenderer.style == "BADGE_STYLE_TYPE_LIVE_NOW"
-    # (label is locale-dependent, e.g. "LIVE", "ΖΩΝΤΑΝΑ", etc.)
-    is_live = any(
-        b.get("metadataBadgeRenderer", {}).get("style") == "BADGE_STYLE_TYPE_LIVE_NOW"
-        for b in renderer.get("badges", [])
-    )
+    is_live = _is_live_renderer(renderer)
 
     return {
         "id": video_id,
@@ -259,18 +272,19 @@ def _extract_lockup_overlay(vm: dict) -> tuple[str, bool]:
         bottom = overlay.get("thumbnailBottomOverlayViewModel", {})
         for b in bottom.get("badges", []):
             bvm = b.get("thumbnailBadgeViewModel", {})
+            is_live = bvm.get("badgeStyle") == "THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE"
             text = bvm.get("text", "")
-            if text:
-                is_live = bvm.get("badgeStyle") == "THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE"
+            if text or is_live:
                 return text, is_live
         # Legacy format: thumbnailOverlayBadgeViewModel.thumbnailBadges[]
         badge = overlay.get("thumbnailOverlayBadgeViewModel", {})
         for b in badge.get("thumbnailBadges", []):
             if "thumbnailBadgeViewModel" in b:
                 bvm = b["thumbnailBadgeViewModel"]
-                text = bvm.get("text", "")
                 is_live = bvm.get("badgeStyle") == "THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE"
-                return text, is_live
+                text = bvm.get("text", "")
+                if text or is_live:
+                    return text, is_live
     return "", False
 
 
@@ -726,10 +740,7 @@ def _parse_grid_video_renderer(renderer: dict) -> dict | None:
         except ValueError:
             pass
 
-    is_live = any(
-        b.get("metadataBadgeRenderer", {}).get("style") == "BADGE_STYLE_TYPE_LIVE_NOW"
-        for b in renderer.get("badges", [])
-    )
+    is_live = _is_live_renderer(renderer)
 
     return {
         "id": video_id,
