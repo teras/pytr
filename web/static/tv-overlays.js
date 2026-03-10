@@ -148,6 +148,7 @@
             { el: document.getElementById('subtitle-btn'), container: document.getElementById('subtitle-btn-container'), menu: '.subtitle-menu', optClass: '.subtitle-option' },
             { el: document.getElementById('audio-btn'), container: document.getElementById('audio-btn-container'), menu: '.audio-menu', optClass: '.audio-option' },
             { el: document.getElementById('quality-btn'), container: document.getElementById('quality-selector'), menu: '.quality-menu', optClass: '.quality-option' },
+            { el: document.getElementById('private-mode-btn-player'), container: null, menu: null },
         ];
         for (const { el, container, menu, optClass } of btnSources) {
             if (!el) continue;
@@ -207,7 +208,8 @@
                 clone.addEventListener('click', () => {
                     el.click();
                     setTimeout(() => {
-                        clone.textContent = el.textContent;
+                        // Sync visual state from original to clone
+                        clone.innerHTML = el.innerHTML;
                         if (el.classList.contains('favorited')) clone.classList.add('favorited');
                         else clone.classList.remove('favorited');
                     }, 100);

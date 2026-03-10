@@ -806,8 +806,15 @@ videoPlayer.addEventListener('ended', () => {
 // ── List View Cache ─────────────────────────────────────────────────────────
 
 function cacheListView() {
+    // Remember focused video card for TV back-navigation
+    let focusedVideoId = null;
+    if (window._tv && window._tv.isTvActive()) {
+        const fc = document.querySelector('.tv-focus');
+        if (fc && fc.dataset && fc.dataset.id) focusedVideoId = fc.dataset.id;
+    }
     listViewCache = {
         mode: listViewMode,
+        mainTab: (typeof _currentMainTab !== 'undefined') ? _currentMainTab : null,
         query: currentQuery,
         channelId: currentChannelId,
         cursor: currentCursor,
@@ -815,6 +822,7 @@ function cacheListView() {
         headerVisible: !listHeader.classList.contains('hidden'),
         headerTitle: listTitle.textContent,
         searchRawResults: _searchRawResults,
+        focusedVideoId,
     };
 }
 
@@ -827,6 +835,7 @@ function restoreListCache() {
         hasMoreResults = !!listViewCache.cursor;
         searchInput.value = currentQuery || '';
         videoGrid.innerHTML = listViewCache.html;
+        videoGrid.querySelectorAll('[data-attached]').forEach(c => delete c.dataset.attached);
 
         if (listViewCache.headerVisible) {
             listHeader.classList.remove('hidden');
@@ -848,6 +857,12 @@ function restoreListCache() {
             _renderFilterToggles();
         } else if (listViewMode === 'channel' || listViewMode === 'channel_playlists') {
             _renderChannelTabs(currentChannelId);
+        }
+
+        // Restore TV focus to the previously focused video card
+        if (listViewCache.focusedVideoId && window._tv && window._tv.isTvActive()) {
+            const card = videoGrid.querySelector(`[data-id="${listViewCache.focusedVideoId}"]`);
+            if (card) window._tv.setFocus(card);
         }
     }
 }

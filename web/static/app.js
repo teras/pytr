@@ -331,6 +331,8 @@ window.addEventListener('pagehide', () => {
 });
 
 window.addEventListener('popstate', (e) => {
+    // Stop any in-progress video loading/playback when navigating away from video
+    if (!(e.state && e.state.view === 'video') && currentVideoId) stopPlayer();
     if (e.state && e.state.view === 'video') {
         document.title = e.state.title ? `${e.state.title} - PYTR` : 'PYTR';
         showVideoView();
@@ -357,13 +359,23 @@ window.addEventListener('popstate', (e) => {
         showListView();
         if (listViewCache && listViewCache.query === e.state.query) {
             restoreListCache();
+            listViewCache = null;
         } else if (e.state.query) {
             searchVideos(e.state.query, { pushState: false });
         }
     } else {
         document.title = 'PYTR';
         const view = e.state && e.state.view;
-        if (view === 'history' || view === 'favorites' || view === 'discover') {
+        if (listViewCache) {
+            const cachedTab = listViewCache.mainTab;
+            showListView();
+            restoreListCache();
+            listViewCache = null;
+            if (cachedTab) {
+                _currentMainTab = cachedTab;
+                _activateMainTab(cachedTab);
+            }
+        } else if (view === 'history' || view === 'favorites' || view === 'discover') {
             showListView();
             _loadMainTab(view);
         } else {
@@ -869,6 +881,7 @@ clearListBtn.addEventListener('click', async () => {
 function showPlayerError(title, message) {
     videoTitle.textContent = title || 'Video unavailable';
     qualitySelector.classList.add('hidden');
+    document.getElementById('private-mode-btn-player').classList.add('hidden');
     const overlay = document.createElement('div');
     overlay.className = 'player-error-overlay';
     overlay.innerHTML = `<div class="player-error-icon">!</div><p>${escapeHtml(message || 'This video is currently unavailable.')}</p><button class="player-error-retry">Retry</button>`;
@@ -900,6 +913,7 @@ function stopPlayer() {
     qualityMenu.classList.add('hidden');
     audioBtnContainer.classList.add('hidden');
     audioMenu.classList.add('hidden');
+    document.getElementById('private-mode-btn-player').classList.add('hidden');
     currentActiveHeight = 0;
     videoQualities = [];
     isLiveStream = false;
@@ -933,6 +947,7 @@ async function playVideo(videoId, title, channel, duration, startTime) {
     videoDescription.textContent = '';
     videoDescription.classList.add('hidden');
     qualitySelector.classList.remove('hidden');
+    document.getElementById('private-mode-btn-player').classList.remove('hidden');
     qualityBtn.textContent = '\ud83c\udfac \u2014';
     qualityBtn.disabled = true;
     audioBtnContainer.classList.add('hidden');
@@ -1095,7 +1110,7 @@ function startDashPlayer(videoId) {
     });
 
     dashPlayer.on(dashjs.MediaPlayer.events.ERROR, (e) => {
-        if (!e.error) return;
+        if (!e.error || currentVideoId !== videoId) return;
         if (!_dashAutoRefreshed) {
             _dashAutoRefreshed = true;
             console.warn('DASH error, auto-refreshing session');
@@ -1161,18 +1176,17 @@ function startHlsPlayer(videoId, manifestUrl, live = false) {
     });
 
     hlsPlayer.on(Hls.Events.ERROR, (event, data) => {
-        if (data.fatal) {
-            hlsPlayer.destroy();
-            hlsPlayer = null;
-            if (live && !liveRetried) {
-                // Live stream: likely expired URLs — reload with fresh manifest
-                console.warn('HLS live error, reloading manifest:', data.type);
-                liveRetried = true;
-                startHlsPlayer(videoId, manifestUrl, true);
-            } else if (!live) {
-                console.error('HLS fatal error, falling back to DASH:', data);
-                startDashPlayer(videoId);
-            }
+        if (!data.fatal || currentVideoId !== videoId) return;
+        hlsPlayer.destroy();
+        hlsPlayer = null;
+        if (live && !liveRetried) {
+            // Live stream: likely expired URLs — reload with fresh manifest
+            console.warn('HLS live error, reloading manifest:', data.type);
+            liveRetried = true;
+            startHlsPlayer(videoId, manifestUrl, true);
+        } else if (!live) {
+            console.error('HLS fatal error, falling back to DASH:', data);
+            startDashPlayer(videoId);
         }
     });
 }
@@ -1217,6 +1231,32 @@ videoPlayer.addEventListener('timeupdate', () => {
     if (typeof checkSponsorBlock === 'function') checkSponsorBlock(videoPlayer.currentTime);
     // Position saving is handled by _broadcastPlayerState (throttled 1x/sec via WS)
 });
+
+// ── Private Mode ────────────────────────────────────────────────────────────
+
+let _privateMode = false;
+const _privateModeBtns = [document.getElementById('private-mode-btn'), document.getElementById('private-mode-btn-player')];
+
+function _togglePrivateMode() {
+    _privateMode = !_privateMode;
+    for (const btn of _privateModeBtns) {
+        if (!btn) continue;
+        btn.querySelector('.eye-open').classList.toggle('hidden', _privateMode);
+        btn.querySelector('.eye-closed').classList.toggle('hidden', !_privateMode);
+    }
+    if (currentVideoId) {
+        if (_privateMode) {
+            // Went private: delete current video from history
+            fetch(`/api/profiles/history/${currentVideoId}`, { method: 'DELETE' });
+        } else if (!videoPlayer.paused) {
+            // Went public while playing: save position immediately
+            _broadcastPlayerState();
+        }
+    }
+}
+for (const btn of _privateModeBtns) {
+    if (btn) btn.addEventListener('click', _togglePrivateMode);
+}
 
 // ── Event Listeners ─────────────────────────────────────────────────────────
 
@@ -1515,7 +1555,7 @@ function _handleRemoteCommand(msg) {
 
 function _broadcastPlayerState() {
     if (!_wsConnected || !currentVideoId) return;
-    wsSend({
+    const msg = {
         type: 'state',
         videoId: currentVideoId,
         title: videoTitle.textContent || '',
@@ -1526,7 +1566,9 @@ function _broadcastPlayerState() {
         paused: videoPlayer.paused,
         volume: videoPlayer.volume,
         ended: videoPlayer.ended,
-    });
+    };
+    if (_privateMode) msg.private = true;
+    wsSend(msg);
 }
 
 function _throttledBroadcast() {

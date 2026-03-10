@@ -271,6 +271,8 @@ async def _handle_state(sender_ck: str, data: dict):
 
 def _save_position_from_state(conn_key: str, state: dict):
     """Save playback position to DB, throttled to every 5 seconds."""
+    if state.get("private"):
+        return
     token = _conn_to_token.get(conn_key)
     profile_id = _token_to_profile.get(token) if token else None
     if not profile_id:

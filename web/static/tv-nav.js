@@ -12,7 +12,7 @@
     _tv.navigateTopOverlay = () => 'exit';
     _tv.navigateBottomOverlay = () => false;
 
-    const FOCUSABLE = '.video-card, .related-card, .queue-item, .player-btn, .filter-btn, .list-tab, .sub-tab, .channel-tab, .profile-card, #search-input, #search-btn, #logo-link, #profile-switcher-btn, #player-container, .quality-option, .audio-option, .subtitle-option, .summarize-option, .profile-menu-item, .profile-menu-profile, .queue-toggle-area, .tv-top-home-btn, #profile-overlay input, #profile-overlay button, #profile-overlay a';
+    const FOCUSABLE = '.video-card, .related-card, .queue-item, .player-btn, .filter-btn, .list-tab, .sub-tab, .channel-tab, .profile-card, #search-input, #search-btn, #logo-link, #private-mode-btn, #profile-switcher-btn, #player-container, .quality-option, .audio-option, .subtitle-option, .summarize-option, .profile-menu-item, .profile-menu-profile, .queue-toggle-area, .tv-top-home-btn, #profile-overlay input, #profile-overlay button, #profile-overlay a';
 
     const MENU_SELECTORS = [
         { menu: '#quality-menu', btn: '#quality-btn' },

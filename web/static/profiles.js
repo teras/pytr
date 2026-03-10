@@ -507,6 +507,8 @@ function updateProfileButton() {
         versionEl.textContent = window._pytrVersion;
         versionEl.classList.remove('hidden');
     }
+    var privBtn = document.getElementById('private-mode-btn');
+    if (privBtn) privBtn.classList.remove('hidden');
 }
 
 // ── Profile Selector ───────────────────────────────────────────────────────
@@ -615,7 +617,9 @@ async function selectProfile(id, pin) {
         setMainContentVisible(true);
         if (document.activeElement) document.activeElement.blur();
         stopPlayer();
+        history.replaceState({ view: 'home' }, '', '/');
         handleInitialRoute();
+        if (typeof _ws !== 'undefined' && _ws) { _ws.onclose = null; _ws.close(); _ws = null; }
         if (typeof connectWebSocket === 'function') connectWebSocket();
         return true;
     } catch(e) {
