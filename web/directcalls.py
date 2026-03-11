@@ -149,6 +149,26 @@ def _is_live_renderer(renderer: dict) -> bool:
     return False
 
 
+def _extract_duration_str(renderer: dict) -> str:
+    """Extract duration string from lengthText or thumbnailOverlay fallback."""
+    duration_text = renderer.get("lengthText", {})
+    duration_str = duration_text.get("simpleText", "")
+    if not duration_str:
+        runs = duration_text.get("runs", [])
+        if runs:
+            duration_str = runs[0].get("text", "")
+    # Fallback: thumbnailOverlayTimeStatusRenderer (some pages omit lengthText)
+    if not duration_str:
+        for overlay in renderer.get("thumbnailOverlays", []):
+            tsr = overlay.get("thumbnailOverlayTimeStatusRenderer", {})
+            if tsr.get("style") != "LIVE":
+                text = tsr.get("text", {}).get("simpleText", "")
+                if text:
+                    duration_str = text
+                    break
+    return duration_str
+
+
 def _parse_video_renderer(renderer: dict) -> dict | None:
     """Extract video info from a videoRenderer object."""
     video_id = renderer.get("videoId")
@@ -167,13 +187,7 @@ def _parse_video_renderer(renderer: dict) -> dict | None:
         if channel_runs:
             channel = channel_runs[0].get("text", "")
 
-    # Duration: "lengthText" → {"simpleText": "3:45"} or {"runs": [...]}
-    duration_text = renderer.get("lengthText", {})
-    duration_str = duration_text.get("simpleText", "")
-    if not duration_str:
-        runs = duration_text.get("runs", [])
-        if runs:
-            duration_str = runs[0].get("text", "")
+    duration_str = _extract_duration_str(renderer)
 
     # Parse duration string to seconds for consistency
     duration = 0
@@ -722,12 +736,7 @@ def _parse_grid_video_renderer(renderer: dict) -> dict | None:
     views = renderer.get("viewCountText", {}).get("simpleText", "")
     published = renderer.get("publishedTimeText", {}).get("simpleText", "")
 
-    duration_text = renderer.get("lengthText", {})
-    duration_str = duration_text.get("simpleText", "")
-    if not duration_str:
-        runs = duration_text.get("runs", [])
-        if runs:
-            duration_str = runs[0].get("text", "")
+    duration_str = _extract_duration_str(renderer)
 
     duration = 0
     if duration_str:
@@ -1021,12 +1030,7 @@ async def fetch_playlist_contents(video_id: str, playlist_id: str) -> dict:
             if short_byline:
                 vchannel = short_byline[0].get("text", "")
 
-            duration_text = renderer.get("lengthText", {})
-            vduration_str = duration_text.get("simpleText", "")
-            if not vduration_str:
-                runs = duration_text.get("runs", [])
-                if runs:
-                    vduration_str = runs[0].get("text", "")
+            vduration_str = _extract_duration_str(renderer)
 
             videos.append({
                 "id": vid,
