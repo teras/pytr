@@ -619,7 +619,11 @@ async function selectProfile(id, pin) {
         stopPlayer();
         history.replaceState({ view: 'home' }, '', '/');
         handleInitialRoute();
-        if (typeof _ws !== 'undefined' && _ws) { _ws.onclose = null; _ws.close(); _ws = null; }
+        if (typeof _ws !== 'undefined' && _ws) {
+            if (_ws.readyState === WebSocket.OPEN && typeof wsSend === 'function')
+                wsSend({ type: 'state', videoId: '' });
+            _ws.onclose = null; _ws.close(); _ws = null;
+        }
         if (typeof connectWebSocket === 'function') connectWebSocket();
         return true;
     } catch(e) {

@@ -127,12 +127,14 @@
         }
     }
 
-    function exitPlayerMode() {
+    function exitPlayerMode(skipFocus) {
         playerMode = false;
         const pc = document.getElementById('player-container');
         if (pc) pc.classList.remove('tv-player-mode');
-        const btns = getFocusables().filter(el => el.id !== 'player-container');
-        if (btns.length) setFocus(btns[0]);
+        if (!skipFocus) {
+            const btns = getFocusables().filter(el => el.id !== 'player-container');
+            if (btns.length) setFocus(btns[0]);
+        }
     }
 
     function rect(el) { return el.getBoundingClientRect(); }
@@ -198,7 +200,7 @@
     function handleBack() {
         if (_tv.isTopOpen()) { _tv.hideTop(); enterPlayerMode(); return; }
         if (_tv.isBottomOpen()) { _tv.hideBottom(); enterPlayerMode(); return; }
-        if (playerMode) { exitPlayerMode(); history.back(); return; }
+        if (playerMode) { exitPlayerMode(true); history.back(); return; }
         const openMenu = getOpenMenu();
         if (openMenu) { closeMenu(openMenu); return; }
         const profMenu = getOpenProfileMenu();
