@@ -38,6 +38,9 @@
     }
     const videoId = match[2];
 
+    // ── Exclusive playback: embeds always participate ───────────────────────
+    exclusivePlayback(video, () => true);
+
     // ── Initialize OSD ──────────────────────────────────────────────────────
     window._osd.init({
         getVideo: () => video,

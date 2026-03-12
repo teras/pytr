@@ -127,3 +127,21 @@ function showModal(message, {confirm: isConfirm = false} = {}) {
 
 function nativeAlert(message) { return showModal(message); }
 function nativeConfirm(message) { return showModal(message, {confirm: true}); }
+
+// ── Exclusive playback (pause other tabs/embeds via BroadcastChannel) ───────
+
+const _exclusiveChannel = new BroadcastChannel('pytr-playback');
+
+/**
+ * Attach exclusive playback to a <video> element.
+ * @param {HTMLVideoElement} video
+ * @param {() => boolean} isEnabled — returns true when exclusive playback is active
+ */
+function exclusivePlayback(video, isEnabled) {
+    _exclusiveChannel.addEventListener('message', () => {
+        if (!video.paused && isEnabled()) video.pause();
+    });
+    video.addEventListener('play', () => {
+        if (isEnabled()) _exclusiveChannel.postMessage('pause');
+    });
+}
