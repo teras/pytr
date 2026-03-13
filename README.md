@@ -90,16 +90,21 @@ sudo firewall-cmd --add-port=5444/udp   # TV auto-discovery
 
 ### 🍪 YouTube Cookies
 
-Age-restricted content requires YouTube cookies. Two steps: extract them, then optionally keep them fresh.
+Age-restricted content requires YouTube cookies.
 
 #### Step 1: Extract cookies
 
 ```bash
-pip install yt-dlp   # if not already installed
+pip install "yt-dlp[default]"   # if not already installed
 python3 extract-cookies.py
 ```
 
-The script supports Firefox, Chrome, Chromium, Brave, and Edge. It will ask you to select your browser, then extract only YouTube/Google cookies to `data/cookies.txt`. Cookies are picked up automatically — no restart needed.
+The script auto-detects installed browsers and offers two methods:
+
+- **New profile** (recommended): opens a temporary browser profile — log in to YouTube, watch a few videos, close the browser. Cookies are extracted and the temp profile is deleted automatically.
+- **Existing profile**: extracts cookies directly from a browser you're already logged into (no browser window opened). If multiple profiles exist, the script will ask which one to use.
+
+Cookies are saved to `data/cookies.txt` and picked up automatically — no restart needed.
 
 #### Step 2: Keep cookies fresh (optional)
 

@@ -24,7 +24,6 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 _BASE_YDL_OPTS = {
     'quiet': True,
     'no_warnings': True,
-    'remote_components': ['ejs:github'],
 }
 
 # yt-dlp instances: anonymous (always) + authenticated (only if cookies exist)
@@ -45,6 +44,7 @@ _AGE_RESTRICTED_PATTERNS = (
 _THROTTLE_PATTERNS = (
     'sign in to confirm you',
     'this video requires login',
+    'the page needs to be reloaded',
     'bot',
 )
 

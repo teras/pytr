@@ -6,7 +6,7 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Install deno (required by yt-dlp for YouTube extraction)
+# Install deno (JS runtime for yt-dlp-ejs)
 ENV DENO_VERSION=2.7.4
 RUN curl -fsSL "https://dl.deno.land/release/v${DENO_VERSION}/deno-x86_64-unknown-linux-gnu.zip" -o /tmp/deno.zip && \
     unzip -o /tmp/deno.zip -d /usr/local/bin && \

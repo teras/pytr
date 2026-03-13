@@ -60,9 +60,4 @@ Section 4: Future tasks
     karaoke word-by-word reveal (<c> tags need align:start in Firefox).
     Need CSS-based approach or only reset position without touching align.
 
-[ ] Multi-client identity rotation (SmartTube-style)
-    SmartTube tries ~12 YouTube client identities (WEB_EMBED, ANDROID_REEL, TV, etc.)
-    WEB_EMBEDDED_PLAYER bypasses most age gates without cookies.
-    ANDROID_REEL doesn't need PoToken.
-    Not now: yt-dlp handles nsig/PoToken via Deno; requires custom InnerTube
-    /player calls instead of yt-dlp; maintaining client versions is ongoing work.
+
