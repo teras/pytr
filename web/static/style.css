@@ -1842,6 +1842,70 @@ h1 {
     color: #fff;
 }
 
+/* App Log button in settings */
+.settings-link-btn {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    color: var(--color-text);
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    text-align: left;
+    transition: background 0.15s;
+}
+.settings-link-btn:hover { background: var(--color-bg-hover); }
+
+/* App Log view */
+.app-log-list {
+    max-height: 400px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin: 12px 0;
+    font-size: 13px;
+}
+.app-log-empty {
+    color: var(--color-text-subtle);
+    padding: 24px;
+    text-align: center;
+}
+.app-log-entry {
+    padding: 8px 10px;
+    border-radius: 4px;
+    background: var(--color-bg-hover);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: baseline;
+}
+.app-log-entry.log-error { border-left: 3px solid #cc3333; }
+.app-log-entry.log-warning { border-left: 3px solid #cc9933; }
+.app-log-ts {
+    color: var(--color-text-subtle);
+    font-size: 11px;
+    white-space: nowrap;
+}
+.app-log-source {
+    color: #6699cc;
+    font-size: 11px;
+    font-family: monospace;
+}
+.app-log-msg {
+    color: var(--color-text);
+    flex: 1;
+    min-width: 0;
+    word-break: break-word;
+}
+.app-log-detail {
+    width: 100%;
+    color: var(--color-text-subtle);
+    font-size: 11px;
+    font-family: monospace;
+    word-break: break-all;
+}
+
 /* Channel Card (followed channels list) */
 .channel-card .channel-avatar-container {
     aspect-ratio: auto;

@@ -90,6 +90,7 @@ async def custom_unhandled_exception_handler(request, exc):
 # Init DB before helpers (helpers reads cookies_browser setting from DB)
 import profiles_db
 profiles_db.init_db()
+profiles_db.install_db_log_handler()
 
 import helpers  # noqa: F401 — ensure cache dir + yt-dlp instance created on startup
 from helpers import maybe_cleanup, maybe_long_cleanup

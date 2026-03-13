@@ -307,17 +307,42 @@ def _parse_lockup_view_model(vm: dict) -> dict | None:
 
     Returns a dict with type='playlist' or 'mix', plus first_video_id and
     playlist_id from the watchEndpoint for playback.
+    Returns None for regular videos (no playlistId in endpoints).
     """
     content_id = vm.get("contentId", "")
     if not content_id:
         return None
 
-    # Determine type from contentId prefix
-    if content_id.startswith("PL"):
-        item_type = "playlist"
-    elif content_id.startswith("RD"):
-        item_type = "mix"
-    else:
+    # YouTube tells us directly if this is a collection
+    content_type = vm.get("contentType", "")
+    if content_type == "LOCKUP_CONTENT_TYPE_VIDEO":
+        return None
+    if content_type != "LOCKUP_CONTENT_TYPE_PLAYLIST":
+        if content_type:
+            log.warning("Unknown lockup contentType: %s (contentId=%s)", content_type, content_id)
+        return None
+
+    item_type = "mix" if content_id.startswith("RD") else "playlist"
+
+    # Extract first video ID and playlist ID from endpoints
+    renderer_ctx = vm.get("rendererContext", {})
+    command_ctx = renderer_ctx.get("commandContext", {})
+    on_tap = command_ctx.get("onTap", {})
+    inner_cmd = on_tap.get("innertubeCommand", {})
+
+    first_video_id = ""
+    playlist_id = ""
+    watch_ep = inner_cmd.get("watchEndpoint", {})
+    if watch_ep:
+        first_video_id = watch_ep.get("videoId", "")
+        playlist_id = watch_ep.get("playlistId", "")
+    # Music uses watchPlaylistEndpoint (no first videoId, just playlistId)
+    if not first_video_id:
+        wpl_ep = inner_cmd.get("watchPlaylistEndpoint", {})
+        if wpl_ep:
+            playlist_id = wpl_ep.get("playlistId", "")
+
+    if not first_video_id and not playlist_id:
         return None
 
     # Title
@@ -340,27 +365,7 @@ def _parse_lockup_view_model(vm: dict) -> dict | None:
     thumbnails = thumb_vm.get("image", {}).get("sources", [])
     thumbnail = thumbnails[0].get("url", "") if thumbnails else ""
 
-    # watchEndpoint — first video ID and playlist ID for playback
-    first_video_id = ""
-    playlist_id = ""
-    renderer_ctx = vm.get("rendererContext", {})
-    command_ctx = renderer_ctx.get("commandContext", {})
-    on_tap = command_ctx.get("onTap", {})
-    inner_cmd = on_tap.get("innertubeCommand", {})
-    watch_ep = inner_cmd.get("watchEndpoint", {})
-    if watch_ep:
-        first_video_id = watch_ep.get("videoId", "")
-        playlist_id = watch_ep.get("playlistId", "")
-    # Music uses watchPlaylistEndpoint (no first videoId, just playlistId)
-    if not first_video_id:
-        wpl_ep = inner_cmd.get("watchPlaylistEndpoint", {})
-        if wpl_ep:
-            playlist_id = wpl_ep.get("playlistId", "")
-
-    if not first_video_id and not playlist_id:
-        return None
-
-    if not thumbnail:
+    if not thumbnail and first_video_id:
         thumbnail = f"https://i.ytimg.com/vi/{first_video_id}/mqdefault.jpg"
 
     return {
@@ -951,20 +956,17 @@ async def fetch_related(video_id: str) -> list[dict]:
             vm = item["lockupViewModel"]
             content_id = vm.get("contentId", "")
 
-            if content_id.startswith("RD"):
-                # Parse as mix
-                parsed = _parse_lockup_view_model(vm)
-                if parsed:
-                    related.append(parsed)
+            # Try parsing as playlist/mix first (uses endpoint detection,
+            # not just prefix matching — catches YouTube Music albums etc.)
+            parsed = _parse_lockup_view_model(vm)
+            if parsed:
+                if parsed["type"] == "mix" and parsed["first_video_id"]:
                     mix_first_video_ids.add(parsed["first_video_id"])
-                continue
-
-            if content_id.startswith("PL"):
-                # Skip playlists in related (per plan: related has videos + mixes only)
+                related.append(parsed)
                 continue
 
             # Regular video — parse metadata inline (videos don't have
-            # watchEndpoint so _parse_lockup_view_model would reject them)
+            # watchEndpoint so _parse_lockup_view_model rejects them)
             video = _parse_related_video(vm, content_id)
             if video:
                 related.append(video)

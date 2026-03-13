@@ -151,7 +151,7 @@ async def get_channel_playlists(
     }, token, request)
 
 
-_PLAYLIST_ID_RE = re.compile(r'^(PL|RD)[a-zA-Z0-9_-]+$')
+_PLAYLIST_ID_RE = re.compile(r'^[a-zA-Z0-9_-]{10,}$')
 
 
 @router.get("/playlist-contents")

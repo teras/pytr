@@ -80,6 +80,15 @@ CREATE TABLE IF NOT EXISTS sessions (
     expiry REAL NOT NULL,
     last_ip TEXT
 );
+
+CREATE TABLE IF NOT EXISTS app_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    level TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT ''
+);
 """
 
 
@@ -135,6 +144,57 @@ def init_db():
         sess_cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
         if "bearer_allowed" not in sess_cols:
             conn.execute("ALTER TABLE sessions ADD COLUMN bearer_allowed INTEGER NOT NULL DEFAULT 0")
+
+
+class DbLogHandler(logging.Handler):
+    """Logging handler that stores WARNING+ records in the app_log table."""
+
+    _MAX_ROWS = 5000
+    _PRUNE_EVERY = 100
+
+    def __init__(self):
+        super().__init__()
+        self._insert_count = 0
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            detail = self.format(record) if record.exc_info and record.exc_info[1] else ""
+            with _connect() as conn:
+                conn.execute(
+                    "INSERT INTO app_log (ts, level, source, message, detail) VALUES (?, ?, ?, ?, ?)",
+                    (record.created, record.levelname.lower(), record.name,
+                     record.getMessage(), detail),
+                )
+                self._insert_count += 1
+                if self._insert_count >= self._PRUNE_EVERY:
+                    self._insert_count = 0
+                    conn.execute(
+                        "DELETE FROM app_log WHERE id NOT IN (SELECT id FROM app_log ORDER BY id DESC LIMIT ?)",
+                        (self._MAX_ROWS,),
+                    )
+        except Exception:
+            pass  # never break the app over logging
+
+
+def install_db_log_handler():
+    """Attach DbLogHandler to the root logger (call once at startup)."""
+    handler = DbLogHandler()
+    handler.setLevel(logging.WARNING)
+    logging.getLogger().addHandler(handler)
+
+
+def get_app_log(limit: int = 100) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, ts, level, source, message, detail FROM app_log ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def clear_app_log():
+    with _connect() as conn:
+        conn.execute("DELETE FROM app_log")
 
 
 def list_profiles() -> list[dict]:

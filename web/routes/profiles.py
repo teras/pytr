@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request, Response, Depends
+from fastapi import APIRouter, HTTPException, Query, Request, Response, Depends
 from pydantic import BaseModel, Field
 
 from auth import require_auth, require_profile, get_profile_id, get_session, verify_session, require_admin
@@ -384,4 +384,20 @@ async def delete_registered_tv(index: int, request: Request,
     if 0 <= index < len(tvs):
         tvs.pop(index)
     db.set_setting("registered_tvs", json.dumps(tvs) if tvs else None)
+    return {"ok": True}
+
+
+@router.get("/app-log")
+async def get_app_log(request: Request, auth: bool = Depends(require_auth),
+                      limit: int = Query(default=100, le=1000)):
+    """Return recent app_log entries (admin only)."""
+    require_admin(request)
+    return db.get_app_log(limit)
+
+
+@router.delete("/app-log")
+async def clear_app_log(request: Request, auth: bool = Depends(require_auth)):
+    """Clear all app_log entries (admin only)."""
+    require_admin(request)
+    db.clear_app_log()
     return {"ok": True}

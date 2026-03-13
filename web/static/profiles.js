@@ -1276,6 +1276,10 @@ async function showSettingsModal() {
                         <span class="settings-hint">(no auth required, for LibRedirect)</span>
                     </label>
 
+                    <div class="profile-menu-divider" style="margin:8px 0"></div>
+
+                    <button type="button" id="settings-app-log" class="settings-link-btn">App Log</button>
+
                     <div class="pin-actions">
                         <button type="button" class="pin-cancel">Cancel</button>
                         <button type="submit">Save</button>
@@ -1308,6 +1312,7 @@ async function showSettingsModal() {
         attachProfileDeleteHandlers();
 
         overlay.querySelector('#settings-add-profile').addEventListener('click', () => showAddProfileView());
+        overlay.querySelector('#settings-app-log').addEventListener('click', () => showAppLogView());
         overlay.querySelector('.pin-cancel').addEventListener('click', () => overlay.remove());
 
         form.addEventListener('submit', async (e) => {
@@ -1404,6 +1409,51 @@ async function showSettingsModal() {
             } catch(e) {
                 nativeAlert('Failed to create profile');
             }
+        });
+    }
+
+    // ── App Log view ──
+    async function showAppLogView() {
+        overlay.innerHTML = `
+            <div class="pin-modal-content" style="max-width:560px">
+                <h3>App Log</h3>
+                <div class="app-log-list" id="app-log-list">Loading...</div>
+                <div class="pin-actions">
+                    <button type="button" class="pin-cancel">Back</button>
+                    <button type="button" id="app-log-clear">Clear</button>
+                </div>
+            </div>
+        `;
+
+        const listEl = overlay.querySelector('#app-log-list');
+
+        try {
+            const resp = await fetch('/api/profiles/app-log?limit=200');
+            if (!resp.ok) throw new Error();
+            const logs = await resp.json();
+            if (logs.length === 0) {
+                listEl.innerHTML = '<div class="app-log-empty">No log entries</div>';
+            } else {
+                listEl.innerHTML = logs.map(e => {
+                    const d = new Date(e.ts * 1000);
+                    const ts = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+                    const levelClass = e.level === 'error' ? 'log-error' : 'log-warning';
+                    return `<div class="app-log-entry ${levelClass}">
+                        <span class="app-log-ts">${escapeHtml(ts)}</span>
+                        <span class="app-log-source">${escapeHtml(e.source)}</span>
+                        <span class="app-log-msg">${escapeHtml(e.message)}</span>
+                        ${e.detail ? `<div class="app-log-detail">${escapeHtml(e.detail)}</div>` : ''}
+                    </div>`;
+                }).join('');
+            }
+        } catch(e) {
+            listEl.innerHTML = '<div class="app-log-empty">Failed to load log</div>';
+        }
+
+        overlay.querySelector('.pin-cancel').addEventListener('click', () => showSettingsView());
+        overlay.querySelector('#app-log-clear').addEventListener('click', async () => {
+            await fetch('/api/profiles/app-log', { method: 'DELETE' });
+            listEl.innerHTML = '<div class="app-log-empty">No log entries</div>';
         });
     }
 
