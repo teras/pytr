@@ -7,6 +7,8 @@ let currentChannelId = null;
 let currentCursor = null;
 let isLoadingMore = false;
 let hasMoreResults = true;
+let _loadMoreRetries = 0;
+const _MAX_LOAD_MORE_RETRIES = 2;
 let listViewCache = null;
 let listViewMode = 'search'; // 'search' | 'channel' | 'channel_playlists'
 let _listGeneration = 0; // incremented on every new search/channel/list load to discard stale responses
@@ -42,6 +44,7 @@ async function searchVideos(query, { pushState = true } = {}) {
     currentChannelId = null;
     currentCursor = null;
     hasMoreResults = true;
+    _loadMoreRetries = 0;
     _searchRawResults = [];
     const gen = ++_listGeneration;
 
@@ -173,6 +176,7 @@ async function loadChannelVideos(channelId, channelName) {
     currentQuery = '';
     currentCursor = null;
     hasMoreResults = true;
+    _loadMoreRetries = 0;
     const gen = ++_listGeneration;
 
     showListView();
@@ -365,6 +369,7 @@ async function _loadChannelPlaylists(channelId) {
     listViewMode = 'channel_playlists';
     currentCursor = null;
     hasMoreResults = true;
+    _loadMoreRetries = 0;
     const gen = ++_listGeneration;
 
     videoGrid.innerHTML = '';
@@ -430,13 +435,22 @@ async function loadMore() {
         }
         currentCursor = data.cursor;
         hasMoreResults = !!data.cursor && data.results.length > 0;
+        _loadMoreRetries = 0;
         loadMoreContainer.classList.toggle('hidden', !hasMoreResults);
     } catch (error) {
         if (gen !== _listGeneration) { isLoadingMore = false; return; }
         showLoadingCard(false);
         console.error('Load more error:', error);
-        hasMoreResults = false;
-        loadMoreContainer.classList.add('hidden');
+        _loadMoreRetries++;
+        if (_loadMoreRetries > _MAX_LOAD_MORE_RETRIES) {
+            hasMoreResults = false;
+            loadMoreContainer.classList.add('hidden');
+        } else {
+            // Retry after a short delay (observer won't re-fire while element is already visible)
+            setTimeout(() => {
+                if (gen === _listGeneration) loadMore();
+            }, 1500);
+        }
     }
 
     isLoadingMore = false;
@@ -833,6 +847,7 @@ function restoreListCache() {
         currentChannelId = listViewCache.channelId;
         currentCursor = listViewCache.cursor;
         hasMoreResults = !!listViewCache.cursor;
+        _loadMoreRetries = 0;
         searchInput.value = currentQuery || '';
         videoGrid.innerHTML = listViewCache.html;
         videoGrid.querySelectorAll('[data-attached]').forEach(c => delete c.dataset.attached);

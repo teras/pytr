@@ -105,6 +105,15 @@ async def fetch_more(session_token: str, cursor_id: str) -> tuple[list[dict], st
     """
     bucket = _CURSORS.get(session_token, {})
     state = bucket.get(cursor_id)
+    if not state:
+        # Fallback: cursor might be in another session bucket (race on first visit)
+        for other_token, other_bucket in _CURSORS.items():
+            if other_token != session_token and cursor_id in other_bucket:
+                state = other_bucket.pop(cursor_id)
+                break
+        if state:
+            _get_bucket(session_token)[cursor_id] = state
+            log.debug(f"Migrated cursor {cursor_id} to current session")
     if not state or not state.continuation_token:
         bucket.pop(cursor_id, None)
         return [], None
