@@ -1664,6 +1664,7 @@ h1 {
     align-items: center;
 }
 .private-mode-btn:hover { filter: brightness(0.8); }
+body:not(.tv-nav-active) .private-mode-player-btn { display: none !important; }
 
 .build-version {
     font-size: 11px;
