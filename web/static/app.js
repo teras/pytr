@@ -264,6 +264,7 @@ function showListView() {
     listTitle.classList.remove('hidden');
     _removeFavFilterToggles();
     _hideSubTabs();
+    _currentMainTab = null;
     if (typeof _removeFollowButton === 'function') _removeFollowButton();
 }
 
