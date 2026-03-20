@@ -667,7 +667,7 @@ async def channel_first(channel_id: str) -> tuple[str, str, str, list[dict], str
     return channel_name, avatar_url, subscriber_count, results, token
 
 
-async def channel_next(continuation_token: str) -> tuple[list[dict], str | None]:
+async def channel_next(continuation_token: str, channel_name: str | None = None) -> tuple[list[dict], str | None]:
     """Paginated channel videos request using a continuation token.
 
     POST youtubei/v1/browse with {"continuation": "...", "context": {...}}
@@ -694,12 +694,16 @@ async def channel_next(continuation_token: str) -> tuple[list[dict], str | None]
             if renderer:
                 video = _parse_video_renderer(renderer)
                 if video:
+                    if channel_name and (not video["channel"] or video["channel"] == "Unknown"):
+                        video["channel"] = channel_name
                     results.append(video)
             elif item.get("gridVideoRenderer"):
                 # Older layout fallback
                 renderer = item["gridVideoRenderer"]
                 video = _parse_video_renderer(renderer)
                 if video:
+                    if channel_name and (not video["channel"] or video["channel"] == "Unknown"):
+                        video["channel"] = channel_name
                     results.append(video)
 
         token = _extract_continuation_token(items)

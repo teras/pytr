@@ -127,7 +127,7 @@ async def fetch_more(session_token: str, cursor_id: str) -> tuple[list[dict], st
     if state.type == "search":
         results, yt_token = await search_next(state.continuation_token)
     elif state.type == "channel":
-        results, yt_token = await channel_next(state.continuation_token)
+        results, yt_token = await channel_next(state.continuation_token, state.channel_name)
     elif state.type == "channel_playlists":
         results, yt_token = await channel_playlists_next(state.continuation_token)
     else:
