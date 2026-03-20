@@ -1531,7 +1531,7 @@ async function toggleFavorite() {
         } else {
             const itemType = favId.startsWith('RD') ? 'mix' : 'playlist';
             const firstVideoId = (queue.videos[0] && queue.videos[0].id) || currentVideoId;
-            const thumbnail = `https://img.youtube.com/vi/${firstVideoId}/hqdefault.jpg`;
+            const thumbnail = thumbUrl(firstVideoId);
             await fetch(`/api/profiles/favorites/${encodeURIComponent(favId)}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1555,7 +1555,7 @@ async function toggleFavorite() {
         } else {
             const title = videoTitle.textContent || '';
             const channel = videoChannel.textContent || '';
-            const thumbnail = videoPlayer.poster || `https://img.youtube.com/vi/${currentVideoId}/hqdefault.jpg`;
+            const thumbnail = videoPlayer.poster || thumbUrl(currentVideoId);
             const duration = parseInt(videoPlayer.dataset.expectedDuration) || 0;
             const body = { title, channel, thumbnail, duration, duration_str: formatDuration(duration) };
             if (isLiveStream) body.item_type = 'live';

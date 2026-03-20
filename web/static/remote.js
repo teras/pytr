@@ -193,12 +193,12 @@ function _remotePlayVideo(videoId, title, channel, duration) {
         title: title || '',
         channel: channel || '',
         duration: duration || 0,
-        thumbnail: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+        thumbnail: thumbUrl(videoId),
     });
     // Update mini-player immediately with what we know
     _remoteState = {
         videoId, title: title || '', channel: channel || '',
-        thumbnail: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+        thumbnail: thumbUrl(videoId),
         currentTime: 0, duration: duration || 0, paused: false, volume: 1, ended: false,
     };
     _updateMiniPlayer();

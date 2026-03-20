@@ -405,7 +405,7 @@
                     const cards = queue.videos.map((v, i) => {
                         const card = document.createElement('div');
                         card.className = 'tv-overlay-item related-card tv-queue-card' + (i === queue.currentIndex ? ' active' : '');
-                        card.innerHTML = `<div class="thumbnail-container"><img src="https://i.ytimg.com/vi/${encodeURIComponent(v.id)}/mqdefault.jpg" loading="lazy"></div><div class="related-info"><div class="related-title">${escapeHtml(v.title || '')}</div><div class="related-channel">${escapeHtml(v.channel || '')}</div></div>`;
+                        card.innerHTML = `<div class="thumbnail-container"><img src="${escapeHtml(v.thumbnail || thumbUrl(v.id))}" loading="lazy"></div><div class="related-info"><div class="related-title">${escapeHtml(v.title || '')}</div><div class="related-channel">${escapeHtml(v.channel || '')}</div></div>`;
                         card.addEventListener('click', () => {
                             if (typeof window._playQueueItem === 'function') window._playQueueItem(i);
                             hideBottom();
@@ -486,7 +486,7 @@
         } else if (item.duration_str) {
             badge = `<span class="duration">${escapeHtml(item.duration_str)}</span>`;
         }
-        const thumb = item.thumbnail || `https://i.ytimg.com/vi/${encodeURIComponent(item.id || '')}/mqdefault.jpg`;
+        const thumb = item.thumbnail || thumbUrl(item.id || '');
         const metaParts = [item.views, item.date || item.published].filter(Boolean).map(escapeHtml);
         const metaHtml = metaParts.length ? `<div class="related-meta">${metaParts.join(' \u00b7 ')}</div>` : '';
         card.innerHTML = `<div class="thumbnail-container"><img src="${escapeAttr(thumb)}" loading="lazy">${badge}</div><div class="related-info"><div class="related-title">${escapeHtml(item.title || '')}</div>${item.channel ? `<div class="related-channel">${escapeHtml(item.channel)}</div>` : ''}${metaHtml}</div>`;

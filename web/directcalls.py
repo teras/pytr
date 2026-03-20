@@ -169,6 +169,19 @@ def _extract_duration_str(renderer: dict) -> str:
     return duration_str
 
 
+def _thumb_fallback(video_id: str) -> str:
+    """Construct a fallback thumbnail URL for a given video ID."""
+    return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+
+
+def _extract_video_thumbnail(renderer: dict, video_id: str) -> str:
+    """Extract thumbnail URL from a videoRenderer, with hqdefault fallback."""
+    thumbs = renderer.get("thumbnail", {}).get("thumbnails", [])
+    if thumbs:
+        return thumbs[0].get("url", "") or _thumb_fallback(video_id)
+    return _thumb_fallback(video_id)
+
+
 def _parse_video_renderer(renderer: dict) -> dict | None:
     """Extract video info from a videoRenderer object."""
     video_id = renderer.get("videoId")
@@ -223,7 +236,7 @@ def _parse_video_renderer(renderer: dict) -> dict | None:
         "published": published,
         "views": views,
         "is_live": is_live,
-        "thumbnail": f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg",
+        "thumbnail": _extract_video_thumbnail(renderer, video_id),
     }
 
 
@@ -366,7 +379,7 @@ def _parse_lockup_view_model(vm: dict) -> dict | None:
             return None
 
         if not thumbnail and first_video_id:
-            thumbnail = f"https://i.ytimg.com/vi/{first_video_id}/mqdefault.jpg"
+            thumbnail = _thumb_fallback(first_video_id)
 
         channel = _extract_lockup_channel(metadata)
         video_count, _ = _extract_lockup_overlay(vm)
@@ -390,7 +403,7 @@ def _parse_lockup_view_model(vm: dict) -> dict | None:
         return None
 
     if not thumbnail:
-        thumbnail = f"https://i.ytimg.com/vi/{content_id}/mqdefault.jpg"
+        thumbnail = _thumb_fallback(content_id)
 
     meta = _extract_lockup_metadata(metadata)
     duration_str, is_live = _extract_lockup_overlay(vm)
@@ -797,7 +810,7 @@ def _parse_grid_video_renderer(renderer: dict) -> dict | None:
         "channel": channel or "Unknown",
         "published": published,
         "is_live": is_live,
-        "thumbnail": f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg",
+        "thumbnail": _extract_video_thumbnail(renderer, video_id),
     }
 
 
@@ -1092,7 +1105,7 @@ async def fetch_playlist_contents(video_id: str, playlist_id: str) -> dict:
                 "title": vtitle,
                 "channel": vchannel,
                 "duration_str": vduration_str,
-                "thumbnail": f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg",
+                "thumbnail": _extract_video_thumbnail(renderer, vid),
             })
 
         return {"title": title, "videos": videos}

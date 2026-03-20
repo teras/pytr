@@ -23,6 +23,12 @@ function escapeAttr(text) {
     return text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// ── Thumbnail fallback ──────────────────────────────────────────────────────
+
+function thumbUrl(videoId) {
+    return `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`;
+}
+
 // ── Image proxy ─────────────────────────────────────────────────────────────
 
 function proxyImageUrl(url) {
