@@ -2657,7 +2657,8 @@ body.theater-mode .container {
 }
 body.theater-mode #player-container {
     border-radius: 0;
-    max-height: none;
+    max-height: 100vh;
+    margin: 0 auto;
 }
 body.theater-mode .video-page-layout {
     grid-template-columns: 1fr;

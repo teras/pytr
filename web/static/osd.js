@@ -247,6 +247,8 @@ function formatTime(s, refS) {
             if (!document.fullscreenElement) {
                 if (_preFsMode === 'theater') {
                     document.body.classList.add('theater-mode');
+                    const pc = document.getElementById(_containerId);
+                    if (pc) pc.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 } else {
                     document.body.classList.remove('theater-mode');
                 }
@@ -263,6 +265,7 @@ function formatTime(s, refS) {
                     document.body.classList.remove('theater-mode');
                 } else if (action === 'theater') {
                     document.body.classList.add('theater-mode');
+                    if (pc) pc.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 } else if (action === 'fullscreen') {
                     _preFsMode = document.body.classList.contains('theater-mode') ? 'theater' : 'normal';
                     if (pc) pc.requestFullscreen().catch(() => {});
