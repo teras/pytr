@@ -241,6 +241,8 @@ function formatTime(s, refS) {
         const modeBtns = document.querySelectorAll('.osd-mode-btn');
         updateModeButtons();
 
+        document.addEventListener('theater-mode-changed', updateModeButtons);
+
         document.addEventListener('fullscreenchange', () => {
             if (!document.fullscreenElement) {
                 if (_preFsMode === 'theater') {

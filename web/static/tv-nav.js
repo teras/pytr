@@ -266,6 +266,10 @@
             if (e.key === 'Escape') {
                 const openMenu = getOpenMenu();
                 if (openMenu) { e.preventDefault(); closeMenu(openMenu); }
+                else if (!document.fullscreenElement && document.body.classList.contains('theater-mode')) {
+                    document.body.classList.remove('theater-mode');
+                    document.dispatchEvent(new Event('theater-mode-changed'));
+                }
             }
             if (isVideoView()) {
                 const video = getVideo();
