@@ -425,7 +425,8 @@
                         results = typeof window._getRelatedResults === 'function' ? window._getRelatedResults() : [];
                     }
                     if (!results.length) return null;
-                    return _cardsFromApiData(results);
+                    const cursor = typeof window._getRelatedCursor === 'function' ? window._getRelatedCursor() : null;
+                    return _cardsFromApiData(results, cursor);
                 },
             },
             {
@@ -470,6 +471,13 @@
     function _computeActiveRows() {
         _activeRowDefs = _getAllRowDefs().filter(def => def.active());
         bottomRowIdx = 0;
+    }
+
+    function createSkeletonCard() {
+        const card = document.createElement('div');
+        card.className = 'tv-overlay-item related-card tv-skeleton-card';
+        card.innerHTML = '<div class="thumbnail-container"><div class="skeleton-text" style="position:absolute;top:0;left:0;width:100%;height:100%;margin:0;border-radius:0"></div></div><div class="related-info"><div class="skeleton-text"></div><div class="skeleton-text short"></div></div>';
+        return card;
     }
 
     function createOverlayCard(item) {
@@ -536,12 +544,7 @@
         row.appendChild(h);
         const strip = document.createElement('div');
         strip.className = 'tv-related-strip';
-        for (let i = 0; i < 1; i++) {
-            const card = document.createElement('div');
-            card.className = 'tv-overlay-item related-card tv-skeleton-card';
-            card.innerHTML = '<div class="thumbnail-container"><div class="skeleton-text" style="position:absolute;top:0;left:0;width:100%;height:100%;margin:0;border-radius:0"></div></div><div class="related-info"><div class="skeleton-text"></div><div class="skeleton-text short"></div></div>';
-            strip.appendChild(card);
-        }
+        strip.appendChild(createSkeletonCard());
         row.appendChild(strip);
         return row;
     }
@@ -643,12 +646,16 @@
         const cursor = row && row.dataset.cursor;
         if (!cursor || row.dataset.loading) return;
         row.dataset.loading = '1';
+        const strip = row.querySelector('.tv-related-strip');
+        const skeleton = createSkeletonCard();
+        strip.appendChild(skeleton);
+        skeleton.scrollIntoView({ block: 'nearest', inline: 'center' });
         try {
             const resp = await fetch(`/api/more?cursor=${encodeURIComponent(cursor)}`);
-            if (!resp.ok) return;
+            if (!resp.ok) { skeleton.remove(); return; }
             const data = await resp.json();
+            skeleton.remove();
             if (!data.results || !data.results.length) { delete row.dataset.cursor; return; }
-            const strip = row.querySelector('.tv-related-strip');
             const firstNew = createOverlayCard(data.results[0]);
             strip.appendChild(firstNew);
             data.results.slice(1).forEach(item => strip.appendChild(createOverlayCard(item)));
@@ -656,6 +663,8 @@
             else delete row.dataset.cursor;
             _tv.setFocus(firstNew);
             firstNew.scrollIntoView({ block: 'nearest', inline: 'center' });
+        } catch (e) {
+            skeleton.remove();
         } finally {
             delete row.dataset.loading;
         }

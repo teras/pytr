@@ -578,17 +578,17 @@ function appendVideos(videos) {
 
 // ── Related Videos ──────────────────────────────────────────────────────────
 
-let _relatedContinuation = null;
+let _relatedCursor = null;
 let _isLoadingMoreRelated = false;
 
 const _relatedLoadMoreObserver = new IntersectionObserver((entries) => {
-    if (entries[0].isIntersecting && !_isLoadingMoreRelated && _relatedContinuation) {
+    if (entries[0].isIntersecting && !_isLoadingMoreRelated && _relatedCursor) {
         _loadMoreRelated();
     }
 }, { threshold: 0.1 });
 
 async function fetchRelatedVideos(videoId) {
-    _relatedContinuation = null;
+    _relatedCursor = null;
     _isLoadingMoreRelated = false;
     _relatedLoadMoreObserver.disconnect();
 
@@ -599,7 +599,7 @@ async function fetchRelatedVideos(videoId) {
         const data = await response.json();
 
         _relatedRawResults = data.results || [];
-        _relatedContinuation = data.continuation || null;
+        _relatedCursor = data.cursor || null;
         _renderRelatedFiltered();
     } catch (error) {
         relatedVideos.innerHTML = '<p style="color: #ff4444; font-size: 14px;">Failed to load related videos</p>';
@@ -628,7 +628,7 @@ function _setupRelatedLoadMore() {
     const existing = relatedVideos.querySelector('.related-load-more-sentinel');
     if (existing) existing.remove();
 
-    if (_relatedContinuation) {
+    if (_relatedCursor) {
         const sentinel = document.createElement('div');
         sentinel.className = 'related-load-more-sentinel loading-more';
         sentinel.innerHTML = '<div class="loading-spinner"></div>';
@@ -638,19 +638,15 @@ function _setupRelatedLoadMore() {
 }
 
 async function _loadMoreRelated() {
-    if (_isLoadingMoreRelated || !_relatedContinuation) return;
+    if (_isLoadingMoreRelated || !_relatedCursor) return;
     _isLoadingMoreRelated = true;
 
     try {
-        const response = await fetch('/api/related-more', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ continuation: _relatedContinuation }),
-        });
+        const response = await fetch(`/api/more?cursor=${encodeURIComponent(_relatedCursor)}`);
         const data = await response.json();
         const results = data.results || [];
 
-        _relatedContinuation = data.continuation || null;
+        _relatedCursor = data.cursor || null;
         _relatedRawResults.push(...results);
 
         // Remove old sentinel
@@ -666,7 +662,7 @@ async function _loadMoreRelated() {
         _setupRelatedLoadMore();
     } catch (error) {
         console.error('Load more related error:', error);
-        _relatedContinuation = null;
+        _relatedCursor = null;
         const sentinel = relatedVideos.querySelector('.related-load-more-sentinel');
         if (sentinel) sentinel.remove();
     }
@@ -872,6 +868,7 @@ queueCloseArea.addEventListener('click', () => {
 // Expose queue state for other modules (e.g. profiles.js)
 window._getQueue = () => _queue;
 window._getRelatedResults = () => _relatedRawResults;
+window._getRelatedCursor = () => _relatedCursor;
 window._closeQueue = _closeQueue;
 window._playQueueItem = _playQueueItem;
 window._startQueue = _startQueue;

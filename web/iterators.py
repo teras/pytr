@@ -13,7 +13,8 @@ from dataclasses import dataclass, field
 
 from helpers import register_cleanup
 from directcalls import (search_first, search_next, channel_first, channel_next,
-                         channel_playlists_first, channel_playlists_next)
+                         channel_playlists_first, channel_playlists_next,
+                         fetch_related, fetch_related_continuation)
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ _CURSORS: dict[str, dict[str, "CursorState"]] = {}
 
 @dataclass
 class CursorState:
-    type: str                       # "search" or "channel"
+    type: str                       # "search", "channel", "related", etc.
     continuation_token: str | None  # YouTube's InnerTube token (~200 bytes)
     last_access: float = field(default_factory=time.time)
     channel_name: str | None = None
@@ -98,6 +99,25 @@ async def create_channel_playlists(session_token: str, channel_id: str) -> tuple
     return channel_name, results, cursor_id
 
 
+async def create_related(session_token: str, video_id: str) -> tuple[list[dict], str | None]:
+    """Fetch related videos and return (first_batch, cursor_id)."""
+    results, yt_token = await fetch_related(video_id)
+
+    if not results:
+        return [], None
+
+    if not yt_token:
+        return results, None
+
+    cursor_id = secrets.token_urlsafe(16)
+    _get_bucket(session_token)[cursor_id] = CursorState(
+        type="related",
+        continuation_token=yt_token,
+        pulled=len(results),
+    )
+    return results, cursor_id
+
+
 async def fetch_more(session_token: str, cursor_id: str) -> tuple[list[dict], str | None]:
     """Fetch next batch using a cursor ID.
 
@@ -130,6 +150,8 @@ async def fetch_more(session_token: str, cursor_id: str) -> tuple[list[dict], st
         results, yt_token = await channel_next(state.continuation_token, state.channel_name)
     elif state.type == "channel_playlists":
         results, yt_token = await channel_playlists_next(state.continuation_token)
+    elif state.type == "related":
+        results, yt_token = await fetch_related_continuation(state.continuation_token)
     else:
         bucket.pop(cursor_id, None)
         return [], None
