@@ -392,7 +392,10 @@ function handleInitialRoute() {
     const path = window.location.pathname;
     const params = new URLSearchParams(window.location.search);
 
-    if (path === '/watch' && params.get('v')) {
+    if (path === '/watch' && params.get('v') && params.get('v').startsWith('PL')) {
+        // Playlist ID passed as video ID — redirect to playlist view
+        window.location.replace(`/playlist?list=${encodeURIComponent(params.get('v'))}`);
+    } else if (path === '/watch' && params.get('v')) {
         const videoId = params.get('v');
         const listId = params.get('list');
         const startTime = parseYouTubeTime(params.get('t') || params.get('start'));

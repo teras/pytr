@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response, Depends
 from auth import require_auth, get_session, extract_token
 from helpers import VIDEO_ID_RE, http_client, is_youtube_url
 from iterators import create_search, create_channel, create_channel_playlists, fetch_more
-from directcalls import fetch_related, fetch_playlist_contents, resolve_handle, fetch_trending
+from directcalls import fetch_related, fetch_related_continuation, fetch_playlist_contents, resolve_handle, fetch_trending
 
 log = logging.getLogger(__name__)
 
@@ -81,8 +81,19 @@ async def get_related_videos(video_id: str, auth: bool = Depends(require_auth)):
     """Get related videos for a video."""
     if not VIDEO_ID_RE.match(video_id):
         raise HTTPException(status_code=400, detail="Invalid video ID")
-    results = await fetch_related(video_id)
-    return {"results": results}
+    results, continuation = await fetch_related(video_id)
+    return {"results": results, "continuation": continuation}
+
+
+@router.post("/related-more")
+async def get_related_more(request: Request, auth: bool = Depends(require_auth)):
+    """Load more related videos using a continuation token."""
+    body = await request.json()
+    token = body.get("continuation")
+    if not token or not isinstance(token, str):
+        raise HTTPException(status_code=400, detail="Missing continuation token")
+    results, continuation = await fetch_related_continuation(token)
+    return {"results": results, "continuation": continuation}
 
 
 _HANDLE_RE = re.compile(r'^[a-zA-Z0-9_.\-]+$')

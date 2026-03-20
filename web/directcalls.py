@@ -302,82 +302,111 @@ def _extract_lockup_overlay(vm: dict) -> tuple[str, bool]:
     return "", False
 
 
-def _parse_lockup_view_model(vm: dict) -> dict | None:
-    """Extract playlist/mix info from a lockupViewModel object.
-
-    Returns a dict with type='playlist' or 'mix', plus first_video_id and
-    playlist_id from the watchEndpoint for playback.
-    Returns None for regular videos (no playlistId in endpoints).
-    """
-    content_id = vm.get("contentId", "")
-    if not content_id:
-        return None
-
-    # YouTube tells us directly if this is a collection
-    content_type = vm.get("contentType", "")
-    if content_type == "LOCKUP_CONTENT_TYPE_VIDEO":
-        return None
-    if content_type != "LOCKUP_CONTENT_TYPE_PLAYLIST":
-        if content_type:
-            log.warning("Unknown lockup contentType: %s (contentId=%s)", content_type, content_id)
-        return None
-
-    item_type = "mix" if content_id.startswith("RD") else "playlist"
-
-    # Extract first video ID and playlist ID from endpoints
-    renderer_ctx = vm.get("rendererContext", {})
-    command_ctx = renderer_ctx.get("commandContext", {})
-    on_tap = command_ctx.get("onTap", {})
-    inner_cmd = on_tap.get("innertubeCommand", {})
-
-    first_video_id = ""
-    playlist_id = ""
-    watch_ep = inner_cmd.get("watchEndpoint", {})
-    if watch_ep:
-        first_video_id = watch_ep.get("videoId", "")
-        playlist_id = watch_ep.get("playlistId", "")
-    # Music uses watchPlaylistEndpoint (no first videoId, just playlistId)
-    if not first_video_id:
-        wpl_ep = inner_cmd.get("watchPlaylistEndpoint", {})
-        if wpl_ep:
-            playlist_id = wpl_ep.get("playlistId", "")
-
-    if not first_video_id and not playlist_id:
-        return None
-
-    # Title
-    metadata = vm.get("metadata", {}).get("lockupMetadataViewModel", {})
-    title = metadata.get("title", {}).get("content", "")
-    if not title:
-        return None
-
-    channel = _extract_lockup_channel(metadata)
-
-    # Video count from overlay badge (e.g. "22 videos")
-    video_count, _ = _extract_lockup_overlay(vm)
-
-    # Thumbnail
+def _extract_lockup_thumbnail(vm: dict) -> str:
+    """Extract thumbnail URL from a lockupViewModel's contentImage."""
     content_image = vm.get("contentImage", {})
     thumb_vm = (content_image.get("thumbnailViewModel")
                 or content_image.get("collectionThumbnailViewModel", {})
                 .get("primaryThumbnail", {}).get("thumbnailViewModel")
                 or {})
     thumbnails = thumb_vm.get("image", {}).get("sources", [])
-    thumbnail = thumbnails[0].get("url", "") if thumbnails else ""
+    return thumbnails[0].get("url", "") if thumbnails else ""
 
-    if not thumbnail and first_video_id:
-        thumbnail = f"https://i.ytimg.com/vi/{first_video_id}/mqdefault.jpg"
 
-    return {
+_COLLECTION_TYPES = {"LOCKUP_CONTENT_TYPE_PLAYLIST", "LOCKUP_CONTENT_TYPE_PODCAST"}
+
+
+def _parse_lockup_view_model(vm: dict) -> dict | None:
+    """Parse any lockupViewModel into a result dict.
+
+    Handles all content types: VIDEO, SHORT, PLAYLIST, PODCAST, MIX.
+    Returns a dict with 'type' field indicating the kind of item:
+      - No type field → regular video
+      - type='mix' or 'playlist' → collection items with first_video_id/playlist_id
+    Returns None if the item can't be parsed.
+    """
+    content_id = vm.get("contentId", "")
+    if not content_id:
+        return None
+
+    content_type = vm.get("contentType", "")
+    is_collection = content_type in _COLLECTION_TYPES or (
+        not content_type and content_id.startswith(("PL", "RD", "OL"))
+    )
+
+    metadata = vm.get("metadata", {}).get("lockupMetadataViewModel", {})
+    title = metadata.get("title", {}).get("content", "")
+    if not title:
+        return None
+
+    thumbnail = _extract_lockup_thumbnail(vm)
+
+    if is_collection:
+        item_type = "mix" if content_id.startswith("RD") else "playlist"
+
+        # Extract first video ID and playlist ID from endpoints
+        renderer_ctx = vm.get("rendererContext", {})
+        command_ctx = renderer_ctx.get("commandContext", {})
+        on_tap = command_ctx.get("onTap", {})
+        inner_cmd = on_tap.get("innertubeCommand", {})
+
+        first_video_id = ""
+        playlist_id = ""
+        watch_ep = inner_cmd.get("watchEndpoint", {})
+        if watch_ep:
+            first_video_id = watch_ep.get("videoId", "")
+            playlist_id = watch_ep.get("playlistId", "")
+        # Music uses watchPlaylistEndpoint (no first videoId, just playlistId)
+        if not first_video_id:
+            wpl_ep = inner_cmd.get("watchPlaylistEndpoint", {})
+            if wpl_ep:
+                playlist_id = wpl_ep.get("playlistId", "")
+
+        if not first_video_id and not playlist_id:
+            return None
+
+        if not thumbnail and first_video_id:
+            thumbnail = f"https://i.ytimg.com/vi/{first_video_id}/mqdefault.jpg"
+
+        channel = _extract_lockup_channel(metadata)
+        video_count, _ = _extract_lockup_overlay(vm)
+
+        return {
+            "id": content_id,
+            "type": item_type,
+            "title": title,
+            "channel": channel or "Unknown",
+            "video_count": video_count,
+            "thumbnail": thumbnail,
+            "first_video_id": first_video_id,
+            "playlist_id": playlist_id,
+        }
+
+    # Video or Short
+    if content_type and content_type not in (
+        "LOCKUP_CONTENT_TYPE_VIDEO", "LOCKUP_CONTENT_TYPE_SHORT",
+    ):
+        log.warning("Unknown lockup contentType: %s (contentId=%s)", content_type, content_id)
+        return None
+
+    if not thumbnail:
+        thumbnail = f"https://i.ytimg.com/vi/{content_id}/mqdefault.jpg"
+
+    meta = _extract_lockup_metadata(metadata)
+    duration_str, is_live = _extract_lockup_overlay(vm)
+
+    result = {
         "id": content_id,
-        "type": item_type,
         "title": title,
-        "channel": channel or "Unknown",
-        "video_count": video_count,
+        "channel": meta["channel"],
+        "views": meta["views"],
+        "date": meta["date"],
+        "duration_str": "" if is_live else duration_str,
         "thumbnail": thumbnail,
-        "first_video_id": first_video_id,
-        "playlist_id": playlist_id,
     }
+    if is_live:
+        result["is_live"] = True
+    return result
 
 
 def _extract_continuation_token(items: list) -> str | None:
@@ -861,29 +890,6 @@ async def fetch_trending(category: str, hl: str | None = None, gl: str | None = 
 
 # ── Related Videos ───────────────────────────────────────────────────────────
 
-def _parse_related_video(vm: dict, content_id: str) -> dict | None:
-    """Extract a regular video from a lockupViewModel in related results."""
-    metadata = vm.get("metadata", {}).get("lockupMetadataViewModel", {})
-    title = metadata.get("title", {}).get("content", "")
-    if not title:
-        return None
-
-    meta = _extract_lockup_metadata(metadata)
-    duration_str, is_live = _extract_lockup_overlay(vm)
-
-    result = {
-        "id": content_id,
-        "title": title,
-        "channel": meta["channel"],
-        "views": meta["views"],
-        "date": meta["date"],
-        "duration_str": "" if is_live else duration_str,
-        "thumbnail": f"https://i.ytimg.com/vi/{content_id}/mqdefault.jpg",
-    }
-    if is_live:
-        result["is_live"] = True
-    return result
-
 
 def _extract_yt_initial_data(html: str) -> dict | None:
     """Extract ytInitialData JSON from YouTube watch page HTML."""
@@ -923,7 +929,28 @@ def _extract_yt_initial_data(html: str) -> dict | None:
         return None
 
 
-async def fetch_related(video_id: str) -> list[dict]:
+def _parse_related_items(items: list) -> tuple[list[dict], set[str]]:
+    """Parse lockupViewModel items into related video/mix dicts.
+
+    Returns (related_list, mix_first_video_ids).
+    """
+    related = []
+    mix_first_video_ids = set()
+
+    for item in items:
+        if "lockupViewModel" not in item:
+            continue
+        parsed = _parse_lockup_view_model(item["lockupViewModel"])
+        if not parsed:
+            continue
+        if parsed.get("type") == "mix" and parsed.get("first_video_id"):
+            mix_first_video_ids.add(parsed["first_video_id"])
+        related.append(parsed)
+
+    return related, mix_first_video_ids
+
+
+async def fetch_related(video_id: str) -> tuple[list[dict], str | None]:
     """Fetch related videos and mixes for a given video ID.
 
     GET youtube.com/watch?v=ID → parse ytInitialData from HTML.
@@ -931,7 +958,7 @@ async def fetch_related(video_id: str) -> list[dict]:
     Includes mixes (RD*) alongside regular videos.
     Dedup: if a mix's first video also exists standalone, remove standalone.
 
-    Returns list of dicts (may be empty on error).
+    Returns (results, continuation_token).
     """
     url = f"https://www.youtube.com/watch?v={video_id}"
 
@@ -943,7 +970,7 @@ async def fetch_related(video_id: str) -> list[dict]:
 
         data = _extract_yt_initial_data(resp.text)
         if not data:
-            return []
+            return [], None
 
         contents = data.get("contents", {}).get("twoColumnWatchNextResults", {})
         secondary = (contents
@@ -951,40 +978,62 @@ async def fetch_related(video_id: str) -> list[dict]:
                      .get("secondaryResults", {})
                      .get("results", []))
 
-        related = []
-        mix_first_video_ids = set()
+        # Unwrap itemSectionRenderer wrappers (YouTube nests lockups inside these)
+        items = []
+        continuation_token = _extract_continuation_token(secondary)
+        for entry in secondary:
+            if "itemSectionRenderer" in entry:
+                isr_contents = entry["itemSectionRenderer"].get("contents", [])
+                if not continuation_token:
+                    continuation_token = _extract_continuation_token(isr_contents)
+                items.extend(isr_contents)
+            else:
+                items.append(entry)
 
-        for item in secondary:
-            if "lockupViewModel" not in item:
-                continue
-            vm = item["lockupViewModel"]
-            content_id = vm.get("contentId", "")
-
-            # Try parsing as playlist/mix first (uses endpoint detection,
-            # not just prefix matching — catches YouTube Music albums etc.)
-            parsed = _parse_lockup_view_model(vm)
-            if parsed:
-                if parsed["type"] == "mix" and parsed["first_video_id"]:
-                    mix_first_video_ids.add(parsed["first_video_id"])
-                related.append(parsed)
-                continue
-
-            # Regular video — parse metadata inline (videos don't have
-            # watchEndpoint so _parse_lockup_view_model rejects them)
-            video = _parse_related_video(vm, content_id)
-            if video:
-                related.append(video)
+        related, mix_first_video_ids = _parse_related_items(items)
 
         # Dedup: remove standalone videos whose ID matches a mix's first video
         if mix_first_video_ids:
             related = [r for r in related
                        if r.get("type") or r["id"] not in mix_first_video_ids]
 
-        return related
+        return related, continuation_token
 
     except Exception as e:
         log.error(f"Related videos error: {e}")
-        return []
+        return [], None
+
+
+async def fetch_related_continuation(token: str) -> tuple[list[dict], str | None]:
+    """Fetch more related videos using a continuation token.
+
+    POST youtubei/v1/next with continuation token.
+    Returns (results, next_continuation_token).
+    """
+    try:
+        data = await _innertube_post("next", {"continuation": token})
+
+        actions = data.get("onResponseReceivedEndpoints", [])
+        items = []
+        next_token = None
+        for action in actions:
+            cont_items = (action.get("appendContinuationItemsAction", {})
+                          .get("continuationItems", []))
+            if not next_token:
+                next_token = _extract_continuation_token(cont_items)
+            items.extend(cont_items)
+
+        related, mix_first_video_ids = _parse_related_items(items)
+
+        if mix_first_video_ids:
+            related = [r for r in related
+                       if r.get("type") or r["id"] not in mix_first_video_ids]
+
+        return related, next_token
+
+    except Exception as e:
+        log.error(f"Related continuation error: {e}")
+        return [], None
 
 
 # ── Playlist/Mix Contents ────────────────────────────────────────────────────

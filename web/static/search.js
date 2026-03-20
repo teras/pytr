@@ -578,7 +578,20 @@ function appendVideos(videos) {
 
 // ── Related Videos ──────────────────────────────────────────────────────────
 
+let _relatedContinuation = null;
+let _isLoadingMoreRelated = false;
+
+const _relatedLoadMoreObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && !_isLoadingMoreRelated && _relatedContinuation) {
+        _loadMoreRelated();
+    }
+}, { threshold: 0.1 });
+
 async function fetchRelatedVideos(videoId) {
+    _relatedContinuation = null;
+    _isLoadingMoreRelated = false;
+    _relatedLoadMoreObserver.disconnect();
+
     try {
         relatedVideos.innerHTML = '<div class="loading-more"><div class="loading-spinner"></div></div>';
 
@@ -586,6 +599,7 @@ async function fetchRelatedVideos(videoId) {
         const data = await response.json();
 
         _relatedRawResults = data.results || [];
+        _relatedContinuation = data.continuation || null;
         _renderRelatedFiltered();
     } catch (error) {
         relatedVideos.innerHTML = '<p style="color: #ff4444; font-size: 14px;">Failed to load related videos</p>';
@@ -604,7 +618,60 @@ function _renderRelatedFiltered() {
     } else {
         relatedVideos.innerHTML = '<p style="color: #717171; font-size: 14px;">No related videos found</p>';
     }
+
+    _setupRelatedLoadMore();
     window.dispatchEvent(new Event('related-ready'));
+}
+
+function _setupRelatedLoadMore() {
+    _relatedLoadMoreObserver.disconnect();
+    const existing = relatedVideos.querySelector('.related-load-more-sentinel');
+    if (existing) existing.remove();
+
+    if (_relatedContinuation) {
+        const sentinel = document.createElement('div');
+        sentinel.className = 'related-load-more-sentinel loading-more';
+        sentinel.innerHTML = '<div class="loading-spinner"></div>';
+        relatedVideos.appendChild(sentinel);
+        _relatedLoadMoreObserver.observe(sentinel);
+    }
+}
+
+async function _loadMoreRelated() {
+    if (_isLoadingMoreRelated || !_relatedContinuation) return;
+    _isLoadingMoreRelated = true;
+
+    try {
+        const response = await fetch('/api/related-more', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ continuation: _relatedContinuation }),
+        });
+        const data = await response.json();
+        const results = data.results || [];
+
+        _relatedContinuation = data.continuation || null;
+        _relatedRawResults.push(...results);
+
+        // Remove old sentinel
+        const sentinel = relatedVideos.querySelector('.related-load-more-sentinel');
+        if (sentinel) sentinel.remove();
+
+        // Append new cards
+        results.forEach(video => {
+            relatedVideos.insertAdjacentHTML('beforeend', createRelatedCard(video));
+        });
+        attachRelatedListeners();
+
+        _setupRelatedLoadMore();
+    } catch (error) {
+        console.error('Load more related error:', error);
+        _relatedContinuation = null;
+        const sentinel = relatedVideos.querySelector('.related-load-more-sentinel');
+        if (sentinel) sentinel.remove();
+    }
+
+    _isLoadingMoreRelated = false;
 }
 
 function createRelatedCard(video) {
