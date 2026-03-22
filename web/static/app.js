@@ -90,6 +90,7 @@ let hlsPlayer = null;
 let currentPlayerType = null; // 'dash' | 'hls'
 let currentAudioLang = null; // current HLS audio language
 let hlsAudioTracks = []; // [{lang, default}]
+window.currentChapters = []; // [{title, start_time, end_time}]
 let preferredQuality = parseInt(localStorage.getItem('preferredQuality')) || 1080;
 let currentActiveHeight = 0;
 // Quality list: [{height, bandwidth, qualityIndex}]
@@ -930,6 +931,7 @@ function stopPlayer() {
     failedSubtitles.clear();
     [...videoPlayer.querySelectorAll('track')].forEach(t => t.remove());
     if (typeof resetSponsorBlock === 'function') resetSponsorBlock();
+    window.currentChapters = [];
     currentVideoId = null;
     currentVideoChannelId = null;
     videoPlayer.removeAttribute('src');
@@ -1023,6 +1025,7 @@ async function playVideo(videoId, title, channel, duration, startTime) {
         }
 
         loadSubtitleTracks(videoId, info.subtitle_tracks || []);
+        window.currentChapters = info.chapters || [];
         updateSummarizeVisibility();
 
         if (info.is_live && Hls.isSupported()) {

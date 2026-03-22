@@ -50,6 +50,15 @@ function formatTime(s, refS) {
         setupTimeUpdate();
     };
 
+    function _getChapterAt(time) {
+        const chapters = window.currentChapters;
+        if (!chapters || !chapters.length) return null;
+        for (let i = chapters.length - 1; i >= 0; i--) {
+            if (time >= chapters[i].start_time) return chapters[i];
+        }
+        return null;
+    }
+
     function updateOsd() {
         const video = _getVideo();
         const osd = document.getElementById('tv-osd');
@@ -64,6 +73,12 @@ function formatTime(s, refS) {
         if (icon) icon.innerHTML = video.paused
             ? svgIcon(SVG_PLAY, null, 18)
             : svgIcon(SVG_PAUSE, null, 18);
+        // Update current chapter name
+        const chapterEl = document.getElementById('osd-chapter');
+        if (chapterEl) {
+            const ch = _getChapterAt(cur);
+            chapterEl.textContent = ch ? ch.title : '';
+        }
     }
 
     function isOsdPopupOpen() {
@@ -87,6 +102,7 @@ function formatTime(s, refS) {
         }
         // notify SponsorBlock to refresh markers
         if (typeof window.refreshSbMarkers === 'function') window.refreshSbMarkers();
+        refreshChapterMarkers();
     }
 
     function hideOsd() {
@@ -121,11 +137,14 @@ function formatTime(s, refS) {
                 if (!video || !video.duration) return;
                 const pct = barPct(e);
                 const time = pct * video.duration;
-                tooltip.textContent = formatTime(time);
+                const ch = _getChapterAt(time);
+                tooltip.innerHTML = ch
+                    ? '<span class="osd-seek-chapter">' + ch.title + '</span><br>' + formatTime(time)
+                    : formatTime(time);
                 tooltip.style.left = (pct * 100) + '%';
             });
             osdBar.addEventListener('mouseleave', function () {
-                tooltip.textContent = '';
+                tooltip.innerHTML = '';
             });
         }
     }
@@ -316,11 +335,47 @@ function formatTime(s, refS) {
         });
     }
 
+    // ── Chapter markers on progress bar ─────────────────────────────────
+
+    let _chaptersRendered = false;
+
+    function renderChapterMarkers() {
+        clearChapterMarkers();
+        const bar = document.getElementById('osd-bar');
+        const video = _getVideo();
+        const chapters = window.currentChapters;
+        if (!bar || !video || !video.duration || !chapters || chapters.length < 2) return;
+        const dur = video.duration;
+        // Add divider lines between chapters (skip the first one at 0:00)
+        for (let i = 1; i < chapters.length; i++) {
+            const pct = (chapters[i].start_time / dur) * 100;
+            const div = document.createElement('div');
+            div.className = 'chapter-marker';
+            div.style.left = pct + '%';
+            bar.appendChild(div);
+        }
+        _chaptersRendered = true;
+    }
+
+    function clearChapterMarkers() {
+        const bar = document.getElementById('osd-bar');
+        if (!bar) return;
+        bar.querySelectorAll('.chapter-marker').forEach(el => el.remove());
+        _chaptersRendered = false;
+    }
+
+    function refreshChapterMarkers() {
+        const chapters = window.currentChapters;
+        if (chapters && chapters.length >= 2 && !_chaptersRendered) renderChapterMarkers();
+    }
+
     // ── Exports ──────────────────────────────────────────────────────────
 
     _osd.showOsd = showOsd;
     _osd.hideOsd = hideOsd;
     _osd.updateOsd = updateOsd;
+    _osd.renderChapterMarkers = renderChapterMarkers;
+    _osd.clearChapterMarkers = clearChapterMarkers;
 })();
 
 // Global aliases (used by tv-nav.js, sponsorblock.js, etc.)

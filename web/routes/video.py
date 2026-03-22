@@ -97,6 +97,7 @@ async def get_video_info(video_id: str, cookies: str = "auto", auth: bool = Depe
             'is_live': bool(info.get('is_live')),
             'has_multi_audio': has_multi_audio,
             'hls_manifest_url': f'/api/hls/master/{video_id}' if has_multi_audio else None,
+            'chapters': info.get('chapters') or [],
         }
     except Exception as e:
         err_msg = str(e)
