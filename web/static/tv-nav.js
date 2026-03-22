@@ -198,8 +198,8 @@
 
     // ── Back handler ─────────────────────────────────────────────────────────
     function handleBack() {
-        if (_tv.isTopOpen()) { _tv.hideTop(); enterPlayerMode(); return; }
-        if (_tv.isBottomOpen()) { _tv.hideBottom(); enterPlayerMode(); return; }
+        if (_tv.isTopOpen()) { _tv.hideTop(); enterPlayerMode(); showOsd(); return; }
+        if (_tv.isBottomOpen()) { _tv.hideBottom(); enterPlayerMode(); showOsd(); return; }
         if (playerMode) { exitPlayerMode(true); history.back(); return; }
         const openMenu = getOpenMenu();
         if (openMenu) { closeMenu(openMenu); return; }
@@ -297,8 +297,8 @@
         // ── Escape in TV mode: exit TV if nothing else to close ──────────
         if (e.key === 'Escape') {
             e.preventDefault();
-            if (_tv.isTopOpen()) { _tv.hideTop(); enterPlayerMode(); return; }
-            if (_tv.isBottomOpen()) { _tv.hideBottom(); enterPlayerMode(); return; }
+            if (_tv.isTopOpen()) { _tv.hideTop(); enterPlayerMode(); showOsd(); return; }
+            if (_tv.isBottomOpen()) { _tv.hideBottom(); enterPlayerMode(); showOsd(); return; }
             const openMenu = getOpenMenu();
             if (openMenu) { closeMenu(openMenu); return; }
             const profMenu = getOpenProfileMenu();
@@ -324,10 +324,11 @@
                         // exit bottom overlay → player mode
                         _tv.hideBottom();
                         enterPlayerMode();
+                        showOsd();
                     }
                 } else {
                     const result = _tv.navigateTopOverlay(arrow);
-                    if (result === 'exit') { _tv.hideTop(); enterPlayerMode(); }
+                    if (result === 'exit') { _tv.hideTop(); enterPlayerMode(); showOsd(); }
                 }
                 return;
             }

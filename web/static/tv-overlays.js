@@ -329,6 +329,16 @@
         if (metaDiv) fillMeta(metaDiv);
     }
 
+    function _pinOsd() {
+        const osd = document.getElementById('tv-osd');
+        if (osd) { osd.classList.add('osd-pinned'); showOsd(); }
+    }
+
+    function _unpinOsd() {
+        const osd = document.getElementById('tv-osd');
+        if (osd) osd.classList.remove('osd-pinned');
+    }
+
     function showTop(autoHide) {
         topIsAutoHide = !!autoHide;
         buildTopOverlay();
@@ -339,6 +349,7 @@
             topRefreshInterval = setInterval(() => refreshTopOverlayMeta(), 500);
             topOverlayTimer = setTimeout(() => hideTop(), TOP_OVERLAY_AUTO_HIDE);
         } else {
+            _pinOsd();
             requestAnimationFrame(() => requestAnimationFrame(() => {
                 if (!topOverlay) return;
                 topOverlay.classList.add('visible');
@@ -353,6 +364,7 @@
         clearTimeout(topOverlayTimer);
         clearInterval(topRefreshInterval);
         topRefreshInterval = null;
+        _unpinOsd();
         if (!topOverlay) return;
         topOverlay.classList.remove('visible');
         const input = topOverlay.querySelector('input');
@@ -526,11 +538,36 @@
         return row;
     }
 
+    // ── Move OSD into/out of bottom overlay ─────────────────────────────
+
+    let _osdOriginalParent = null;
+
+    function _adoptOsd() {
+        const osd = document.getElementById('tv-osd');
+        if (!osd || !bottomOverlay) return;
+        _osdOriginalParent = osd.parentNode;
+        bottomOverlay.prepend(osd);
+        _pinOsd();
+    }
+
+    function _returnOsd() {
+        if (!_osdOriginalParent) return;
+        const osd = document.getElementById('tv-osd');
+        if (!osd) { _osdOriginalParent = null; return; }
+        _unpinOsd();
+        const target = _osdOriginalParent.isConnected
+            ? _osdOriginalParent
+            : document.getElementById('player-container');
+        if (target) target.appendChild(osd);
+        _osdOriginalParent = null;
+    }
+
     function ensureBottomOverlay() {
         if (bottomOverlay) return;
         bottomOverlay = document.createElement('div');
         bottomOverlay.className = 'tv-related-overlay';
         document.body.appendChild(bottomOverlay);
+        _adoptOsd();
         requestAnimationFrame(() => requestAnimationFrame(() => {
             if (bottomOverlay) bottomOverlay.classList.add('visible');
         }));
@@ -672,6 +709,7 @@
 
     function hideBottom() {
         clearTimeout(bottomHideTimer);
+        _returnOsd();
         _abortControllers.forEach(c => { if (c) c.abort(); });
         _abortControllers = [];
         _activeRowDefs = [];

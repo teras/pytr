@@ -50,6 +50,7 @@ function formatTime(s, refS) {
         setupTimeUpdate();
     };
 
+    // Exported so tv-overlays.js can reuse it
     function _getChapterAt(time) {
         const chapters = window.currentChapters;
         if (!chapters || !chapters.length) return null;
@@ -58,6 +59,7 @@ function formatTime(s, refS) {
         }
         return null;
     }
+    window._getChapterAt = _getChapterAt;
 
     function updateOsd() {
         const video = _getVideo();
@@ -91,10 +93,12 @@ function formatTime(s, refS) {
         if (!osd) return;
         updateOsd();
         osd.classList.add('visible');
-        if (_osdTimer) clearTimeout(_osdTimer);
-        if (!isOsdPopupOpen()) {
+        // Cancel any pending hide timer
+        if (_osdTimer) { clearTimeout(_osdTimer); _osdTimer = null; }
+        // Only auto-hide if not pinned (pinned = always visible)
+        if (!isOsdPopupOpen() && !osd.classList.contains('osd-pinned')) {
             _osdTimer = setTimeout(() => {
-                if (!isOsdPopupOpen()) {
+                if (!isOsdPopupOpen() && !osd.classList.contains('osd-pinned')) {
                     osd.classList.remove('visible');
                 }
                 _osdTimer = null;
@@ -107,7 +111,10 @@ function formatTime(s, refS) {
 
     function hideOsd() {
         const osd = document.getElementById('tv-osd');
-        if (osd) osd.classList.remove('visible');
+        if (!osd) return;
+        // Don't hide if pinned
+        if (osd.classList.contains('osd-pinned')) return;
+        osd.classList.remove('visible');
         if (_osdTimer) { clearTimeout(_osdTimer); _osdTimer = null; }
     }
 
@@ -139,7 +146,7 @@ function formatTime(s, refS) {
                 const time = pct * video.duration;
                 const ch = _getChapterAt(time);
                 tooltip.innerHTML = ch
-                    ? '<span class="osd-seek-chapter">' + ch.title + '</span><br>' + formatTime(time)
+                    ? '<span class="osd-seek-chapter">' + escapeHtml(ch.title) + '</span><br>' + formatTime(time)
                     : formatTime(time);
                 tooltip.style.left = (pct * 100) + '%';
             });

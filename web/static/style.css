@@ -2723,6 +2723,17 @@ body.theater-mode .video-sidebar {
     display: none;
 }
 
+/* ── OSD pinned (TV overlays open — always visible, no auto-hide) ───── */
+.tv-osd.osd-pinned {
+    opacity: 1;
+}
+/* When OSD is inside the bottom overlay, flow with rows */
+.tv-related-overlay > .tv-osd.osd-pinned {
+    position: relative;
+    background: none;
+    padding: 6px 0;
+}
+
 /* ── Remote Control ──────────────────────────────────────────────────── */
 
 /* Remote toast notification */

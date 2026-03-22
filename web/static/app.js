@@ -932,6 +932,7 @@ function stopPlayer() {
     [...videoPlayer.querySelectorAll('track')].forEach(t => t.remove());
     if (typeof resetSponsorBlock === 'function') resetSponsorBlock();
     window.currentChapters = [];
+    if (window._osd && _osd.clearChapterMarkers) _osd.clearChapterMarkers();
     currentVideoId = null;
     currentVideoChannelId = null;
     videoPlayer.removeAttribute('src');
