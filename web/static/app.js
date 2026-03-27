@@ -1534,17 +1534,21 @@ function _handleRemoteCommand(msg) {
         const duration = msg.duration || 0;
         const startTime = msg.startTime || 0;
         if (videoId) {
-            if (currentVideoId !== videoId) {
-                cacheListView();
-                const qs = msg.playlistId ? `v=${videoId}&list=${msg.playlistId}` : `v=${videoId}`;
-                history.pushState({ view: 'video', videoId, title, channel, duration }, '', `/watch?${qs}`);
-                document.title = title ? `${title} - PYTR` : 'PYTR';
-                showVideoView();
-            }
-            // Always (re)play — handles both new video and reviving a dead stream
-            playVideo(videoId, title, channel, duration, startTime);
-            if (msg.playlistId) {
-                _loadQueue(videoId, msg.playlistId);
+            if (currentVideoId === videoId && videoPlayer.src) {
+                // Same video already loaded — just resume, don't reload
+                videoPlayer.play();
+            } else {
+                if (currentVideoId !== videoId) {
+                    cacheListView();
+                    const qs = msg.playlistId ? `v=${videoId}&list=${msg.playlistId}` : `v=${videoId}`;
+                    history.pushState({ view: 'video', videoId, title, channel, duration }, '', `/watch?${qs}`);
+                    document.title = title ? `${title} - PYTR` : 'PYTR';
+                    showVideoView();
+                }
+                playVideo(videoId, title, channel, duration, startTime);
+                if (msg.playlistId) {
+                    _loadQueue(videoId, msg.playlistId);
+                }
             }
         }
     } else if (action === 'pause') {
@@ -1562,6 +1566,20 @@ function _handleRemoteCommand(msg) {
     } else if (action === 'queue_prev') {
         if (typeof _queue !== 'undefined' && _queue && typeof _playQueueItem === 'function') {
             _playQueueItem(_queue.currentIndex - 1);
+        }
+    } else if (action === 'stop') {
+        videoPlayer.pause();
+        videoPlayer.currentTime = 0;
+    } else if (action === 'volume_delta') {
+        if (typeof msg.delta === 'number') {
+            videoPlayer.volume = Math.max(0, Math.min(1, videoPlayer.volume + msg.delta));
+        }
+    } else if (action === 'dpad') {
+        // Simulate key press for TV navigation
+        const keyMap = { UP: 'ArrowUp', DOWN: 'ArrowDown', LEFT: 'ArrowLeft', RIGHT: 'ArrowRight', ENTER: 'Enter', BACK: 'Backspace' };
+        const key = keyMap[msg.key];
+        if (key) {
+            document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
         }
     }
 }

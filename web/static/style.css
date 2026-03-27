@@ -3069,3 +3069,145 @@ body.remote-mode header {
         height: 36px;
     }
 }
+
+/* ── YouTube Lounge Overlay ───────────────────────────────────────────────── */
+.lounge-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10001;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+.lounge-overlay.visible { opacity: 1; }
+
+.lounge-card {
+    background: #1a1a1a;
+    border-radius: 20px;
+    padding: 40px 48px;
+    max-width: 480px;
+    width: 90%;
+    text-align: center;
+}
+
+.lounge-header {
+    font-size: 22px;
+    font-weight: 600;
+    color: #f1f1f1;
+    margin-bottom: 16px;
+}
+
+.lounge-desc {
+    color: #999;
+    font-size: 14px;
+    line-height: 1.6;
+    margin-bottom: 28px;
+}
+
+.lounge-code {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    margin-bottom: 20px;
+    min-height: 64px;
+}
+
+.lounge-digit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 56px;
+    background: #2a2a2a;
+    border-radius: 8px;
+    font-size: 28px;
+    font-weight: 700;
+    color: #fff;
+    font-family: 'Courier New', monospace;
+}
+
+.lounge-sep {
+    color: #666;
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0 4px;
+}
+
+.lounge-loading {
+    color: #888;
+    font-size: 16px;
+}
+
+.lounge-status {
+    color: #888;
+    font-size: 14px;
+    margin-bottom: 24px;
+    min-height: 20px;
+}
+
+.lounge-connected {
+    color: #4caf50;
+    font-weight: 600;
+}
+
+.lounge-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+.lounge-btn {
+    padding: 10px 24px;
+    border-radius: 8px;
+    border: none;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+}
+.lounge-btn:hover { transform: scale(1.03); }
+.lounge-btn:active { transform: scale(0.97); }
+
+.lounge-btn-refresh {
+    background: #333;
+    color: #fff;
+}
+.lounge-btn-refresh:hover { background: #444; }
+
+.lounge-btn-close {
+    background: #cc0000;
+    color: #fff;
+}
+.lounge-btn-close:hover { background: #e00; }
+
+/* TV mode: bigger code digits */
+.tv-nav-active .lounge-digit {
+    width: 56px;
+    height: 72px;
+    font-size: 36px;
+    border-radius: 10px;
+}
+.tv-nav-active .lounge-sep {
+    font-size: 36px;
+    margin: 0 6px;
+}
+.tv-nav-active .lounge-card {
+    max-width: 600px;
+    padding: 48px 56px;
+}
+.tv-nav-active .lounge-header {
+    font-size: 28px;
+}
+.tv-nav-active .lounge-desc {
+    font-size: 16px;
+}
+
+/* Focus style for TV navigation */
+.lounge-btn.tv-focused {
+    outline: 3px solid #fff;
+    outline-offset: 2px;
+}

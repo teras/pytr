@@ -1082,6 +1082,7 @@ if (profileSwitcherBtn) {
             ${!isTv ? '<div class="profile-menu-item" data-action="edit-profile">Edit profile</div>' : ''}
             ${isAdmin && !isTv ? '<div class="profile-menu-item" data-action="settings">Options</div>' : ''}
             ${!isTv ? '<div class="profile-menu-item" data-action="remote-control">Remote Control</div>' : ''}
+            ${isTv ? '<div class="profile-menu-item" data-action="youtube-link">YouTube Link</div>' : ''}
             ${!(isTv && localStorage.getItem('tv-mode') !== 'desktop') ? `<div class="profile-menu-item" data-action="tv-mode">${isTv ? 'Desktop Mode' : 'TV Mode'}</div>` : ''}
             ${!isTv && window._cookiesAvailable ? `<div class="cookie-toggle-row">
                 <span class="cookie-toggle-label">Cookies</span>
@@ -1132,6 +1133,8 @@ if (profileSwitcherBtn) {
                     showSettingsModal();
                 } else if (action === 'remote-control') {
                     if (typeof enterRemoteMode === 'function') enterRemoteMode();
+                } else if (action === 'youtube-link') {
+                    if (typeof showYouTubeLinkOverlay === 'function') showYouTubeLinkOverlay();
                 } else if (action === 'tv-mode') {
                     if (typeof window.toggleTvMode === 'function') window.toggleTvMode();
                 } else if (action === 'logout') {

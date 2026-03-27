@@ -268,6 +268,13 @@ async def _handle_state(sender_ck: str, data: dict):
             if ws:
                 await _send_json(ws, {"type": "state", **state})
 
+    # Forward to lounge if this is the lounge target
+    if _lounge_state_callback and (_lounge_target == sender_ck or (not _lounge_target and state.get("videoId"))):
+        try:
+            await _lounge_state_callback(state)
+        except Exception as e:
+            log.warning(f"Lounge state callback error: {e}")
+
 
 def _save_position_from_state(conn_key: str, state: dict):
     """Save playback position to DB, throttled to every 5 seconds."""
@@ -359,6 +366,75 @@ async def list_devices(request: Request, profile_id: int = Depends(require_profi
             "tabs": tabs,
         })
     return devices
+
+
+# ── Lounge bridge ──────────────────────────────────────────────────────────
+
+# Lounge targets: conn_key of TV tabs that have lounge enabled
+_lounge_target: str | None = None
+_lounge_state_callback = None  # async def(state: dict)
+
+
+def set_lounge_target(conn_key: str | None):
+    """Set which TV connection receives lounge commands."""
+    global _lounge_target
+    _lounge_target = conn_key
+
+
+def get_lounge_target() -> str | None:
+    return _lounge_target
+
+
+def set_lounge_state_callback(callback):
+    """Register callback for player state updates (for lounge reporting)."""
+    global _lounge_state_callback
+    _lounge_state_callback = callback
+
+
+async def send_command_to_tv(action: str, **kwargs):
+    """Send a command to the lounge-targeted TV connection."""
+    target = _lounge_target
+
+    if not target:
+        # Try to find any connected device (prefer those with state/playing)
+        best = None
+        for ck in _connections:
+            if ck in _pairings:
+                continue  # skip remotes
+            state = _device_states.get(ck)
+            if state and state.get("videoId"):
+                best = ck
+                break
+            if not best:
+                best = ck
+        target = best
+
+    if not target:
+        log.warning("Lounge bridge: no TV target available")
+        return False
+
+    ws = _connections.get(target)
+    if not ws:
+        log.warning("Lounge bridge: TV target disconnected")
+        return False
+
+    msg = {"type": "command", "action": action, **kwargs}
+    log.info(f"Lounge bridge: sending {action} to {_device_id_from_key(target)}")
+    await _send_json(ws, msg)
+    return True
+
+
+def get_tv_state() -> dict:
+    """Get current state of the lounge TV target."""
+    target = _lounge_target
+    if target:
+        return _device_states.get(target, {})
+    # Fallback: return any device state
+    for ck in _connections:
+        state = _device_states.get(ck)
+        if state and state.get("videoId"):
+            return state
+    return {}
 
 
 @router.post("/api/remote/rename")

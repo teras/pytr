@@ -26,8 +26,40 @@ async def lifespan(app):
     # Warm up external API connections
     from routes.sponsorblock import warmup_connection
     warmup_task = asyncio.create_task(warmup_connection())
+    # Wire up YouTube Lounge bridge
+    from routes import lounge as lounge_mod
+    from routes.remote import send_command_to_tv, set_lounge_state_callback, get_tv_state
+
+    async def _lounge_command_handler(cmd: str, params: dict):
+        """Forward lounge commands to the TV player via WebSocket."""
+        await send_command_to_tv(cmd, **params)
+
+    async def _lounge_state_handler(state: dict):
+        """Forward player state back to YouTube app — event-driven only.
+
+        Only reports to YouTube on significant events:
+        - Video changed → nowPlaying + onStateChange
+        - Play/pause toggled → onStateChange
+        Does NOT report continuous position updates.
+        """
+        video_id = state.get("videoId", "")
+        current_time = state.get("currentTime", 0)
+        duration = state.get("duration", 0)
+        paused = state.get("paused", True)
+        volume = state.get("volume", 1)
+        if video_id:
+            await lounge_mod.report_state_change(video_id, current_time, duration, not paused, volume)
+
+    lounge_mod.set_command_callback(_lounge_command_handler)
+    set_lounge_state_callback(_lounge_state_handler)
+
+    # Auto-start lounge if previously paired (screen_id exists in DB)
+    if lounge_mod.has_persisted_session():
+        await lounge_mod.start()
+
     yield
     # Shutdown
+    await lounge_mod.stop()
     renewal_task.cancel()
     warmup_task.cancel()
     from helpers import http_client
@@ -115,6 +147,7 @@ from routes.profiles import router as profiles_router
 from routes.sponsorblock import router as sponsorblock_router
 from routes.tv_setup import router as tv_setup_router, page_router as tv_setup_page_router
 from routes.remote import router as remote_router
+from routes.lounge import router as lounge_router
 
 app.include_router(auth_router)
 app.include_router(dash_router)
@@ -126,6 +159,7 @@ app.include_router(sponsorblock_router)
 app.include_router(tv_setup_router)
 app.include_router(tv_setup_page_router)
 app.include_router(remote_router)
+app.include_router(lounge_router)
 
 if __name__ == "__main__":
     import uvicorn
