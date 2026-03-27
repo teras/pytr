@@ -260,6 +260,9 @@
             document.title = info.title || 'PYTR';
             setBestPoster(video, videoId);
             initSubtitleUI(info.subtitle_tracks || []);
+            if (info.storyboard && typeof _osd !== 'undefined') {
+                _osd.setStoryboard(videoId, info.storyboard);
+            }
 
             if (info.is_live && Hls.isSupported()) {
                 startHls(`/api/hls/master/${videoId}?live=1`, true);

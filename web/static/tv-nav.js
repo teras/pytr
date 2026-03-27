@@ -29,6 +29,8 @@
     let _seekDir = null;
     let _seekResetTimer = null;
 
+    let _previewHideTimer = null;
+
     function progressiveSeek(video, dir) {
         if (_seekDir !== dir) { _seekCount = 0; _seekDir = dir; }
         const step = SEEK_STEPS[Math.min(_seekCount, SEEK_STEPS.length - 1)];
@@ -39,6 +41,15 @@
             video.currentTime = Math.min(video.duration || 0, video.currentTime + step);
         } else {
             video.currentTime = Math.max(0, video.currentTime - step);
+        }
+        // Show storyboard preview during TV seek
+        if (typeof _osd !== 'undefined' && _osd.showPreviewAtTime) {
+            _osd.showPreviewAtTime(video.currentTime);
+            if (_previewHideTimer) clearTimeout(_previewHideTimer);
+            _previewHideTimer = setTimeout(() => {
+                if (typeof _osd !== 'undefined' && _osd.hidePreview) _osd.hidePreview();
+                _previewHideTimer = null;
+            }, 1200);
         }
     }
 

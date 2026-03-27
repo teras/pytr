@@ -118,6 +118,94 @@ function formatTime(s, refS) {
         if (_osdTimer) { clearTimeout(_osdTimer); _osdTimer = null; }
     }
 
+    // ── Storyboard preview ──────────────────────────────────────────────
+
+    let _sbData = null;       // {width, height, rows, columns, interval, count}
+    let _sbImages = {};       // index -> Image (preloaded sprites)
+
+    _osd.setStoryboard = function (videoId, data) {
+        _sbData = data;
+        _sbImages = {};
+        if (data) {
+            for (let i = 0; i < data.count; i++) {
+                const img = new Image();
+                img.src = `/api/storyboard/${videoId}/${i}`;
+                _sbImages[i] = img;
+            }
+        }
+    };
+
+    function _getPreviewForTime(time) {
+        if (!_sbData) return null;
+        const sb = _sbData;
+        const tilesPerSheet = sb.rows * sb.columns;
+        const tileIndex = Math.floor(time / sb.interval);
+        const sheetIndex = Math.floor(tileIndex / tilesPerSheet);
+        const posInSheet = tileIndex % tilesPerSheet;
+        const col = posInSheet % sb.columns;
+        const row = Math.floor(posInSheet / sb.columns);
+        return { sheetIndex, col, row };
+    }
+
+    function _tooltipHtml(time) {
+        const ch = _getChapterAt(time);
+        return ch
+            ? '<span class="osd-seek-chapter">' + escapeHtml(ch.title) + '</span><br>' + formatTime(time)
+            : formatTime(time);
+    }
+
+    function _showPreview(previewEl, pct, time) {
+        if (!_sbData || !previewEl) return;
+        const info = _getPreviewForTime(time);
+        if (!info) return;
+        const sb = _sbData;
+        const img = _sbImages[info.sheetIndex];
+        if (!img) { previewEl.style.display = 'none'; return; }
+
+        previewEl.style.display = 'block';
+        previewEl.style.width = sb.width + 'px';
+        previewEl.style.height = sb.height + 'px';
+        previewEl.style.backgroundImage = 'url(' + img.src + ')';
+        previewEl.style.backgroundPosition = '-' + (info.col * sb.width) + 'px -' + (info.row * sb.height) + 'px';
+        // Clamp to bar edges
+        const bar = previewEl.parentElement;
+        if (bar) {
+            const barW = bar.offsetWidth;
+            const half = sb.width / 2;
+            const px = pct * barW;
+            const left = Math.max(0, Math.min(barW - sb.width, px - half));
+            previewEl.style.left = left + 'px';
+        } else {
+            previewEl.style.left = 'calc(' + (pct * 100) + '% - ' + (sb.width / 2) + 'px)';
+        }
+    }
+
+    function _hidePreview(previewEl) {
+        if (previewEl) previewEl.style.display = 'none';
+    }
+
+    // Expose for TV mode seeking
+    _osd.showPreviewAtTime = function (time) {
+        const previewEl = document.getElementById('osd-preview');
+        const video = _getVideo();
+        if (!video || !video.duration) return;
+        const pct = time / video.duration;
+        _showPreview(previewEl, pct, time);
+        // Also update the tooltip
+        const tooltip = document.getElementById('osd-seek-tooltip');
+        if (tooltip) {
+            tooltip.innerHTML = _tooltipHtml(time);
+            tooltip.style.left = (pct * 100) + '%';
+            tooltip.style.display = 'block';
+        }
+    };
+
+    _osd.hidePreview = function () {
+        _hidePreview(document.getElementById('osd-preview'));
+        const tooltip = document.getElementById('osd-seek-tooltip');
+        if (tooltip) { tooltip.innerHTML = ''; tooltip.style.display = ''; }
+    };
+
     // ── Click-to-seek on progress bar ────────────────────────────────────
 
     function setupSeekBar() {
@@ -125,6 +213,7 @@ function formatTime(s, refS) {
         if (!osdBar) return;
 
         const tooltip = document.getElementById('osd-seek-tooltip');
+        const previewEl = document.getElementById('osd-preview');
 
         function barPct(e) {
             const rect = osdBar.getBoundingClientRect();
@@ -144,14 +233,13 @@ function formatTime(s, refS) {
                 if (!video || !video.duration) return;
                 const pct = barPct(e);
                 const time = pct * video.duration;
-                const ch = _getChapterAt(time);
-                tooltip.innerHTML = ch
-                    ? '<span class="osd-seek-chapter">' + escapeHtml(ch.title) + '</span><br>' + formatTime(time)
-                    : formatTime(time);
+                tooltip.innerHTML = _tooltipHtml(time);
                 tooltip.style.left = (pct * 100) + '%';
+                _showPreview(previewEl, pct, time);
             });
             osdBar.addEventListener('mouseleave', function () {
                 tooltip.innerHTML = '';
+                _hidePreview(previewEl);
             });
         }
     }

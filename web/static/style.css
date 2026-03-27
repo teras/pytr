@@ -2566,6 +2566,21 @@ body.tv-device #video-grid {
     color: #ccc;
 }
 
+/* ── Storyboard preview thumbnail ────────────────────────────────────── */
+.osd-preview {
+    position: absolute;
+    bottom: 100%;
+    margin-bottom: 28px;
+    display: none;
+    background-size: auto;
+    background-repeat: no-repeat;
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 9;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
 /* ── OSD Right Controls (volume + expand) ────────────────────────────── */
 .osd-right-controls {
     display: flex;

@@ -11,13 +11,25 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 
 from auth import require_auth, require_auth_or_embed
 from dash import proxy_range_request
-from helpers import CACHE_DIR, VIDEO_ID_RE, format_number, register_cleanup, make_cache_cleanup, get_video_info as _cached_info, invalidate_video_cache, http_client
+from helpers import CACHE_DIR, VIDEO_ID_RE, format_number, register_cleanup, make_cache_cleanup, get_video_info as _cached_info, invalidate_video_cache, http_client, is_youtube_url
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
 _SKIP_LANGS = {'live_chat', 'rechat'}
+_SB_PREFERENCE = ('sb1', 'sb2', 'sb0')
+
+
+def _find_storyboard_fmt(info: dict):
+    """Find the best storyboard format from yt-dlp info (sb1 > sb2 > sb0)."""
+    for sb_id in _SB_PREFERENCE:
+        for fmt in info.get('formats', []):
+            if fmt.get('format_id') == sb_id and fmt.get('format_note') == 'storyboard':
+                if fmt.get('fragments'):
+                    return fmt
+    return None
+
 _LANG_RE = re.compile(r'^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{1,8})*$')
 
 
@@ -83,6 +95,19 @@ async def get_video_info(video_id: str, cookies: str = "auto", auth: bool = Depe
                 audio_langs.add(fmt['language'])
         has_multi_audio = len(audio_langs) > 1
 
+        # Extract storyboard (prefer sb1 = 160x90, fallback to sb2 = 80x45)
+        storyboard = None
+        sb_fmt = _find_storyboard_fmt(info)
+        if sb_fmt:
+            storyboard = {
+                'width': sb_fmt['width'],
+                'height': sb_fmt['height'],
+                'rows': sb_fmt['rows'],
+                'columns': sb_fmt['columns'],
+                'interval': round(1.0 / sb_fmt['fps'], 3) if sb_fmt.get('fps') else 2,
+                'count': len(sb_fmt['fragments']),
+            }
+
         return {
             'title': info.get('title', 'Unknown'),
             'channel': info.get('channel') or info.get('uploader', 'Unknown'),
@@ -98,6 +123,7 @@ async def get_video_info(video_id: str, cookies: str = "auto", auth: bool = Depe
             'has_multi_audio': has_multi_audio,
             'hls_manifest_url': f'/api/hls/master/{video_id}' if has_multi_audio else None,
             'chapters': info.get('chapters') or [],
+            'storyboard': storyboard,
         }
     except Exception as e:
         err_msg = str(e)
@@ -142,6 +168,61 @@ async def get_subtitle(video_id: str, lang: str, auth: bool = Depends(require_au
             log.warning(f"Subtitle fetch {lang} failed: {e}")
 
     raise HTTPException(status_code=404, detail="Subtitle not available")
+
+
+# ── Storyboard sprite proxy ──────────────────────────────────────────────
+
+_storyboard_cache: dict = {}  # video_id -> {"fragments": [url, ...], "created": float}
+_STORYBOARD_CACHE_TTL = 5 * 3600
+
+register_cleanup(make_cache_cleanup(_storyboard_cache, _STORYBOARD_CACHE_TTL, "storyboard"))
+
+
+def _cache_storyboard(video_id: str, cookies: str):
+    """Extract and cache storyboard fragment URLs for a video."""
+    cached = _storyboard_cache.get(video_id)
+    if cached and time.time() - cached['created'] < _STORYBOARD_CACHE_TTL:
+        return cached['fragments']
+
+    info = _cached_info(video_id, cookies)
+    sb_fmt = _find_storyboard_fmt(info)
+    if sb_fmt:
+        fragments = [f['url'] for f in sb_fmt['fragments'] if f.get('url')]
+        if fragments:
+            _storyboard_cache[video_id] = {
+                'fragments': fragments,
+                'created': time.time(),
+            }
+            return fragments
+    return []
+
+
+@router.get("/storyboard/{video_id}/{index}")
+async def get_storyboard(video_id: str, index: int, cookies: str = "auto", auth: bool = Depends(require_auth_or_embed)):
+    """Proxy a storyboard sprite sheet image."""
+    _check_video_id(video_id)
+    if index < 0:
+        raise HTTPException(status_code=400, detail="Invalid index")
+
+    fragments = await asyncio.to_thread(_cache_storyboard, video_id, cookies)
+    if not fragments or index >= len(fragments):
+        raise HTTPException(status_code=404, detail="Storyboard not available")
+
+    url = fragments[index]
+    if not is_youtube_url(url):
+        raise HTTPException(status_code=403, detail="URL not allowed")
+    try:
+        resp = await http_client.get(url)
+        if resp.status_code == 200:
+            ct = resp.headers.get('content-type', 'image/jpeg')
+            return Response(resp.content, media_type=ct,
+                            headers={'Cache-Control': 'max-age=3600'})
+        raise HTTPException(status_code=resp.status_code, detail="Storyboard fetch failed")
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.warning(f"Storyboard fetch failed: {e}")
+        raise HTTPException(status_code=502, detail="Storyboard fetch failed")
 
 
 @router.get("/stream-live/{video_id}")

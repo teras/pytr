@@ -933,6 +933,7 @@ function stopPlayer() {
     if (typeof resetSponsorBlock === 'function') resetSponsorBlock();
     window.currentChapters = [];
     if (window._osd && _osd.clearChapterMarkers) _osd.clearChapterMarkers();
+    if (window._osd && _osd.setStoryboard) _osd.setStoryboard(null, null);
     currentVideoId = null;
     currentVideoChannelId = null;
     videoPlayer.removeAttribute('src');
@@ -1027,6 +1028,9 @@ async function playVideo(videoId, title, channel, duration, startTime) {
 
         loadSubtitleTracks(videoId, info.subtitle_tracks || []);
         window.currentChapters = info.chapters || [];
+        if (info.storyboard && typeof _osd !== 'undefined') {
+            _osd.setStoryboard(videoId, info.storyboard);
+        }
         updateSummarizeVisibility();
 
         if (info.is_live && Hls.isSupported()) {
