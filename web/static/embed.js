@@ -205,7 +205,8 @@
 
         dashPlayer.on(dashjs.MediaPlayer.events.QUALITY_CHANGE_RENDERED, e => {
             if (e.mediaType !== 'video') return;
-            const entry = videoQualities.find(q => q.qualityIndex === e.newQuality);
+            const newIdx = e.newRepresentation && e.newRepresentation.absoluteIndex;
+            const entry = videoQualities.find(q => q.qualityIndex === newIdx);
             if (entry) updateQualityHighlight(entry.height);
         });
     }

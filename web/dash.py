@@ -174,7 +174,7 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
     """Generate DASH MPD manifest with proxied URLs.
 
     Uses a single container type for video to avoid track-switching issues.
-    Prefers webm/VP9 (available 360p-4K), falls back to mp4/avc1.
+    Prefers webm/VP9 (available 144p-4K). Falls back to mp4 only if no WebM.
     """
 
     if not VIDEO_ID_RE.match(video_id):
@@ -216,7 +216,7 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
     if not video_by_container:
         raise HTTPException(status_code=404, detail="No DASH video formats available")
 
-    # Pick one container for video: prefer webm (VP9, up to 4K), fall back to mp4
+    # Pick one container for video: prefer webm (VP9, 144p-4K), fall back to mp4.
     video_container = 'webm' if 'webm' in video_by_container else 'mp4'
     video_fmts = _dedup_by_height(video_by_container[video_container])
 
@@ -278,13 +278,24 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
     v_mime = _mime_for(video_container, 'video')
     a_mime = _mime_for(audio_container, 'audio')
 
+    # yt-dlp rounds `duration` to int, which makes dash.js stop playback up to
+    # ~1s before the real end. YouTube's format URLs expose the precise float
+    # duration via the `dur` query param — prefer the max seen across formats.
+    precise_duration = duration
+    for fmt in valid_video + audio_fmts:
+        m = re.search(r'[?&]dur=([0-9.]+)', fmt.get('url') or '')
+        if m:
+            d = float(m.group(1))
+            if d > precise_duration:
+                precise_duration = d
+
     # Build MPD XML — single video AdaptationSet, single audio AdaptationSet
     mpd_lines = [
         '<?xml version="1.0" encoding="utf-8"?>',
         '<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" '
         'profiles="urn:mpeg:dash:profile:isoff-on-demand:2011" '
         f'minBufferTime="PT1.5S" type="static" '
-        f'mediaPresentationDuration="PT{duration}S">',
+        f'mediaPresentationDuration="PT{precise_duration:.3f}S">',
         '<Period>',
     ]
 
@@ -308,11 +319,83 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
             f'bandwidth="{bandwidth}" frameRate="{fps}">'
         )
         mpd_lines.append(f'<BaseURL>{xml_escape(proxy_url)}</BaseURL>')
-        mpd_lines.append(
-            f'<SegmentBase indexRange="{probe["index_start"]}-{probe["index_end"]}">'
-            f'<Initialization range="0-{probe["init_end"]}"/>'
-            f'</SegmentBase>'
-        )
+
+        # ── WebM last-segment bug workaround ────────────────────────────────
+        # dash.js (verified on v4.x AND v5.x) mis-handles the LAST segment of
+        # a WebM file when segments are defined implicitly via SegmentBase +
+        # indexRange pointing at the Cues element. The parser lazily derives
+        # each segment's byte range from consecutive CueClusterPositions, but
+        # for the final CuePoint there is no "next" to delimit it, and the
+        # code path that should fall back to EOF truncates — so trailing
+        # cluster content (frames encoded after the last cue time) is never
+        # fetched or decoded. Symptom on YouTube 4K WebM: the video freezes
+        # ~5s before the real end, cutting off fade-outs and end credits.
+        #
+        # Root cause lives inside dash.js, not in the WebM file — yt-dlp
+        # downloads the file intact and ffprobe reads every frame, and
+        # YouTube's own (non-dash.js) player plays it fine. We could not find
+        # a dash.js setting or attribute that fixes it.
+        #
+        # Workaround: sidestep the Cues parser entirely by emitting an
+        # explicit <SegmentList> with per-segment byte ranges AND an explicit
+        # <SegmentTimeline> with per-segment durations. The last SegmentURL's
+        # mediaRange ends at `filesize - 1`, which forces dash.js to fetch the
+        # whole trailing cluster. No implicit derivation, no bug.
+        #
+        # Fallback: if we lack either parsed cue points or a filesize, we
+        # fall back to SegmentBase — same as before this workaround. That
+        # path still works for the majority of videos whose last cluster
+        # happens to start close to the end of the file (no fade-out tail).
+        #
+        # Dependencies / risks:
+        #  - `probe['cues']` comes from our own WebM EBML parser in
+        #    container.py — stable WebM spec, not YouTube-specific.
+        #  - `filesize` comes from yt-dlp; if missing or approximate, the
+        #    last mediaRange may slightly overshoot EOF. Browsers handle
+        #    this gracefully (CDN returns what exists).
+        #  - The MPD grows roughly linearly with cue count (for a 15-min 4K
+        #    video with 5 reps: ~40 KB vs ~2 KB for SegmentBase). Still tiny.
+        #  - If a future dash.js release fixes the SegmentBase+Cues bug,
+        #    we can delete this block and keep only the SegmentBase path.
+        filesize = fmt.get('filesize') or fmt.get('filesize_approx') or 0
+        cues = probe.get('cues') or []
+        if video_container == 'webm' and cues and filesize:
+            mpd_lines.append(
+                f'<SegmentList timescale="1000" duration="1000">'
+                f'<Initialization range="0-{probe["init_end"]}"/>'
+            )
+            # Per-segment durations: each cue's duration is the delta to the
+            # next cue; the last cue extends to the MPD's precise duration.
+            mpd_lines.append('<SegmentTimeline>')
+            for ci in range(len(cues)):
+                t_cur = cues[ci][0]
+                t_next = cues[ci + 1][0] if ci + 1 < len(cues) else int(precise_duration * 1000)
+                d = max(t_next - t_cur, 1)
+                mpd_lines.append(f'<S t="{t_cur}" d="{d}"/>')
+            mpd_lines.append('</SegmentTimeline>')
+            # Per-segment byte ranges: each segment starts at its cluster
+            # position and ends just before the next cluster. The last
+            # segment explicitly ends at filesize-1 → trailing cluster
+            # included in full (this is the fix).
+            for ci in range(len(cues)):
+                b_start = cues[ci][1]
+                b_end = (cues[ci + 1][1] - 1) if ci + 1 < len(cues) else (filesize - 1)
+                mpd_lines.append(
+                    f'<SegmentURL mediaRange="{b_start}-{b_end}"/>'
+                )
+            mpd_lines.append('</SegmentList>')
+        else:
+            # Fallback path: SegmentBase with indexRange. dash.js will parse
+            # the file's Cues itself. Works fine for MP4 (uses SIDX, not
+            # affected by the WebM bug) and for WebM where we happen to
+            # lack filesize or cues (the trailing-cluster truncation may
+            # still occur but there is nothing further we can do without
+            # the prerequisites).
+            mpd_lines.append(
+                f'<SegmentBase indexRange="{probe["index_start"]}-{probe["index_end"]}">'
+                f'<Initialization range="0-{probe["init_end"]}"/>'
+                f'</SegmentBase>'
+            )
         mpd_lines.append('</Representation>')
     mpd_lines.append('</AdaptationSet>')
 

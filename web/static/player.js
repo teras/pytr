@@ -39,10 +39,10 @@ function getTargetQuality(heights, preferred) {
 
 /** Build quality list from a dash.js player */
 function buildQualitiesDash(dp) {
-    return (dp.getBitrateInfoListFor('video') || []).map(br => ({
-        height: br.height,
-        bandwidth: br.bandwidth,
-        qualityIndex: br.qualityIndex,
+    return (dp.getRepresentationsByType('video') || []).map((rep, idx) => ({
+        height: rep.height,
+        bandwidth: rep.bandwidth,
+        qualityIndex: idx,
     })).sort((a, b) => a.height - b.height);
 }
 
@@ -57,6 +57,6 @@ function buildQualitiesHls(hp) {
 
 /** Switch to a specific quality entry */
 function switchToQuality(type, dp, hp, entry) {
-    if (type === 'dash') dp.setQualityFor('video', entry.qualityIndex);
+    if (type === 'dash') dp.setRepresentationForTypeByIndex('video', entry.qualityIndex);
     else if (type === 'hls') hp.currentLevel = entry.qualityIndex;
 }
