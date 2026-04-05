@@ -21,6 +21,7 @@ _connections: dict[str, WebSocket] = {}       # conn_key → WebSocket
 _device_states: dict[str, dict] = {}          # conn_key → latest player state
 _pairings: dict[str, str] = {}                # remote_conn_key → target_conn_key
 _conn_to_token: dict[str, str] = {}           # conn_key → token
+_conn_to_tab_uuid: dict[str, str] = {}        # conn_key → tab_uuid (stable per-tab id)
 _token_to_profile: dict[str, int] = {}        # token → profile_id (session-level)
 _token_to_name: dict[str, str] = {}           # token → device_name (session-level)
 _last_position_save: dict[str, float] = {}    # conn_key → last save timestamp
@@ -52,6 +53,13 @@ async def _send_json(ws: WebSocket, data: dict):
 async def websocket_endpoint(websocket: WebSocket):
     token = _get_token_from_ws(websocket)
     tab_id = websocket.query_params.get("tab", "default")
+    # tab_uuid is a stable per-tab identifier (sessionStorage-backed) that
+    # survives page refresh and reconnects — used by the lounge bridge to
+    # bind to a specific tab across disconnects. Optional for backwards compat.
+    # Reject oversized values to match the POST /api/lounge/target cap.
+    tab_uuid = websocket.query_params.get("tab_uuid", "")
+    if len(tab_uuid) > 128:
+        tab_uuid = ""
 
     # If no cookie, accept and wait for first-message auth (Bearer)
     if not token:
@@ -94,7 +102,15 @@ async def websocket_endpoint(websocket: WebSocket):
     # Register connection
     _connections[conn_key] = websocket
     _conn_to_token[conn_key] = token
+    if tab_uuid:
+        _conn_to_tab_uuid[conn_key] = tab_uuid
     _token_to_profile[token] = profile_id
+
+    # If this reconnecting tab is the saved lounge target, replay any fresh
+    # pending command that was buffered while the target was offline.
+    if tab_uuid and tab_uuid == _lounge_target_tab_uuid:
+        from routes.lounge import _replay_pending_on_bind
+        asyncio.create_task(_replay_pending_on_bind())
 
     # Cache device name (session-level, only if not already cached)
     if token not in _token_to_name:
@@ -137,6 +153,7 @@ async def _cleanup_connection(conn_key: str, old_ws: WebSocket):
     _connections.pop(conn_key, None)
     _device_states.pop(conn_key, None)
     _conn_to_token.pop(conn_key, None)
+    _conn_to_tab_uuid.pop(conn_key, None)
     _last_position_save.pop(conn_key, None)
 
     # Only clean session-level dicts when no more conn_keys reference this token
@@ -268,8 +285,10 @@ async def _handle_state(sender_ck: str, data: dict):
             if ws:
                 await _send_json(ws, {"type": "state", **state})
 
-    # Forward to lounge if this is the lounge target
-    if _lounge_state_callback and (_lounge_target == sender_ck or (not _lounge_target and state.get("videoId"))):
+    # Forward to lounge ONLY if this is the bound lounge target tab.
+    # Binding is by stable tab_uuid (sessionStorage) — see lounge_target_* helpers.
+    sender_uuid = _conn_to_tab_uuid.get(sender_ck)
+    if _lounge_state_callback and sender_uuid and sender_uuid == _lounge_target_tab_uuid:
         try:
             await _lounge_state_callback(state)
         except Exception as e:
@@ -369,20 +388,53 @@ async def list_devices(request: Request, profile_id: int = Depends(require_profi
 
 
 # ── Lounge bridge ──────────────────────────────────────────────────────────
+#
+# The lounge bridge routes commands from the YouTube app (via lounge.py) to a
+# specific PYTR browser tab. The binding is by a stable `tab_uuid` generated
+# client-side in sessionStorage — it survives page refresh, WebSocket reconnect,
+# and PYTR restart, but not explicit tab close or sessionStorage clear.
+#
+# Resolution: _lounge_target_tab_uuid (persisted in profiles_db by lounge.py)
+# → look up in _conn_to_tab_uuid → get conn_key → get WebSocket.
+#
+# If the saved tab_uuid has no matching connection, it's "orphaned": commands
+# are held in the pending-command buffer over in lounge.py (5 min TTL) until
+# either (a) the original tab reconnects with the same UUID, or (b) the user
+# explicitly claims a different tab as the new target.
 
-# Lounge targets: conn_key of TV tabs that have lounge enabled
-_lounge_target: str | None = None
+_lounge_target_tab_uuid: str | None = None
 _lounge_state_callback = None  # async def(state: dict)
 
 
-def set_lounge_target(conn_key: str | None):
-    """Set which TV connection receives lounge commands."""
-    global _lounge_target
-    _lounge_target = conn_key
+def set_lounge_target_tab_uuid(tab_uuid: str | None):
+    """Update the in-memory lounge target UUID. Persistence is handled by lounge.py."""
+    global _lounge_target_tab_uuid
+    _lounge_target_tab_uuid = tab_uuid
 
 
-def get_lounge_target() -> str | None:
-    return _lounge_target
+def _resolve_target_conn_key() -> str | None:
+    """Find the conn_key whose tab_uuid matches the current target, if any.
+
+    If multiple tabs of the same browser happen to report the same uuid
+    (shouldn't happen with sessionStorage, but defensively), prefer the one
+    that has an active video state.
+    """
+    if not _lounge_target_tab_uuid:
+        return None
+    candidates = [ck for ck, uuid in _conn_to_tab_uuid.items() if uuid == _lounge_target_tab_uuid]
+    if not candidates:
+        return None
+    # Prefer a candidate with a current videoId (actively playing session)
+    for ck in candidates:
+        state = _device_states.get(ck)
+        if state and state.get("videoId"):
+            return ck
+    return candidates[0]
+
+
+def is_lounge_target_connected() -> bool:
+    """True if the current target tab_uuid has a live WebSocket."""
+    return _resolve_target_conn_key() is not None
 
 
 def set_lounge_state_callback(callback):
@@ -391,50 +443,23 @@ def set_lounge_state_callback(callback):
     _lounge_state_callback = callback
 
 
-async def send_command_to_tv(action: str, **kwargs):
-    """Send a command to the lounge-targeted TV connection."""
-    target = _lounge_target
-
-    if not target:
-        # Try to find any connected device (prefer those with state/playing)
-        best = None
-        for ck in _connections:
-            if ck in _pairings:
-                continue  # skip remotes
-            state = _device_states.get(ck)
-            if state and state.get("videoId"):
-                best = ck
-                break
-            if not best:
-                best = ck
-        target = best
-
-    if not target:
-        log.warning("Lounge bridge: no TV target available")
+async def send_command_to_tv(action: str, **kwargs) -> bool:
+    """Send a command to the bound lounge target tab. Returns False if no
+    target is currently reachable — callers should buffer the command for
+    later replay once a target is claimed or reconnects."""
+    target_ck = _resolve_target_conn_key()
+    if not target_ck:
+        log.info(f"Lounge bridge: no connected target for {action} (buffering)")
         return False
 
-    ws = _connections.get(target)
+    ws = _connections.get(target_ck)
     if not ws:
-        log.warning("Lounge bridge: TV target disconnected")
         return False
 
     msg = {"type": "command", "action": action, **kwargs}
-    log.info(f"Lounge bridge: sending {action} to {_device_id_from_key(target)}")
+    log.info(f"Lounge bridge: sending {action} to {_device_id_from_key(target_ck)}")
     await _send_json(ws, msg)
     return True
-
-
-def get_tv_state() -> dict:
-    """Get current state of the lounge TV target."""
-    target = _lounge_target
-    if target:
-        return _device_states.get(target, {})
-    # Fallback: return any device state
-    for ck in _connections:
-        state = _device_states.get(ck)
-        if state and state.get("videoId"):
-            return state
-    return {}
 
 
 @router.post("/api/remote/rename")

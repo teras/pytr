@@ -6,6 +6,11 @@
     let overlay = null;
     let pollTimer = null;
     let loungeActive = false;
+    // Set to true once we've auto-claimed this tab as the lounge cast target
+    // during the current overlay session (i.e. per show() call). The user
+    // opening the pairing overlay from THIS tab is an explicit intent to
+    // cast here, so we pre-empt the manual "Cast to this screen" step.
+    let claimedThisSession = false;
 
     function createOverlay() {
         if (overlay) { overlay.remove(); overlay = null; }
@@ -126,25 +131,77 @@
         }
     }
 
+    function applyStatus(data) {
+        updateUI(data);
+        if (data && data.connected && !claimedThisSession && window.loungeTarget) {
+            claimedThisSession = true;
+            window.loungeTarget.claim();
+        }
+    }
+
     async function show() {
+        claimedThisSession = false;
         createOverlay();
         updateUI(null, 'Starting YouTube Link...');
 
         // Start lounge if not already active
         const status = await fetchStatus();
         if (status && status.active && status.pairing_code) {
-            updateUI(status);
+            applyStatus(status);
         } else {
             const data = await startLounge();
-            updateUI(data || null, data ? null : 'Failed to connect to YouTube');
+            if (data) applyStatus(data);
+            else updateUI(null, 'Failed to connect to YouTube');
         }
 
         // Poll for status updates
         pollTimer = setInterval(async () => {
             const s = await fetchStatus();
-            if (s) updateUI(s);
+            if (s) applyStatus(s);
         }, 5000);
     }
 
     window.showYouTubeLinkOverlay = show;
+
+    // ── Cast-target API (consumed by the profile menu) ───────────────────────
+    //
+    // The lounge target binding is managed through the profile menu: when the
+    // user opens it, profiles.js calls `window.loungeTarget.fetch()` to get
+    // the current state and injects a contextual menu item. Clicking calls
+    // `.claim()` or `.unpair()`. No persistent on-screen UI.
+
+    const getTabUuid = () => {
+        try { return sessionStorage.getItem('pytr_tab_uuid') || ''; }
+        catch { return ''; }
+    };
+
+    async function fetchTargetState() {
+        try {
+            const resp = await fetch('/api/lounge/target?tab_uuid=' + encodeURIComponent(getTabUuid()));
+            if (!resp.ok) return null;
+            return await resp.json();
+        } catch { return null; }
+    }
+
+    async function claimTarget() {
+        try {
+            const resp = await fetch('/api/lounge/target', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tab_uuid: getTabUuid() }),
+            });
+            if (!resp.ok) return null;
+            return await resp.json();
+        } catch { return null; }
+    }
+
+    async function unpairTarget() {
+        try {
+            const resp = await fetch('/api/lounge/target', { method: 'DELETE' });
+            if (!resp.ok) return null;
+            return await resp.json();
+        } catch { return null; }
+    }
+
+    window.loungeTarget = { fetch: fetchTargetState, claim: claimTarget, unpair: unpairTarget };
 })();

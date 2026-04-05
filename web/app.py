@@ -28,11 +28,16 @@ async def lifespan(app):
     warmup_task = asyncio.create_task(warmup_connection())
     # Wire up YouTube Lounge bridge
     from routes import lounge as lounge_mod
-    from routes.remote import send_command_to_tv, set_lounge_state_callback, get_tv_state
+    from routes.remote import send_command_to_tv, set_lounge_state_callback
 
-    async def _lounge_command_handler(cmd: str, params: dict):
-        """Forward lounge commands to the TV player via WebSocket."""
-        await send_command_to_tv(cmd, **params)
+    async def _lounge_command_handler(cmd: str, params: dict) -> bool:
+        """Forward lounge commands to the TV player via WebSocket.
+
+        Returns True if the command was delivered to a connected target tab,
+        False if there is no reachable target (command should be buffered
+        for later replay by the lounge module).
+        """
+        return await send_command_to_tv(cmd, **params)
 
     async def _lounge_state_handler(state: dict):
         """Forward player state back to YouTube app — event-driven only.
@@ -52,6 +57,11 @@ async def lifespan(app):
 
     lounge_mod.set_command_callback(_lounge_command_handler)
     set_lounge_state_callback(_lounge_state_handler)
+
+    # Pre-load the lounge target UUID synchronously so the first WS connect
+    # after a restart can immediately match and trigger pending-command replay.
+    # (The listener loop would load this anyway, but only after its task runs.)
+    lounge_mod._load_persisted()
 
     # Auto-start lounge if previously paired (screen_id exists in DB)
     if lounge_mod.has_persisted_session():

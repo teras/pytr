@@ -1430,10 +1430,26 @@ let _wsReconnectDelay = 500;
 let _wsConsecutiveFailures = 0;
 let _serverDownNotified = false;
 const _tabId = Math.random().toString(36).slice(2, 10);
+// Stable per-tab identifier stored in sessionStorage: survives page refresh,
+// dies when the tab is closed. Used by the lounge bridge to bind cast target
+// to a specific tab across WebSocket reconnects and PYTR restarts.
+const _tabUuid = (() => {
+    try {
+        let u = sessionStorage.getItem('pytr_tab_uuid');
+        if (!u) {
+            u = (crypto.randomUUID && crypto.randomUUID()) ||
+                (Math.random().toString(36).slice(2) + Date.now().toString(36));
+            sessionStorage.setItem('pytr_tab_uuid', u);
+        }
+        return u;
+    } catch (e) {
+        return Math.random().toString(36).slice(2);
+    }
+})();
 function connectWebSocket() {
     if (_ws && (_ws.readyState === WebSocket.OPEN || _ws.readyState === WebSocket.CONNECTING)) return;
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    _ws = new WebSocket(`${proto}//${location.host}/api/ws?tab=${_tabId}`);
+    _ws = new WebSocket(`${proto}//${location.host}/api/ws?tab=${_tabId}&tab_uuid=${encodeURIComponent(_tabUuid)}`);
 
     _ws.onopen = () => {
         _wsConnected = true;

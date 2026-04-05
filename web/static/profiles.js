@@ -1057,15 +1057,34 @@ if (profileSwitcherBtn) {
         }
         const isAdmin = currentProfile && currentProfile.is_admin;
 
-        // Fetch all profiles to show others for quick switching
+        // Fetch all profiles to show others for quick switching, and the
+        // lounge cast target state (if lounge.js is loaded) in parallel.
         let otherProfiles = [];
+        let loungeState = null;
         try {
-            const resp = await fetch('/api/profiles');
-            if (resp.ok) {
-                const all = await resp.json();
+            const [profilesResp, ls] = await Promise.all([
+                fetch('/api/profiles'),
+                window.loungeTarget ? window.loungeTarget.fetch() : Promise.resolve(null),
+            ]);
+            if (profilesResp.ok) {
+                const all = await profilesResp.json();
                 otherProfiles = all.filter(p => !currentProfile || p.id !== currentProfile.id);
             }
+            loungeState = ls;
         } catch(e) {}
+
+        // Decide whether (and what) to show for lounge cast target
+        let loungeItem = '';
+        if (loungeState && loungeState.active) {
+            if (loungeState.is_this_tab) {
+                loungeItem = '<div class="profile-menu-item" data-action="lounge-unpair">Stop casting here</div>';
+            } else if (!loungeState.has_target || loungeState.orphaned) {
+                const label = loungeState.orphaned
+                    ? 'Cast to this screen (previous offline)'
+                    : 'Cast to this screen';
+                loungeItem = `<div class="profile-menu-item" data-action="lounge-claim">${label}</div>`;
+            }
+        }
 
         const profileItems = otherProfiles.map(p => {
             const display = p.avatar_emoji || escapeHtml(p.name.charAt(0).toUpperCase());
@@ -1083,6 +1102,7 @@ if (profileSwitcherBtn) {
             ${isAdmin && !isTv ? '<div class="profile-menu-item" data-action="settings">Options</div>' : ''}
             ${!isTv ? '<div class="profile-menu-item" data-action="remote-control">Remote Control</div>' : ''}
             ${isTv ? '<div class="profile-menu-item" data-action="youtube-link">YouTube Link</div>' : ''}
+            ${loungeItem}
             ${!(isTv && localStorage.getItem('tv-mode') !== 'desktop') ? `<div class="profile-menu-item" data-action="tv-mode">${isTv ? 'Desktop Mode' : 'TV Mode'}</div>` : ''}
             ${!isTv && window._cookiesAvailable ? `<div class="cookie-toggle-row">
                 <span class="cookie-toggle-label">Cookies</span>
@@ -1135,6 +1155,10 @@ if (profileSwitcherBtn) {
                     if (typeof enterRemoteMode === 'function') enterRemoteMode();
                 } else if (action === 'youtube-link') {
                     if (typeof showYouTubeLinkOverlay === 'function') showYouTubeLinkOverlay();
+                } else if (action === 'lounge-claim') {
+                    if (window.loungeTarget) window.loungeTarget.claim();
+                } else if (action === 'lounge-unpair') {
+                    if (window.loungeTarget) window.loungeTarget.unpair();
                 } else if (action === 'tv-mode') {
                     if (typeof window.toggleTvMode === 'function') window.toggleTvMode();
                 } else if (action === 'logout') {
