@@ -23,7 +23,6 @@ const listTabs = document.getElementById('list-tabs');
 
 // Search
 const searchInput = document.getElementById('search-input');
-const searchBtn = document.getElementById('search-btn');
 const videoGrid = document.getElementById('video-grid');
 const noResults = document.getElementById('no-results');
 const loadMoreContainer = document.getElementById('load-more-container');
@@ -1249,15 +1248,12 @@ videoPlayer.addEventListener('timeupdate', () => {
 // ── Private Mode ────────────────────────────────────────────────────────────
 
 let _privateMode = false;
-const _privateModeBtns = [document.getElementById('private-mode-btn'), document.getElementById('private-mode-btn-player')];
+const _privateModeBtn = document.getElementById('private-mode-btn-player');
 
 function _togglePrivateMode() {
     _privateMode = !_privateMode;
-    for (const btn of _privateModeBtns) {
-        if (!btn) continue;
-        btn.querySelector('.eye-open').classList.toggle('hidden', _privateMode);
-        btn.querySelector('.eye-closed').classList.toggle('hidden', !_privateMode);
-    }
+    _privateModeBtn.querySelector('.eye-open').classList.toggle('hidden', _privateMode);
+    _privateModeBtn.querySelector('.eye-closed').classList.toggle('hidden', !_privateMode);
     if (currentVideoId) {
         if (_privateMode) {
             // Went private: delete current video from history
@@ -1268,13 +1264,10 @@ function _togglePrivateMode() {
         }
     }
 }
-for (const btn of _privateModeBtns) {
-    if (btn) btn.addEventListener('click', _togglePrivateMode);
-}
+_privateModeBtn.addEventListener('click', _togglePrivateMode);
 
 // ── Event Listeners ─────────────────────────────────────────────────────────
 
-searchBtn.addEventListener('click', () => searchVideos(searchInput.value));
 searchInput.addEventListener('keypress', e => e.key === 'Enter' && searchVideos(searchInput.value));
 
 document.getElementById('logo-link').addEventListener('click', (e) => {

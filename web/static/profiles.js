@@ -502,13 +502,6 @@ function updateProfileButton() {
     const display = currentProfile.avatar_emoji || currentProfile.name.charAt(0).toUpperCase();
     profileSwitcherBtn.innerHTML = `<span class="avatar-base profile-avatar-small" style="background:${currentProfile.avatar_color};color:${emojiColor(currentProfile.avatar_color)}">${display}</span>`;
     profileSwitcherBtn.classList.remove('hidden');
-    var versionEl = document.getElementById('build-version');
-    if (versionEl && window._pytrVersion) {
-        versionEl.textContent = window._pytrVersion;
-        versionEl.classList.remove('hidden');
-    }
-    var privBtn = document.getElementById('private-mode-btn');
-    if (privBtn) privBtn.classList.remove('hidden');
 }
 
 // ── Profile Selector ───────────────────────────────────────────────────────
@@ -1114,6 +1107,7 @@ if (profileSwitcherBtn) {
             </div>` : ''}
             ${!isTv || localStorage.getItem('tv-mode') === 'desktop' || !otherProfiles.length ? '<div class="profile-menu-divider"></div>' : ''}
             <div class="profile-menu-item profile-menu-logout" data-action="logout">Logout ${escapeHtml(currentProfile.name)}</div>
+            ${window._pytrVersion ? `<div class="profile-menu-version">${escapeHtml(window._pytrVersion)}</div>` : ''}
         `;
         // Position below the button
         const rect = profileSwitcherBtn.getBoundingClientRect();

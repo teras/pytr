@@ -114,7 +114,6 @@ header {
 .header-right {
     display: flex;
     align-items: center;
-    gap: 10px;
     margin-left: auto;
 }
 
@@ -160,16 +159,14 @@ h1 {
 }
 
 .search-box {
-    display: flex;
     flex: 1;
-    gap: 10px;
-    max-width: 600px;
+    max-width: 700px;
     min-width: 0;
 }
 
 #search-input {
-    flex: 1;
-    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
     padding: 12px 16px;
     font-size: 16px;
     border: 1px solid var(--color-border-control);
@@ -185,27 +182,6 @@ h1 {
 
 #search-input::placeholder {
     color: var(--color-text-subtle);
-}
-
-#search-btn {
-    padding: 0;
-    width: 46px;
-    height: 46px;
-    font-size: 20px;
-    background-color: var(--color-bg-button);
-    color: var(--color-text);
-    border: none;
-    border-radius: 50%;
-    cursor: pointer;
-    transition: background-color 0.2s;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-#search-btn:hover {
-    background-color: var(--color-bg-button-hover);
 }
 
 /* List Header (for channel pages) */
@@ -1653,23 +1629,19 @@ h1 {
     color: var(--color-danger);
 }
 
-.private-mode-btn {
-    background: none;
-    border: none;
-    color: #fff;
-    cursor: pointer;
-    padding: 4px;
-    border-radius: 4px;
-    display: flex;
+.private-mode-player-btn {
+    display: inline-flex;
     align-items: center;
+    justify-content: center;
+    padding: 4px 6px;
 }
-.private-mode-btn:hover { filter: brightness(0.8); }
-body:not(.tv-nav-active) .private-mode-player-btn { display: none !important; }
 
-.build-version {
+.profile-menu-version {
+    padding: 8px 16px 10px;
     font-size: 11px;
-    color: #aaa;
-    white-space: nowrap;
+    color: #888;
+    text-align: center;
+    user-select: none;
 }
 
 .profile-menu-profile {
@@ -2000,8 +1972,6 @@ body:not(.tv-nav-active) .private-mode-player-btn { display: none !important; }
     .container { padding: 15px; }
     h1 { font-size: 1.4rem; }
     header { gap: 8px; }
-    .search-box { gap: 6px; }
-    #search-input { padding: 8px 12px; font-size: 14px; min-width: 0; }
     #video-grid { grid-template-columns: 1fr; }
     .quality-menu { min-width: 140px; }
     .quality-option { padding: 12px 16px; font-size: 15px; }

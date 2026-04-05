@@ -23,8 +23,6 @@
 
 /* Row-direction flex containers */
 header > *:not(:last-child) { margin-right: 16px; }
-.header-right > *:not(:last-child) { margin-right: 10px; }
-.search-box > *:not(:last-child) { margin-right: 10px; }
 .video-title-row > *:not(:last-child) { margin-right: 12px; }
 .video-info-row > *:not(:last-child) { margin-right: 16px; }
 .video-info-right > *:not(:last-child) { margin-right: 12px; }
