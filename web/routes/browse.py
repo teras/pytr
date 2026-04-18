@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response, Depends
 from auth import require_auth, get_session, extract_token
 from helpers import VIDEO_ID_RE, http_client, is_youtube_url
 from iterators import create_search, create_channel, create_channel_playlists, create_related, fetch_more
-from directcalls import fetch_playlist_contents, resolve_handle, fetch_trending
+from directcalls import fetch_playlist_contents, resolve_channel_url, fetch_trending
 
 log = logging.getLogger(__name__)
 
@@ -86,15 +86,15 @@ async def get_related_videos(request: Request, video_id: str, auth: bool = Depen
     return _json_with_cookie({'results': results, 'cursor': cursor}, token, request)
 
 
-_HANDLE_RE = re.compile(r'^[a-zA-Z0-9_.\-]+$')
+_CHANNEL_SEGMENT_RE = re.compile(r'^(?:@|c/|user/)[a-zA-Z0-9_.\-]+$')
 
 
-@router.get("/resolve-handle/{handle}")
-async def resolve_channel_handle(handle: str, auth: bool = Depends(require_auth)):
-    """Resolve a YouTube @handle to a channel ID."""
-    if not _HANDLE_RE.match(handle):
-        raise HTTPException(status_code=400, detail="Invalid handle")
-    channel_id = await resolve_handle(handle)
+@router.get("/resolve-channel/{segment:path}")
+async def resolve_channel(segment: str, auth: bool = Depends(require_auth)):
+    """Resolve a YouTube channel segment (@handle, c/NAME, user/NAME) to a channel ID."""
+    if not _CHANNEL_SEGMENT_RE.match(segment):
+        raise HTTPException(status_code=400, detail="Invalid segment")
+    channel_id = await resolve_channel_url(segment)
     if not channel_id:
         raise HTTPException(status_code=404, detail="Channel not found")
     return {"channel_id": channel_id}

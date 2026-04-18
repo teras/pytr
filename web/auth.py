@@ -543,6 +543,14 @@ async def handle_suffix_page(request: Request, handle: str, suffix: str):
     return _serve_spa(request)
 
 
+@router.get("/c/{name}")
+@router.get("/c/{name}/{suffix}")
+@router.get("/user/{name}")
+@router.get("/user/{name}/{suffix}")
+async def legacy_channel_page(request: Request, name: str, suffix: str = ""):
+    return _serve_spa(request)
+
+
 @router.get("/results")
 async def results_page(request: Request):
     return _serve_spa(request)

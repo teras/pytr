@@ -303,28 +303,27 @@ function navigateToChannel(channelId, channelName) {
     loadChannelVideos(channelId, channelName);
 }
 
-const _handleCache = {}; // @handle → UCXXXX
+const _channelSegmentCache = {}; // segment (e.g. @foo, c/foo, user/foo) → UCXXXX
 
-async function resolveHandleAndLoad(handle, tab) {
+async function resolveAndLoadChannel(segment, tab) {
+    const isHandle = segment.startsWith('@');
     try {
-        let channelId = _handleCache[handle];
+        let channelId = _channelSegmentCache[segment];
         if (!channelId) {
-            const resp = await fetch(`/api/resolve-handle/${encodeURIComponent(handle)}`);
+            const resp = await fetch(`/api/resolve-channel/${segment.split('/').map(encodeURIComponent).join('/')}`);
             if (!resp.ok) throw new Error('Channel not found');
-            const data = await resp.json();
-            channelId = data.channel_id;
-            _handleCache[handle] = channelId;
+            channelId = (await resp.json()).channel_id;
+            _channelSegmentCache[segment] = channelId;
         }
-        // Keep the @handle URL visible
-        const url = tab === 'playlists' ? `/@${handle}/playlists` : `/@${handle}`;
-        history.replaceState({ view: 'channel', channelId, channelName: '', tab, handle }, '', url);
-        if (tab === 'playlists') {
-            loadChannelPlaylists(channelId, '');
-        } else {
-            loadChannelVideos(channelId, '');
-        }
+        const basePath = isHandle ? `/${segment}` : `/channel/${channelId}`;
+        const url = tab === 'playlists' ? `${basePath}/playlists` : basePath;
+        const state = { view: 'channel', channelId, channelName: '', tab };
+        if (isHandle) state.handle = segment.slice(1);
+        history.replaceState(state, '', url);
+        if (tab === 'playlists') loadChannelPlaylists(channelId, '');
+        else loadChannelVideos(channelId, '');
     } catch (e) {
-        document.getElementById('video-grid').innerHTML = `<p class="error">Channel @${escapeHtml(handle)} not found</p>`;
+        document.getElementById('video-grid').innerHTML = `<p class="error">Channel /${escapeHtml(segment)} not found</p>`;
     }
 }
 
@@ -422,13 +421,13 @@ function handleInitialRoute() {
             playVideo(videoId, '', '', 0, startTime);
             if (listId) _loadQueue(videoId, listId);
         }
-    } else if (path.startsWith('/@')) {
-        const parts = path.slice(2).split('/'); // remove /@
-        const handle = parts[0];
-        const suffix = parts[1] || '';
+    } else if (path.startsWith('/@') || path.startsWith('/c/') || path.startsWith('/user/')) {
+        const parts = path.split('/').filter(Boolean); // ['@foo','playlists'] or ['c','foo','playlists']
+        const segment = parts[0].startsWith('@') ? parts[0] : `${parts[0]}/${parts[1]}`;
+        const suffix = parts[parts[0].startsWith('@') ? 1 : 2] || '';
         const tab = suffix === 'playlists' ? 'playlists' : 'videos';
         showListView();
-        resolveHandleAndLoad(handle, tab);
+        resolveAndLoadChannel(segment, tab);
     } else if (path.startsWith('/channel/')) {
         const parts = path.slice('/channel/'.length).split('/');
         const channelId = parts[0];

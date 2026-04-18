@@ -73,7 +73,8 @@ function youtubeToInternalLink(url) {
         }
         // Paths we pass through as-is (handleInitialRoute knows how to route them)
         if (p === '/watch' || p === '/playlist' || p === '/results'
-            || p.startsWith('/channel/') || p.startsWith('/@')) {
+            || p.startsWith('/channel/') || p.startsWith('/@')
+            || p.startsWith('/c/') || p.startsWith('/user/')) {
             return `${p}${u.search || ''}`;
         }
         return null;
