@@ -223,8 +223,13 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
     # Pick best audio: prefer mp4/m4a (widest browser support), fall back to webm
     audio_container = 'mp4' if 'mp4' in audio_by_container else 'webm'
     audio_fmts_raw = audio_by_container.get(audio_container, [])
-    # Keep single best audio
-    best_audio = max(audio_fmts_raw, key=lambda f: f.get('tbr') or 0) if audio_fmts_raw else None
+    # Keep single best audio. Prefer the original track over alternates like
+    # descriptive audio (yt-dlp marks descriptive tracks with negative
+    # language_preference, e.g. -10), then break ties by bitrate.
+    best_audio = max(
+        audio_fmts_raw,
+        key=lambda f: (f.get('language_preference') or 0, f.get('tbr') or 0),
+    ) if audio_fmts_raw else None
     audio_fmts = [best_audio] if best_audio else []
 
     if not audio_fmts:
@@ -264,7 +269,10 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
         other_audio = 'webm' if audio_container == 'mp4' else 'mp4'
         other_audio_fmts = audio_by_container.get(other_audio, [])
         if other_audio_fmts:
-            best_other = max(other_audio_fmts, key=lambda f: f.get('tbr') or 0)
+            best_other = max(
+                other_audio_fmts,
+                key=lambda f: (f.get('language_preference') or 0, f.get('tbr') or 0),
+            )
             audio_probe = await probe_ranges(best_other['url'])
             if audio_probe and 'init_end' in audio_probe:
                 audio_fmts = [best_other]
