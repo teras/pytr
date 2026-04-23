@@ -29,6 +29,54 @@ function thumbUrl(videoId) {
     return `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`;
 }
 
+// YouTube returns a 120x90 placeholder when a thumbnail variant doesn't exist.
+const _YT_PLACEHOLDER_MAX_WIDTH = 120;
+const _YT_VI_RE = /^https?:\/\/(?:i\.ytimg\.com|img\.youtube\.com)\/vi(?:_webp)?\/([A-Za-z0-9_-]{11})\//;
+
+function probeBestYtThumb(videoId, onBest) {
+    const base = `https://i.ytimg.com/vi/${videoId}`;
+    const tryLoad = (url, next) => {
+        const probe = new Image();
+        probe.onload = () => {
+            if (probe.naturalWidth > _YT_PLACEHOLDER_MAX_WIDTH) onBest(url);
+            else if (next) next();
+        };
+        probe.onerror = () => { if (next) next(); };
+        probe.src = url;
+    };
+    tryLoad(`${base}/maxresdefault.jpg`, () => tryLoad(`${base}/sddefault.jpg`, null));
+}
+
+function _upgradeYtThumb(img) {
+    if (img.dataset.thumbUpgraded) return;
+    const m = img.src.match(_YT_VI_RE);
+    if (!m) return;
+    img.dataset.thumbUpgraded = '1';
+    probeBestYtThumb(m[1], url => { if (img.isConnected) img.src = url; });
+}
+
+function upgradeYtThumbs(root) {
+    (root || document).querySelectorAll('img').forEach(_upgradeYtThumb);
+}
+
+if (typeof MutationObserver !== 'undefined') {
+    const _thumbObserver = new MutationObserver(muts => {
+        for (const m of muts) {
+            for (const node of m.addedNodes) {
+                if (node.nodeType !== 1) continue;
+                if (node.tagName === 'IMG') _upgradeYtThumb(node);
+                else if (node.querySelectorAll) node.querySelectorAll('img').forEach(_upgradeYtThumb);
+            }
+        }
+    });
+    const _startThumbObserver = () => {
+        upgradeYtThumbs(document);
+        _thumbObserver.observe(document.body, { childList: true, subtree: true });
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _startThumbObserver);
+    else _startThumbObserver();
+}
+
 // ── Image proxy ─────────────────────────────────────────────────────────────
 
 function proxyImageUrl(url) {

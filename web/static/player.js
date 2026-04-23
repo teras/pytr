@@ -4,23 +4,8 @@
 
 /** Set best available YouTube poster: maxresdefault → sddefault → hqdefault */
 function setBestPoster(videoEl, videoId) {
-    const base = `https://img.youtube.com/vi/${videoId}`;
-    videoEl.poster = `${base}/hqdefault.jpg`; // immediate low-res
-    const img = new Image();
-    img.onload = function() {
-        // YouTube returns a 120x90 placeholder when maxresdefault doesn't exist
-        if (img.naturalWidth > 120) {
-            videoEl.poster = img.src;
-        } else {
-            // try sddefault (640x480) as middle ground
-            const sd = new Image();
-            sd.onload = function() {
-                if (sd.naturalWidth > 120) videoEl.poster = sd.src;
-            };
-            sd.src = `${base}/sddefault.jpg`;
-        }
-    };
-    img.src = `${base}/maxresdefault.jpg`;
+    videoEl.poster = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    probeBestYtThumb(videoId, url => { videoEl.poster = url; });
 }
 
 /** Convert ISO 639 language code to display name */

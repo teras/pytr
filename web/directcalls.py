@@ -175,10 +175,10 @@ def _thumb_fallback(video_id: str) -> str:
 
 
 def _extract_video_thumbnail(renderer: dict, video_id: str) -> str:
-    """Extract thumbnail URL from a videoRenderer, with hqdefault fallback."""
+    """Extract highest-res thumbnail URL from a videoRenderer, with hqdefault fallback."""
     thumbs = renderer.get("thumbnail", {}).get("thumbnails", [])
     if thumbs:
-        return thumbs[0].get("url", "") or _thumb_fallback(video_id)
+        return thumbs[-1].get("url", "") or _thumb_fallback(video_id)
     return _thumb_fallback(video_id)
 
 
@@ -323,7 +323,7 @@ def _extract_lockup_thumbnail(vm: dict) -> str:
                 .get("primaryThumbnail", {}).get("thumbnailViewModel")
                 or {})
     thumbnails = thumb_vm.get("image", {}).get("sources", [])
-    return thumbnails[0].get("url", "") if thumbnails else ""
+    return thumbnails[-1].get("url", "") if thumbnails else ""
 
 
 _COLLECTION_TYPES = {"LOCKUP_CONTENT_TYPE_PLAYLIST", "LOCKUP_CONTENT_TYPE_PODCAST"}
