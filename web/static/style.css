@@ -2664,6 +2664,27 @@ body.theater-mode .video-sidebar {
     padding: 0 20px;
 }
 
+/* ── Landscape pseudo-fullscreen (mobile rotate-to-fullscreen) ────────── */
+body.landscape-fullscreen {
+    overflow: hidden;
+}
+body.landscape-fullscreen #player-container {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    margin: 0;
+    border-radius: 0;
+    z-index: 9999;
+    background: #000;
+}
+body.landscape-fullscreen #video-player {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
 /* ── SponsorBlock OSD markers ─────────────────────────────────────────── */
 .sb-osd-marker {
     position: absolute;

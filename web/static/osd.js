@@ -48,7 +48,35 @@ function formatTime(s, refS) {
         setupModeButtons();
         setupMouseInteraction();
         setupTimeUpdate();
+        setupOrientationFullscreen();
     };
+
+    function setupOrientationFullscreen() {
+        // Touch-device only. On HTTPS/localhost the page can also be installed
+        // as a PWA — in standalone mode the body class below already produces
+        // a clean fullscreen because there's no browser URL bar to hide. On
+        // plain HTTP we still apply the CSS so the player at least fills the
+        // viewport (the URL bar persists but page chrome is gone), and the
+        // click handler in setupMouseInteraction tries to upgrade to real
+        // fullscreen on the next tap.
+        if (!window.matchMedia('(pointer: coarse)').matches) return;
+        const mql = window.matchMedia('(orientation: landscape)');
+        const apply = () => {
+            const wantFs = mql.matches && _isVideoView && _isVideoView();
+            document.body.classList.toggle('landscape-fullscreen', wantFs);
+            if (!wantFs && document.fullscreenElement) {
+                document.exitFullscreen().catch(() => {});
+            } else if (wantFs && !document.fullscreenElement) {
+                // Try once; succeeds only within the 5s sticky-activation
+                // window of the most recent gesture.
+                const pc = document.getElementById(_containerId);
+                if (pc) pc.requestFullscreen().catch(() => {});
+            }
+        };
+        mql.addEventListener('change', apply);
+        document.addEventListener('pytr:videoview', apply);
+        apply();
+    }
 
     // Exported so tv-overlays.js can reuse it
     function _getChapterAt(time) {
@@ -408,12 +436,21 @@ function formatTime(s, refS) {
             showOsd();
         });
 
-        // Click on video toggles play/pause + shows OSD
+        // Click on video toggles play/pause + shows OSD.
+        // Exception: when in landscape pseudo-fullscreen but not yet in real
+        // fullscreen, the tap is "consumed" to upgrade into real fullscreen
+        // (which needs the gesture). Without this, the tap would pause the
+        // video without ever hiding the browser URL bar.
         pcEl.addEventListener('click', (e) => {
             if (e.target.closest('.tv-osd-bar') || e.target.closest('.sb-toast') || e.target.closest('.osd-right-controls')) return;
             const video = _getVideo();
             if (!video || !_isVideoView()) return;
             if (typeof currentPlayerType !== 'undefined' && currentPlayerType === null) return;
+            if (document.body.classList.contains('landscape-fullscreen') && !document.fullscreenElement) {
+                pcEl.requestFullscreen().catch(() => {});
+                showOsd();
+                return;
+            }
             video.paused ? video.play() : video.pause();
             showOsd();
         });

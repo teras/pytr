@@ -80,6 +80,14 @@ async def lifespan(app):
 app = FastAPI(title="PYTR", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+
+@app.get("/sw.js", include_in_schema=False)
+async def service_worker():
+    """Serve the service worker from root so its scope covers the whole app."""
+    from fastapi.responses import FileResponse
+    return FileResponse("static/sw.js", media_type="application/javascript",
+                        headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"})
+
 ERROR_MESSAGES = {
     404: "This page got lost in the stream...",
     403: "Whoa there! You're not supposed to be here.",

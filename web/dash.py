@@ -123,6 +123,41 @@ def _is_hdr(fmt: dict) -> bool:
     return 'vp9.2' in codec or 'vp09.02' in codec
 
 
+def _normalize_vp9_codec(codec: str, height: int, fps: int) -> str:
+    """Convert bare "vp9"/"vp9.2" to ISO codec string vp09.PP.LL.DD.
+
+    dash.js v5+ uses navigator.mediaCapabilities.decodingInfo() which strictly
+    requires the full form. Bare "vp9" returns supported=false even though
+    MediaSource.isTypeSupported accepts it, causing all VP9 representations to
+    be filtered out (audio plays, video doesn't).
+    Profile: 00 (8-bit SDR) or 02 (10-bit HDR).
+    Level chosen to match resolution+fps so the browser doesn't reject decoding
+    capability claims that exceed the device's real ceiling.
+    """
+    c = codec.lower()
+    if c.startswith('vp09'):
+        return codec  # already canonical
+    if c not in ('vp9', 'vp9.2'):
+        return codec  # not VP9
+    profile = '02' if c == 'vp9.2' else '00'
+    bitdepth = '10' if profile == '02' else '08'
+    h = height or 0
+    high_fps = (fps or 0) > 30
+    if h <= 480:
+        level = '30'
+    elif h <= 720:
+        level = '31'
+    elif h <= 1080:
+        level = '41' if high_fps else '40'
+    elif h <= 1440:
+        level = '50'
+    elif h <= 2160:
+        level = '51'
+    else:
+        level = '60'
+    return f'vp09.{profile}.{level}.{bitdepth}'
+
+
 def _dedup_by_height(fmts: list) -> list:
     """Keep best format per height. Prefer SDR over HDR at same height."""
     best = {}
@@ -315,10 +350,10 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
     for i, fmt in enumerate(valid_video):
         probe = valid_video_probes[i]
         proxy_url = f'/api/videoplayback?url={quote(fmt["url"], safe="")}'
-        codecs = fmt.get('vcodec', 'avc1.4d401e')
         height = fmt.get('height', 0)
         width = fmt.get('width', 0)
         fps = fmt.get('fps', 30)
+        codecs = _normalize_vp9_codec(fmt.get('vcodec', 'avc1.4d401e'), height, fps)
         bandwidth = int((fmt.get('tbr') or fmt.get('vbr') or 0) * 1000) or 1000000
 
         mpd_lines.append(

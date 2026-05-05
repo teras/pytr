@@ -80,6 +80,15 @@ window._osd.init({
     containerId: 'player-container',
 });
 
+// Register the service worker so Chrome qualifies pytr as an installable PWA.
+// Standalone mode hides the URL bar entirely, which is what makes the
+// rotate-to-fullscreen UX actually look fullscreen on Android. Only available
+// over HTTPS or localhost; on plain HTTP navigator.serviceWorker is undefined
+// and the registration call is skipped.
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
 // ── State ───────────────────────────────────────────────────────────────────
 
 let currentVideoId = null;
@@ -256,6 +265,7 @@ document.addEventListener('click', closeAllMenus);
 function showListView() {
     listView.classList.remove('hidden');
     videoView.classList.add('hidden');
+    document.dispatchEvent(new Event('pytr:videoview'));
     stopPlayer();
     // Close queue when leaving video view
     if (typeof _closeQueue === 'function') _closeQueue();
@@ -279,6 +289,7 @@ function _tvAutoFocus() {
 function showVideoView() {
     listView.classList.add('hidden');
     videoView.classList.remove('hidden');
+    document.dispatchEvent(new Event('pytr:videoview'));
 }
 
 function navigateToVideo(videoId, title, channel, duration) {
