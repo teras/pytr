@@ -593,7 +593,7 @@ function showPinPrompt(profileId) {
     modal.querySelector('.pin-cancel').addEventListener('click', () => modal.remove());
 }
 
-async function selectProfile(id, pin) {
+async function selectProfile(id, pin, resetToHome = false) {
     try {
         const resp = await fetch(`/api/profiles/select/${id}`, {
             method: 'POST',
@@ -610,7 +610,7 @@ async function selectProfile(id, pin) {
         setMainContentVisible(true);
         if (document.activeElement) document.activeElement.blur();
         stopPlayer();
-        history.replaceState({ view: 'home' }, '', '/');
+        if (resetToHome) history.replaceState({ view: 'home' }, '', '/');
         handleInitialRoute();
         if (typeof _ws !== 'undefined' && _ws) {
             if (_ws.readyState === WebSocket.OPEN && typeof wsSend === 'function')
@@ -1131,7 +1131,7 @@ if (profileSwitcherBtn) {
                     showMenuPinPrompt(id);
                 } else {
                     stopPlayer();
-                    selectProfile(id, null);
+                    selectProfile(id, null, true);
                 }
             });
         });
@@ -1210,7 +1210,7 @@ function showMenuPinPrompt(profileId) {
         const pin = input.value;
         if (pin.length !== 4) return;
         stopPlayer();
-        const ok = await selectProfile(profileId, pin);
+        const ok = await selectProfile(profileId, pin, true);
         if (ok) {
             modal.remove();
         } else {
