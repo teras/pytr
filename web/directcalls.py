@@ -666,13 +666,22 @@ async def channel_first(channel_id: str) -> tuple[str, str, str, list[dict], str
 
         for item in grid_items:
             rich_item = item.get("richItemRenderer", {})
-            renderer = rich_item.get("content", {}).get("videoRenderer")
+            rich_content = rich_item.get("content", {})
+            renderer = rich_content.get("videoRenderer")
             if renderer:
                 video = _parse_video_renderer(renderer)
                 if video:
                     if not video["channel"] or video["channel"] == "Unknown":
                         video["channel"] = channel_name
                     results.append(video)
+                continue
+            lvm = rich_content.get("lockupViewModel")
+            if lvm:
+                parsed = _parse_lockup_view_model(lvm)
+                if parsed:
+                    if not parsed.get("channel") or parsed["channel"] == "Unknown":
+                        parsed["channel"] = channel_name
+                    results.append(parsed)
 
         token = _extract_continuation_token(grid_items)
 
@@ -696,6 +705,14 @@ async def channel_first(channel_id: str) -> tuple[str, str, str, list[dict], str
                                 if not video["channel"] or video["channel"] == "Unknown":
                                     video["channel"] = channel_name
                                 results.append(video)
+                            continue
+                        lvm = grid_item.get("lockupViewModel")
+                        if lvm:
+                            parsed = _parse_lockup_view_model(lvm)
+                            if parsed:
+                                if not parsed.get("channel") or parsed["channel"] == "Unknown":
+                                    parsed["channel"] = channel_name
+                                results.append(parsed)
                     if not token:
                         token = _extract_continuation_token(grid)
 
@@ -725,16 +742,26 @@ async def channel_next(continuation_token: str, channel_name: str | None = None)
         items = (action.get("appendContinuationItemsAction", {})
                  .get("continuationItems", []))
         for item in items:
-            # richItemRenderer → content → videoRenderer
+            # richItemRenderer → content → videoRenderer | lockupViewModel
             rich_item = item.get("richItemRenderer", {})
-            renderer = rich_item.get("content", {}).get("videoRenderer")
+            rich_content = rich_item.get("content", {})
+            renderer = rich_content.get("videoRenderer")
             if renderer:
                 video = _parse_video_renderer(renderer)
                 if video:
                     if channel_name and (not video["channel"] or video["channel"] == "Unknown"):
                         video["channel"] = channel_name
                     results.append(video)
-            elif item.get("gridVideoRenderer"):
+                continue
+            lvm = rich_content.get("lockupViewModel") or item.get("lockupViewModel")
+            if lvm:
+                parsed = _parse_lockup_view_model(lvm)
+                if parsed:
+                    if channel_name and (not parsed.get("channel") or parsed["channel"] == "Unknown"):
+                        parsed["channel"] = channel_name
+                    results.append(parsed)
+                continue
+            if item.get("gridVideoRenderer"):
                 # Older layout fallback
                 renderer = item["gridVideoRenderer"]
                 video = _parse_video_renderer(renderer)
