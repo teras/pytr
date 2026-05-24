@@ -179,6 +179,27 @@ app.include_router(tv_setup_page_router)
 app.include_router(remote_router)
 app.include_router(lounge_router)
 
+
+# Catch-all for legacy YouTube custom URLs (e.g. /limpbizkit → /channel/UC...).
+# Registered LAST so it only fires when no other route matches.
+import re as _re
+from fastapi import Request
+from fastapi.responses import RedirectResponse
+from directcalls import resolve_channel_url
+
+_LEGACY_NAME_RE = _re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_.\-]{2,29}$')
+
+
+@app.get("/{name}")
+async def legacy_custom_url(request: Request, name: str):
+    if not _LEGACY_NAME_RE.match(name):
+        raise StarletteHTTPException(status_code=404)
+    channel_id = await resolve_channel_url(name)
+    if not channel_id:
+        raise StarletteHTTPException(status_code=404)
+    return RedirectResponse(url=f"/channel/{channel_id}", status_code=302)
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
