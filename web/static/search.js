@@ -606,10 +606,28 @@ async function fetchRelatedVideos(videoId) {
     }
 }
 
-function _renderRelatedFiltered() {
+async function _renderRelatedFiltered() {
     relatedVideos.innerHTML = '';
 
-    const results = _relatedRawResults;
+    let results = _relatedRawResults;
+    // Hand the list to the For You sidecar (if running) so it can strip dead
+    // videos. Fire-and-fallback: if the call errors or times out, render the
+    // raw list — never worse than today.
+    if (typeof window.foryouEnhance === 'function' && results.length > 0) {
+        try {
+            const baseline = results.map(v => ({
+                video_id: v.id || v.video_id, title: v.title, channel: v.channel,
+            }));
+            const enhanced = await window.foryouEnhance('related', {}, baseline);
+            if (enhanced && Array.isArray(enhanced.removed) && enhanced.removed.length > 0) {
+                const dead = new Set(enhanced.removed.map(r => r.video_id));
+                results = results.filter(v => !dead.has(v.id || v.video_id));
+            }
+        } catch (e) {
+            console.warn('foryou enhance related failed (using raw list):', e);
+        }
+    }
+
     if (results.length > 0) {
         results.forEach(video => {
             relatedVideos.insertAdjacentHTML('beforeend', createRelatedCard(video));

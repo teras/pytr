@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>For You — Onboarding</title>
+<style>
+:root { color-scheme: dark; }
+body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #111; color: #eee;
+       padding: 16px; }
+h1 { margin: 0 0 8px; font-size: 1.4em; }
+.muted { color: #999; font-size: 0.9em; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin-top: 16px; }
+.tile { background: #222; border: 2px solid transparent; border-radius: 10px; padding: 14px 8px; text-align: center;
+        cursor: pointer; user-select: none; transition: 0.15s; }
+.tile.up { border-color: #2d8a4a; background: #0f3a1f; }
+.tile.down { border-color: #b34141; background: #3a0f0f; opacity: 0.5; }
+.tile .emo { font-size: 1.8em; display: block; margin-bottom: 4px; }
+.tile .lbl { font-size: 0.85em; line-height: 1.2; }
+.row { margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+button { background: #2d8a4a; color: #fff; border: 0; padding: 10px 18px; border-radius: 8px; font-size: 1em;
+         cursor: pointer; }
+button.ghost { background: transparent; border: 1px solid #444; color: #ccc; }
+button.danger { background: #b34141; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+input[type=text], textarea { width: 100%; background: #1a1a1a; color: #eee; border: 1px solid #444;
+                              border-radius: 6px; padding: 10px; font-family: inherit; box-sizing: border-box; }
+textarea { min-height: 100px; resize: vertical; }
+.preview { background: #1a1a1a; border-left: 3px solid #2d8a4a; padding: 10px 14px; margin: 16px 0;
+           border-radius: 4px; font-style: italic; }
+.spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #444; border-top-color: #2d8a4a;
+           border-radius: 50%; animation: sp 0.8s linear infinite; }
+@keyframes sp { to { transform: rotate(360deg); } }
+.step { display: none; }
+.step.active { display: block; }
+</style>
+</head>
+<body>
+
+<h1>Καλωσήρθες στο For You</h1>
+<p class="muted">3–5 λεπτά για να μάθω τα γούστα σου. Δεν φεύγει τίποτα από αυτό το κουτί.</p>
+
+<div id="step-mode" class="step active">
+  <p>Διάλεξε πώς θες να ξεκινήσουμε:</p>
+  <div class="row" style="justify-content:flex-start; flex-direction:column; gap:8px;">
+    <button onclick="startMode('A')">A — Γρήγορο (24 πλακίδια θεμάτων)</button>
+    <button onclick="startMode('C')">C — Συνιστάται: A + προσαρμοστικές ερωτήσεις</button>
+    <button onclick="startMode('B')">B — Πλήρως προσαρμοστικό (LLM)</button>
+  </div>
+</div>
+
+<div id="step-seed" class="step">
+  <p class="muted" id="seed-prompt">Διάλεξε ό,τι σε ενδιαφέρει (👍 = κλικ, 👎 = δεξί κλικ):</p>
+  <div class="grid" id="seed-grid"></div>
+  <div class="row">
+    <button class="ghost" onclick="cancel()">Άκυρο</button>
+    <button onclick="submitSeeds()">Συνέχεια</button>
+  </div>
+</div>
+
+<div id="step-question" class="step">
+  <p id="q-prompt" style="font-size:1.1em;"></p>
+  <textarea id="q-answer" placeholder="Γράψε εδώ τη σκέψη σου..."></textarea>
+  <div class="row">
+    <button class="ghost" onclick="skipQuestion()">Παράλειψη</button>
+    <button onclick="submitText()">Επόμενο</button>
+  </div>
+</div>
+
+<div id="step-yesno" class="step">
+  <p id="yn-prompt" style="font-size:1.1em;"></p>
+  <div class="row">
+    <button class="ghost" onclick="answerYesNo(false)">Όχι ευχαριστώ</button>
+    <button onclick="answerYesNo(true)">Ναι</button>
+  </div>
+</div>
+
+<div id="step-preview" class="step">
+  <p>Μέχρι στιγμής βλέπω:</p>
+  <div class="preview" id="preview-text"></div>
+  <p class="muted">Μπορείς να επεξεργαστείς το κείμενο πριν το αποθηκεύσω (προαιρετικό):</p>
+  <textarea id="persona-override"></textarea>
+  <div class="row">
+    <button class="ghost" onclick="cancel()">Άκυρο</button>
+    <button onclick="finalize()">Αποθήκευση και έναρξη</button>
+  </div>
+</div>
+
+<div id="step-done" class="step">
+  <p>Όλα έτοιμα! Φτιάχνω τα feeds σου στο background.</p>
+</div>
+
+<script>
+let sessionId = null;
+let selectedSeeds = new Set();
+let rejectedSeeds = new Set();
+let lastQuestionId = null;
+
+function show(id) {
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+async function startMode(mode) {
+  const r = await fetch('/api/foryou/onboarding/start', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mode}),
+  });
+  const data = await r.json();
+  sessionId = data.session_id;
+  handleQuestion(data.first_question);
+}
+
+function handleQuestion(q) {
+  if (!q) { show('step-preview'); return; }
+  lastQuestionId = q.id;
+  if (q.kind === 'seed_grid') {
+    document.getElementById('seed-prompt').textContent = q.prompt;
+    const grid = document.getElementById('seed-grid');
+    grid.innerHTML = '';
+    q.options.forEach(opt => {
+      const tile = document.createElement('div');
+      tile.className = 'tile';
+      tile.innerHTML = `<span class="emo">${opt.emoji}</span><span class="lbl">${opt.label}</span>`;
+      tile.onclick = () => toggleSeed(opt.id, tile, 'up');
+      tile.oncontextmenu = (e) => { e.preventDefault(); toggleSeed(opt.id, tile, 'down'); };
+      grid.appendChild(tile);
+    });
+    show('step-seed');
+  } else if (q.kind === 'open_text') {
+    document.getElementById('q-prompt').textContent = q.prompt;
+    document.getElementById('q-answer').value = '';
+    show('step-question');
+  } else if (q.kind === 'yes_no') {
+    document.getElementById('yn-prompt').textContent = q.prompt;
+    show('step-yesno');
+  }
+}
+
+function toggleSeed(id, tile, dir) {
+  if (dir === 'up') {
+    rejectedSeeds.delete(id);
+    if (selectedSeeds.has(id)) { selectedSeeds.delete(id); tile.classList.remove('up'); }
+    else { selectedSeeds.add(id); tile.classList.add('up'); tile.classList.remove('down'); }
+  } else {
+    selectedSeeds.delete(id);
+    if (rejectedSeeds.has(id)) { rejectedSeeds.delete(id); tile.classList.remove('down'); }
+    else { rejectedSeeds.add(id); tile.classList.add('down'); tile.classList.remove('up'); }
+  }
+}
+
+async function submitSeeds() {
+  const r = await fetch('/api/foryou/onboarding/answer', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      session_id: sessionId, question_id: 'seed_grid',
+      answer: {selected: [...selectedSeeds], rejected: [...rejectedSeeds]},
+    }),
+  });
+  const data = await r.json();
+  if (data.done) { showPreview(data.preview); return; }
+  handleQuestion(data.next_question);
+}
+
+async function submitText() {
+  const txt = document.getElementById('q-answer').value.trim();
+  const r = await fetch('/api/foryou/onboarding/answer', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({session_id: sessionId, question_id: lastQuestionId, answer: txt}),
+  });
+  const data = await r.json();
+  if (data.done) { showPreview(data.preview); return; }
+  handleQuestion(data.next_question);
+}
+
+async function skipQuestion() {
+  await submitText();
+}
+
+async function answerYesNo(yes) {
+  const r = await fetch('/api/foryou/onboarding/answer', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({session_id: sessionId, question_id: lastQuestionId, answer: {yes}}),
+  });
+  const data = await r.json();
+  if (data.done) { showPreview(data.preview); return; }
+  handleQuestion(data.next_question);
+}
+
+function showPreview(preview) {
+  document.getElementById('preview-text').textContent =
+    (preview && preview.persona_so_far) || 'Δεν έχω αρκετά σήματα ακόμη.';
+  document.getElementById('persona-override').value = '';
+  show('step-preview');
+}
+
+async function finalize() {
+  const override = document.getElementById('persona-override').value.trim();
+  await fetch('/api/foryou/onboarding/finalize', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({session_id: sessionId,
+                          persona_text_override: override || null}),
+  });
+  show('step-done');
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage('foryou-onboarding-complete', '*');
+  }
+}
+
+function cancel() {
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage('foryou-onboarding-cancel', '*');
+  } else {
+    window.history.back();
+  }
+}
+</script>
+
+</body>
+</html>

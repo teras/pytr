@@ -324,6 +324,7 @@ async function checkProfile() {
         } else if (data.state === 'ready') {
             currentProfile = data.profile;
             window._cookiesAvailable = !!data.cookies_available;
+            window._foryouAvailable = !!data.foryou_available;
             applyProfilePrefs();
             updateProfileButton();
             profileOverlay.innerHTML = '';
@@ -331,6 +332,12 @@ async function checkProfile() {
             setMainContentVisible(true);
             handleInitialRoute();
             if (typeof connectWebSocket === 'function') connectWebSocket();
+            if (typeof window.foryouInit === 'function') {
+                // TV mode hides For You per the plan.
+                if (localStorage.getItem('tv-mode') !== '1') {
+                    window.foryouInit(data);
+                }
+            }
         } else if (data.state === 'profile-select') {
             const profiles = data.profiles;
             if (profiles.length === 1) {

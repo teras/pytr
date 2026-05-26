@@ -20,6 +20,9 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(app):
+    # Probe For You sidecar once. The frontend gates all For You UI on the result.
+    from routes import foryou as foryou_mod
+    await foryou_mod.foryou_probe_once()
     # Start background tasks
     from helpers import webos_renewal_loop
     renewal_task = asyncio.create_task(webos_renewal_loop())
@@ -74,6 +77,8 @@ async def lifespan(app):
     warmup_task.cancel()
     from helpers import http_client
     await http_client.aclose()
+    from routes.foryou import close_proxy_client as _close_foryou
+    await _close_foryou()
     logging.getLogger(__name__).info("httpx client closed")
 
 
@@ -166,6 +171,7 @@ from routes.sponsorblock import router as sponsorblock_router
 from routes.tv_setup import router as tv_setup_router, page_router as tv_setup_page_router
 from routes.remote import router as remote_router
 from routes.lounge import router as lounge_router
+from routes.foryou import router as foryou_router
 
 app.include_router(auth_router)
 app.include_router(dash_router)
@@ -178,6 +184,7 @@ app.include_router(tv_setup_router)
 app.include_router(tv_setup_page_router)
 app.include_router(remote_router)
 app.include_router(lounge_router)
+app.include_router(foryou_router)
 
 
 # Catch-all for legacy YouTube custom URLs (e.g. /limpbizkit → /channel/UC...).

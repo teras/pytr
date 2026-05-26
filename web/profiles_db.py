@@ -144,6 +144,25 @@ def init_db():
         sess_cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
         if "bearer_allowed" not in sess_cols:
             conn.execute("ALTER TABLE sessions ADD COLUMN bearer_allowed INTEGER NOT NULL DEFAULT 0")
+        # Migration (For You sidecar): profile_uuid, timezone, channel_id columns.
+        # All nullable / forward-only — sit inert when foryou is never enabled.
+        if "profile_uuid" not in cols:
+            conn.execute("ALTER TABLE profiles ADD COLUMN profile_uuid TEXT")
+            # Backfill UUIDs for existing rows.
+            import uuid as _uuid
+            for row in conn.execute("SELECT id FROM profiles WHERE profile_uuid IS NULL").fetchall():
+                conn.execute("UPDATE profiles SET profile_uuid = ? WHERE id = ?",
+                             (str(_uuid.uuid4()), row[0]))
+            # Add UNIQUE index after backfill (NOT NULL would require recreating the table).
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_profiles_uuid ON profiles(profile_uuid)")
+        if "timezone" not in cols:
+            conn.execute("ALTER TABLE profiles ADD COLUMN timezone TEXT")
+        wh_cols = [r[1] for r in conn.execute("PRAGMA table_info(watch_history)").fetchall()]
+        if "channel_id" not in wh_cols:
+            conn.execute("ALTER TABLE watch_history ADD COLUMN channel_id TEXT")
+        fav_cols = [r[1] for r in conn.execute("PRAGMA table_info(favorites)").fetchall()]
+        if "channel_id" not in fav_cols:
+            conn.execute("ALTER TABLE favorites ADD COLUMN channel_id TEXT")
 
 
 class DbLogHandler(logging.Handler):
@@ -322,6 +341,55 @@ def delete_profile(profile_id: int) -> bool:
     with _connect() as conn:
         cur = conn.execute("DELETE FROM profiles WHERE id = ?", (profile_id,))
     return cur.rowcount > 0
+
+
+def get_profile_uuid(profile_id: int) -> str | None:
+    with _connect() as conn:
+        r = conn.execute("SELECT profile_uuid FROM profiles WHERE id = ?", (profile_id,)).fetchone()
+    return r["profile_uuid"] if r and "profile_uuid" in r.keys() else None
+
+
+def get_profile_id_by_uuid(profile_uuid: str) -> int | None:
+    with _connect() as conn:
+        r = conn.execute("SELECT id FROM profiles WHERE profile_uuid = ?", (profile_uuid,)).fetchone()
+    return r["id"] if r else None
+
+
+def export_profile_for_foryou(profile_id: int) -> dict:
+    """Serialize history + favorites + followed channels for the For You sidecar.
+
+    Per the threat model, this is a cross-container call within the same host
+    (no internet egress), so we ship the whole payload unredacted.
+    """
+    with _connect() as conn:
+        prof = conn.execute("SELECT * FROM profiles WHERE id = ?", (profile_id,)).fetchone()
+        if not prof:
+            return {}
+        history = conn.execute(
+            "SELECT video_id, title, channel, channel_id, thumbnail, duration, watched_at, position "
+            "FROM watch_history WHERE profile_id = ? ORDER BY watched_at DESC LIMIT 2000",
+            (profile_id,),
+        ).fetchall()
+        favorites = conn.execute(
+            "SELECT video_id, title, channel, channel_id, thumbnail, duration, added_at, item_type, playlist_id "
+            "FROM favorites WHERE profile_id = ? ORDER BY added_at DESC",
+            (profile_id,),
+        ).fetchall()
+        followed = conn.execute(
+            "SELECT channel_id, channel_name, avatar_url, added_at FROM followed_channels WHERE profile_id = ?",
+            (profile_id,),
+        ).fetchall()
+    return {
+        "profile_meta": {
+            "uuid": prof["profile_uuid"] if "profile_uuid" in prof.keys() else None,
+            "content_lang": prof["content_lang"] if "content_lang" in prof.keys() else "auto",
+            "content_region": prof["content_region"] if "content_region" in prof.keys() else "auto",
+            "timezone": prof["timezone"] if "timezone" in prof.keys() else None,
+        },
+        "history": [dict(r) for r in history],
+        "favorites": [dict(r) for r in favorites],
+        "followed_channels": [dict(r) for r in followed],
+    }
 
 
 def verify_pin(profile_id: int, pin: str) -> bool:

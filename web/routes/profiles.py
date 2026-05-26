@@ -85,21 +85,25 @@ class UpdateSBPrefsReq(BaseModel):
 @router.get("/boot")
 async def boot(request: Request):
     """Single endpoint to determine app state on load."""
+    from routes import foryou as foryou_mod
+    foryou_available = foryou_mod.FORYOU_AVAILABLE
     profiles = db.list_profiles()
     if not profiles and not db.get_app_password():
-        return {"state": "first-run", "version": BUILD_VERSION}
+        return {"state": "first-run", "version": BUILD_VERSION, "foryou_available": foryou_available}
     if not verify_session(request):
-        return {"state": "login-required", "version": BUILD_VERSION}
+        return {"state": "login-required", "version": BUILD_VERSION, "foryou_available": foryou_available}
     pid = get_profile_id(request)
     if pid:
         profile = db.get_profile(pid)
         if profile:
-            return {"state": "ready", "profile": profile, "cookies_available": COOKIES_FILE.is_file(), "version": BUILD_VERSION}
+            return {"state": "ready", "profile": profile, "cookies_available": COOKIES_FILE.is_file(),
+                    "version": BUILD_VERSION, "foryou_available": foryou_available}
     # Hourly cleanup (cache expiry, etc.) — runs here and in list_profiles because
     # these are the only idle-state endpoints hit regularly. Not needed in the
     # "ready" branch above since that returns immediately without listing.
     maybe_long_cleanup()
-    return {"state": "profile-select", "profiles": profiles, "version": BUILD_VERSION}
+    return {"state": "profile-select", "profiles": profiles, "version": BUILD_VERSION,
+            "foryou_available": foryou_available}
 
 
 @router.get("")

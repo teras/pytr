@@ -1003,6 +1003,11 @@ async function playVideo(videoId, title, channel, duration, startTime) {
 
         if (!resp.ok) {
             showPlayerError(title, info.message || info.detail);
+            // If For You is wired up, tell the sidecar this video is dead so it
+            // stops appearing in feeds. Fire-and-forget; no UI impact.
+            if (typeof window.foryouReportUnavailable === 'function') {
+                window.foryouReportUnavailable(videoId, info.message || info.detail || `HTTP ${resp.status}`);
+            }
             fetchRelatedVideos(videoId);
             return;
         }

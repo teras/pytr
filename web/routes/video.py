@@ -134,6 +134,14 @@ async def get_video_info(video_id: str, cookies: str = "auto", auth: bool = Depe
                 'error': 'rate_limited',
                 'message': clean_msg or 'YouTube is temporarily blocking requests. Try again later.',
             })
+        # If yt-dlp confirms this video is gone, tell the For You sidecar so it
+        # tombstones the ID and stops re-adding it from Reddit / RSS / etc.
+        from routes import foryou as foryou_mod
+        if foryou_mod.looks_dead(err_msg):
+            try:
+                await foryou_mod.notify_unavailable(video_id, clean_msg or err_msg)
+            except Exception:
+                pass
         raise HTTPException(status_code=500, detail=clean_msg or err_msg)
 
 
