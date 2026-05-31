@@ -62,7 +62,7 @@ fi
 mkdir -p build
 
 # ── Generate build version ──────────────────────────────────────────
-BUILD_VERSION="${BUILD_VERSION:-dev-$(( ($(date +%s) / 60) % 1000000 ))}"
+export BUILD_VERSION="${BUILD_VERSION:-dev-$(( ($(date +%s) / 60) % 1000000 ))}"
 echo "$BUILD_VERSION" > web/static/version.txt
 echo "── Build version: $BUILD_VERSION ──"
 

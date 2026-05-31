@@ -2,6 +2,8 @@ services:
   pytr:
     build:
       context: .
+      args:
+        BUILD_VERSION: "${BUILD_VERSION:-}"
     environment:
       - PYTR_UID=${UID:-1000}
       - PYTR_GID=${GID:-1000}
