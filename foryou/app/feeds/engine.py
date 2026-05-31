@@ -206,7 +206,7 @@ async def _generate_community(profile_uuid: str, cfg: dict, ctx: dict) -> list[d
     # Sort by fetched_at desc.
     pool.sort(key=lambda v: v.get("fetched_at") or 0, reverse=True)
     for v in pool[:cfg.get("size", 60)]:
-        v["why"] = "anebainei σε community feeds"
+        v["why"] = "ανεβαίνει σε community feeds"
     return pool[:cfg.get("size", 60)]
 
 
@@ -403,7 +403,7 @@ async def _generate_surprise(profile_uuid: str, cfg: dict, ctx: dict) -> list[di
     deduped = [v for v in deduped if v["video_id"] not in watched and v["video_id"] not in banned]
     ranked = deduped[:cfg.get("size", 40)]
     for v in ranked:
-        v["why"] = "πλάγια γέφυρα — μη αναμενόμενο"
+        v["why"] = "απρόσμενο εύρημα — μπορεί να σε εκπλήξει"
     return ranked
 
 
