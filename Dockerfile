@@ -27,6 +27,15 @@ COPY web/ .
 COPY build/pytr-tv.ipk clients/webos/pytr-tv.ipk
 COPY build/pytr-tv.apk clients/android/pytr-tv.apk
 
+# Bake build version into the image. If BUILD_VERSION is passed (build.sh sets it),
+# use that; otherwise compute from the current minute at build time. Layer caching
+# keeps the version stable across rebuilds with no source changes.
+ARG BUILD_VERSION=
+RUN if [ -z "$BUILD_VERSION" ]; then \
+        BUILD_VERSION="dev-$(( $(date +%s) / 60 % 1000000 ))"; \
+    fi && \
+    echo "$BUILD_VERSION" > /app/static/version.txt
+
 # Create non-root user for default case (runtime UID/GID via PYTR_UID/PYTR_GID env vars)
 RUN groupadd -g 1000 pytr && \
     useradd -u 1000 -g 1000 -s /bin/sh -M pytr
