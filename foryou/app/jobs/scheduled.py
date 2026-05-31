@@ -213,7 +213,7 @@ async def enrich_transcripts():
     if not (modes & {"balanced", "cloud"}):
         return  # all profiles are Fortress → skip
     mode = "cloud" if "cloud" in modes else "balanced"
-    n = await transcript_src.fetch_many(video_ids, mode=mode, concurrency=1, pause_sec=2.0)
+    n = await transcript_src.fetch_many(video_ids, mode=mode, pause_sec=2.0)
     log.info("transcript enrich done: requested=%d filled=%d", len(video_ids), len(n))
 
 
@@ -225,8 +225,12 @@ def register_all():
     runner.register("sessionize", sessionize, cadence_sec=3600)
     runner.register("cleanup", cleanup, cadence_sec=86400)
     runner.register("hit_rate_snapshot", hit_rate_snapshot, cadence_sec=86400)
-    # Temporarily disabled: YouTube throttled us for aggressive caption fetching.
-    # runner.register("enrich_transcripts", enrich_transcripts, cadence_sec=2 * 3600)
+    # Re-enabled after fixing the batch-sabotage bug: a single video whose
+    # caption URL serves HTML used to back off the whole source and skip every
+    # remaining good video. fetch_many() now isolates per-video failures and
+    # only aborts on a sustained block burst (real throttle), so a 2 h cadence
+    # is safe.
+    runner.register("enrich_transcripts", enrich_transcripts, cadence_sec=2 * 3600)
     # Refresh the global candidate pool weekly. The boot-time prime is triggered
     # as a one-shot from main.py so the very first run also benefits.
     runner.register("bootstrap_candidates", bootstrap_candidates, cadence_sec=7 * 86400)

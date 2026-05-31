@@ -98,3 +98,85 @@ async def test_embedding_prefers_transcript_over_description():
     assert veca and vecb
     # They should not be identical (transcript text is distinct).
     assert veca != vecb
+
+
+# ── fetch_many() throttle / per-video failure isolation ──────────────────────
+
+def _patch_fetch(monkeypatch, script):
+    """Replace TranscriptSource.fetch with a scripted (return, last_error) map,
+    and neutralise sleeps so the batch logic runs instantly."""
+    attempted: list[str] = []
+
+    async def fake_fetch(self, vid, *, mode):
+        attempted.append(vid)
+        ret, err = script[vid]
+        self.health.last_error = err
+        return ret
+
+    async def no_sleep(*a, **k):
+        return None
+
+    monkeypatch.setattr(ts.TranscriptSource, "fetch", fake_fetch)
+    monkeypatch.setattr(ts.asyncio, "sleep", no_sleep)
+    return attempted
+
+
+@pytest.mark.asyncio
+async def test_isolated_html_failure_does_not_abort_batch(monkeypatch):
+    # One bad-URL video (HTML) in the middle must NOT skip the good videos after
+    # it — that was the batch-sabotage bug. The bad video is negative-cached.
+    script = {
+        "iv1": ("transcript one", ""),
+        "iv2": (None, "HTML response"),
+        "iv3": ("transcript three", ""),
+        "iv4": ("transcript four", ""),
+    }
+    attempted = _patch_fetch(monkeypatch, script)
+    out = await ts.fetch_many(list(script), mode="balanced", pause_sec=0)
+    assert attempted == ["iv1", "iv2", "iv3", "iv4"]   # every video tried
+    assert set(out) == {"iv1", "iv3", "iv4"}           # only the bad one missing
+    assert ts._cache_get("iv2") == ""                  # bad video negative-cached
+
+
+@pytest.mark.asyncio
+async def test_html_burst_aborts_cycle_and_caps_negcache(monkeypatch):
+    # A sustained HTML burst (real throttle) aborts the cycle after
+    # block_threshold blocks, and negative-caches at most threshold-1 videos so
+    # good videos aren't mass-mismarked during a throttle storm.
+    vids = ["bv1", "bv2", "bv3", "bv4", "bv5", "bv6"]
+    attempted = _patch_fetch(monkeypatch, {v: (None, "HTML response") for v in vids})
+    out = await ts.fetch_many(vids, mode="balanced", pause_sec=0, block_threshold=3)
+    assert out == {}
+    assert attempted == ["bv1", "bv2", "bv3"]          # bailed before bv4
+    # Capped: only the first threshold-1 (=2) get negative-cached.
+    assert ts._cache_get("bv1") == ""
+    assert ts._cache_get("bv2") == ""
+    assert ts._cache_get("bv3") is None
+    assert ts._cache_get("bv4") is None
+
+
+@pytest.mark.asyncio
+async def test_consecutive_429_aborts_without_negcache(monkeypatch):
+    # 429 is a pure rate signal — never negative-cache, abort on a burst.
+    vids = ["rv1", "rv2", "rv3", "rv4", "rv5"]
+    attempted = _patch_fetch(monkeypatch, {v: (None, "HTTP 429 (rate-limited)") for v in vids})
+    out = await ts.fetch_many(vids, mode="balanced", pause_sec=0, block_threshold=3)
+    assert out == {}
+    assert attempted == ["rv1", "rv2", "rv3"]
+    for v in vids:
+        assert ts._cache_get(v) is None               # 429 never poisons cache
+
+
+@pytest.mark.asyncio
+async def test_success_resets_block_counter(monkeypatch):
+    # Blocks interspersed with successes never reach block_threshold in a row,
+    # so a long, mostly-healthy batch is never aborted early.
+    script = {
+        "sv1": (None, "HTML response"), "sv2": (None, "HTML response"),
+        "sv3": ("ok3", ""), "sv4": (None, "HTML response"),
+        "sv5": (None, "HTML response"), "sv6": ("ok6", ""),
+    }
+    attempted = _patch_fetch(monkeypatch, script)
+    out = await ts.fetch_many(list(script), mode="balanced", pause_sec=0, block_threshold=3)
+    assert attempted == list(script)                   # never aborted
+    assert set(out) == {"sv3", "sv6"}

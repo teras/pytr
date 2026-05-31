@@ -66,12 +66,16 @@ class TranscriptSource(Source):
             if r.status_code != 200:
                 _cache_set(video_id, "")
                 return None
-            text = _clean_vtt(r.text)
-            # If YouTube served an HTML error page disguised as 200 (rare but
-            # happens during rolling throttles), guard against negative-caching it.
+            # An HTML body where VTT is expected is ambiguous: usually a per-video
+            # bad/age-gated caption URL, occasionally the leading edge of a
+            # throttle. Don't trigger a source-wide backoff here (that would let
+            # one bad video sabotage the rest of the batch) and don't negative-
+            # cache yet — surface it via last_error and let fetch_many() decide
+            # based on how often it's happening.
             if r.headers.get("content-type", "").startswith("text/html"):
-                self.record_failure("HTML response (transient block)")
+                self.health.last_error = "HTML response"
                 return None
+            text = _clean_vtt(r.text)
         except Exception as e:
             self.record_failure(str(e))
             return None
@@ -225,34 +229,56 @@ def cached_transcripts(video_ids: list[str]) -> dict[str, str]:
     return out
 
 
-async def fetch_many(video_ids: list[str], *, mode: str, concurrency: int = 1,
-                     pause_sec: float = 2.0) -> dict[str, str]:
-    """Batch helper: bounded parallel fetches with a polite pause between
-    requests so YouTube doesn't 429 us. Defaults are conservative — concurrency
-    1 plus a 2-second pause empirically stays under the throttle.
+async def fetch_many(video_ids: list[str], *, mode: str,
+                     pause_sec: float = 2.0, block_threshold: int = 3) -> dict[str, str]:
+    """Sequential, throttle-aware caption fetches. A short pause between
+    requests empirically keeps us under YouTube's limits.
+
+    Two failure shapes are handled differently:
+
+    * an *isolated* HTML/non-200 response → a per-video bad caption URL. The
+      video is negative-cached and the batch carries on. One bad video must
+      never penalise the rest (the previous behaviour backed off the whole
+      source on the first HTML, skipping every remaining good video).
+    * ``block_threshold`` blocked responses in a row (429 or HTML, with no
+      success in between) → YouTube is throttling us. Abort the cycle and leave
+      the rest for next time. Crucially the videos that triggered the abort are
+      *not* negative-cached, so good videos aren't wrongly marked captionless
+      during a throttle storm.
     """
     src = TranscriptSource()
-    sem = asyncio.Semaphore(concurrency)
     results: dict[str, str] = {}
-    consecutive_429 = 0
+    consecutive_block = 0
 
-    async def _one(vid: str):
-        nonlocal consecutive_429
-        async with sem:
-            # If we hit the throttle a few times in a row, double the pause.
-            extra_sleep = min(consecutive_429 * 5.0, 30.0)
-            if extra_sleep:
-                await asyncio.sleep(extra_sleep)
-            t = await src.fetch(vid, mode=mode)
-            if t:
-                results[vid] = t
-                consecutive_429 = 0
-            elif "429" in (src.health.last_error or ""):
-                consecutive_429 += 1
-            else:
-                consecutive_429 = 0
-            await asyncio.sleep(pause_sec)
+    for vid in video_ids:
+        if consecutive_block >= block_threshold:
+            log.warning("transcript fetch aborting cycle after %d consecutive blocks "
+                        "(likely throttled) — %d/%d filled before stop",
+                        consecutive_block, len(results), len(video_ids))
+            break
+        # Escalating politeness if blocks keep coming.
+        extra_sleep = min((consecutive_block) * 5.0, 30.0)
+        if extra_sleep:
+            await asyncio.sleep(extra_sleep)
+        t = await src.fetch(vid, mode=mode)
+        err = src.health.last_error or ""
+        if t:
+            results[vid] = t
+            consecutive_block = 0
+        elif "429" in err:
+            consecutive_block += 1
+        elif "HTML" in err:
+            # Looks like an isolated bad-URL video — remember it so we don't
+            # retry it every cycle. If this is actually the start of a throttle
+            # burst, the loop bails at block_threshold, capping how many good
+            # videos can be mismarked to at most block_threshold - 1.
+            if consecutive_block < block_threshold - 1:
+                _cache_set(vid, "")
+            consecutive_block += 1
+        else:
+            # Genuine "no captions" (already negative-cached in fetch) or a
+            # benign miss — not a block signal.
+            consecutive_block = 0
+        await asyncio.sleep(pause_sec)
 
-    # Sequential when concurrency=1 (default) — gather() still works, just no parallelism.
-    await asyncio.gather(*[_one(v) for v in video_ids])
     return results
