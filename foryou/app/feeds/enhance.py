@@ -15,7 +15,6 @@ from ..db import cursor
 from ..llm import get_embedding_backend
 from ..profile_sync import fetch_profile_export, get_taste_profile
 from ..ranking import centroid, cosine
-from ..sources import transcript as transcript_src
 
 log = logging.getLogger(__name__)
 
@@ -31,38 +30,14 @@ SURFACE_CONFIG = {
 
 
 def _dead_video_ids(ids: list[str], profile_uuid: str | None) -> set[str]:
-    """Return the subset of ids known to be dead (negative transcript cache) or
-    permanently blocked by the user (never_again feedback)."""
+    """Return the subset of ids permanently blocked by the user (never_again
+    feedback). Globally-dead videos are kept out of the pool upstream via the
+    tombstone system (candidates.upsert refuses tombstoned IDs)."""
     if not ids:
         return set()
     out: set[str] = set()
     placeholders = ",".join("?" * len(ids))
     with cursor() as c:
-        # Negative transcript cache means yt-dlp confirmed the video has no
-        # captions OR the video itself is gone (transcript.py also wipes the
-        # candidate row when it sees "Video unavailable", but the negative
-        # cache row stays — that's what we leverage here).
-        rows = c.execute(
-            f"SELECT entity_id, payload FROM enrichment_cache "
-            f"WHERE entity_type='transcript' AND source='youtube_captions' "
-            f"AND entity_id IN ({placeholders})",
-            ids,
-        ).fetchall()
-        for r in rows:
-            try:
-                import json as _json
-                text = _json.loads(r["payload"]).get("text", "")
-            except Exception:
-                continue
-            # Only treat as dead when we ALSO can't find a candidate row — the
-            # negative cache hits both "video gone" AND "video alive but no
-            # captions". A live-but-captionless video should still surface.
-            if text == "":
-                surviving = c.execute(
-                    "SELECT 1 FROM candidates WHERE video_id = ?", (r["entity_id"],)
-                ).fetchone()
-                if not surviving:
-                    out.add(r["entity_id"])
         if profile_uuid:
             rows = c.execute(
                 f"SELECT video_id FROM feedback "
@@ -144,12 +119,9 @@ async def enhance(
     # Spam filtering (related-list only by default).
     keep = list(baseline)
     if cfg.get("filter_spam"):
-        # Use cached transcripts to rescue videos with shouty titles but real content.
-        ids = [v["video_id"] for v in baseline if v.get("video_id")]
-        rescues = set(transcript_src.cached_transcripts(ids).keys())
         spammy = []
         for v in baseline:
-            if _spam_signals(v) >= 2 and v.get("video_id") not in rescues:
+            if _spam_signals(v) >= 2:
                 spammy.append(v["video_id"])
         if spammy:
             removed.extend([{"video_id": vid, "reason": "spam_heuristic"} for vid in spammy])

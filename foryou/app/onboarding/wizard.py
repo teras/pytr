@@ -16,7 +16,6 @@ import uuid as uuid_lib
 from ..db import cursor
 from ..llm import get_llm_backend, llm_available
 from ..profile_sync import fetch_profile_export, get_taste_profile, mark_onboarding_complete
-from ..sources import transcript as transcript_src
 
 log = logging.getLogger(__name__)
 
@@ -244,24 +243,16 @@ async def _synth_persona(state: dict, profile_uuid: str) -> tuple[str, str | Non
     seeds = [SEED_LABEL.get(s, s) for s in state.get("selected_seeds") or []]
     qa = state.get("adaptive_qa") or []
     llm = get_llm_backend()
-    # Pull whatever transcript snippets we already have for the user's favorites
-    # — much richer than just titles. Misses fall back silently to title-only.
+    # Use the user's favorite titles as extra persona signal. (Transcript
+    # excerpts were dropped — bulk caption fetching throttled YouTube.)
     fav_snippets: list[str] = []
     try:
         export = await fetch_profile_export(profile_uuid) or {}
-        fav_ids = [f["video_id"] for f in (export.get("favorites") or [])
-                   if f.get("video_id")][:10]
-        if fav_ids:
-            transcripts = transcript_src.cached_transcripts(fav_ids)
-            for f in (export.get("favorites") or [])[:10]:
-                vid = f.get("video_id")
-                tx = transcripts.get(vid, "")
-                if tx:
-                    fav_snippets.append(f"« {f.get('title', '')} »: {tx[:300]}…")
-                elif f.get("title"):
-                    fav_snippets.append(f"« {f.get('title')} »")
+        for f in (export.get("favorites") or [])[:10]:
+            if f.get("title"):
+                fav_snippets.append(f"« {f.get('title')} »")
     except Exception as e:
-        log.debug("favorite transcript lookup failed: %s", e)
+        log.debug("favorite title lookup failed: %s", e)
     if not await llm.available():
         if not seeds and not fav_snippets:
             return "", None
@@ -274,7 +265,7 @@ async def _synth_persona(state: dict, profile_uuid: str) -> tuple[str, str | Non
         "what they're probably underexplored on.\n"
         f"Seeds: {', '.join(seeds) or 'none'}\n"
         f"Q&A:\n" + "\n".join(f"  {q['q']}: {q['a']}" for q in qa) +
-        (("\nFavourite videos (title + transcript excerpt):\n" +
+        (("\nFavourite video titles:\n" +
           "\n".join(f"  - {s}" for s in fav_snippets)) if fav_snippets else "")
     )
     try:

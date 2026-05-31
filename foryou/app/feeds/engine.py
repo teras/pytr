@@ -22,7 +22,6 @@ from ..sources.rss import ChannelRSSSource
 from ..sources.tournesol import TournesolSource
 from ..sources.ytdlp import YtDlpSearchSource, YtDlpRelatedSource, YtDlpChartsSource
 from ..sources.reddit_hn import RedditSource, HNAlgoliaSource
-from ..sources import transcript as transcript_src
 from . import spec
 
 log = logging.getLogger(__name__)
@@ -421,9 +420,9 @@ _GENERATORS = {
 async def _ensure_embeddings(videos: list[dict]):
     """Embed any candidates missing an ``embedding`` blob.
 
-    Prefers cached transcripts over title+description — transcripts give a much
-    richer signal but are only fetched by the background enrichment job, so we
-    fall back gracefully when they're not yet available.
+    Uses title + a short slice of the description. (Transcript-based embeddings
+    were dropped: bulk caption fetching triggered YouTube throttling that bled
+    into the user-facing subtitle feature.)
     """
     emb = get_embedding_backend()
     if not await emb.available():
@@ -431,15 +430,8 @@ async def _ensure_embeddings(videos: list[dict]):
     missing = [v for v in videos if not v.get("embedding")]
     if not missing:
         return
-    transcripts = transcript_src.cached_transcripts([v["video_id"] for v in missing])
-    texts: list[str] = []
-    for v in missing:
-        tx = transcripts.get(v["video_id"])
-        if tx:
-            # Anchor with the title so short transcripts don't drown out the topic.
-            texts.append((v.get("title") or "") + " — " + tx)
-        else:
-            texts.append((v.get("title") or "") + " — " + (v.get("description") or "")[:200])
+    texts = [(v.get("title") or "") + " — " + (v.get("description") or "")[:200]
+             for v in missing]
     try:
         vecs = await emb.embed(texts)
     except Exception as e:

@@ -85,21 +85,18 @@ Three presets over a single egress allowlist:
 
 * **Fortress** — RSS, Tournesol, SponsorBlock, Wikidata, MusicBrainz, Last.fm only.
   No YT search, no cloud, no community feeds.
-* **Balanced** *(default)* — adds anonymous YT search/Charts, Reddit & HN community link feeds,
-  and YouTube transcript fetching for content-aware ranking.
+* **Balanced** *(default)* — adds anonymous YT search/Charts, Reddit & HN community link feeds.
 * **Cloud** — adds LLM API providers (Gemini/Anthropic/OpenAI/Groq/DeepSeek).
 
 Switch from Settings → For You. Mode applies per-profile.
 
-### Trade-off: Fortress vs. transcript-aware ranking
+### Note: ranking signal
 
-Fortress mode runs the entire pipeline on title + description only — no
-YouTube transcript fetching. This is by design (Fortress refuses any YouTube
-egress beyond the public RSS feed) but it does cost ranking precision.
-Balanced+ enables the background `enrich_transcripts` job, which pulls and
-caches captions for ~40 candidates every 2 hours and feeds them into the
-embedding step. Empirical research suggests +5–15 percentage points in
-precision@k once transcripts are available.
+Embeddings are built from each candidate's title + a short description slice.
+Bulk YouTube transcript fetching was tried but removed — aggressive caption
+requests triggered YouTube throttling that bled into the user-facing subtitle
+feature. Content-aware ranking now relies on title/description plus the
+community/curation signals (Tournesol, Reddit, HN, RSS).
 
 ## Data layout
 
