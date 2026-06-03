@@ -17,67 +17,65 @@ the sidecar simply isn't created and PYTR runs unchanged.
 ## LLM backend (re-distributable)
 
 The For You container image **does not bundle multi-gigabyte models or
-proprietary keys**. Instead, a separate `ollama` sidecar container is bundled
-under the same `foryou` compose profile; it shares the LLM with anything else
-that needs one. Pick a backend via `FORYOU_LLM_BACKEND`:
+proprietary keys**, and it does not run its own LLM. It is a thin client that
+talks to an **OpenAI-compatible `/v1` endpoint** over HTTP. By default that
+endpoint is the shared Ollama service (a separate project, `Containers/ollama`),
+but it can be any local server or remote provider. Pick a backend via
+`FORYOU_LLM_BACKEND`:
 
 | Backend     | Setup                                                                 |
 |-------------|-----------------------------------------------------------------------|
 | `none`      | Quality / Fresh / Trending / Community Picks still work. Discover/Surprise/persona degrade gracefully. |
-| `ollama` *(default)* | Zero setup. The bundled `ollama` container auto-pulls the configured models on first boot. Models live in the `ollama-models` Docker volume — persists across rebuilds. |
+| `openai` *(default)* | OpenAI-compatible client. Set `FORYOU_LLM_BASE_URL` (default `http://host.docker.internal:11434/v1`), `FORYOU_LLM_MODEL`, optional `FORYOU_LLM_API_KEY`. Works with the shared Ollama, vLLM, llama.cpp, LM Studio, or a remote provider. |
+| `ollama`    | Legacy. Talks Ollama's native `/api/*` protocol at `FORYOU_OLLAMA_URL`. |
 | `llamacpp`  | Optional. Add `llama-cpp-python` to `requirements.txt`, drop a GGUF into `data/foryou/models/`, set `FORYOU_LLAMACPP_MODEL_PATH`. |
-| `api`       | Cloud (Gemini / Anthropic / OpenAI / Groq / DeepSeek). Set `FORYOU_API_PROVIDER`, `FORYOU_API_KEY`. **Privacy mode must be `cloud`.** |
+| `api`       | Curated, privacy-gated cloud (Gemini / Anthropic / OpenAI / Groq / DeepSeek). Set `FORYOU_API_PROVIDER`, `FORYOU_API_KEY`. **Privacy mode must be `cloud`.** |
 
-Embedding backends mirror this: `ollama` (real, via the bundled sidecar) or
-`hash` (deterministic 256-d fallback — degraded quality but the pipeline runs
-end-to-end with no external deps).
+Embedding backends mirror this: `openai` *(default)* and `ollama` hit the same
+endpoint; `hash` is a deterministic 256-d fallback — degraded quality but the
+pipeline runs end-to-end with no external deps.
 
-### Default flow (1-click)
+### Default flow
 
-```bash
-# One-time:
-./setup-foryou.sh
-# Every time:
-docker compose build && docker compose down && docker compose up -d
-```
+1. **Once**, bring up the shared LLM service (separate project):
 
-`setup-foryou.sh` autodetects your OS + GPU vendor + group IDs and writes
-both `.env` and (if a GPU is found) `docker-compose.override.yml` with the
-right device passthrough block. Re-run it after a GPU swap or driver upgrade
-— it's idempotent.
+   ```bash
+   cd /path/to/Containers/ollama
+   ./setup.sh            # GPU autodetect
+   docker compose up -d  # serves http://<host>:11434/v1, pulls default models
+   ```
 
-First boot pulls ~3.5 GB of models in the background. While that happens the
-foryou container is already serving — only Discover / Surprise / persona wait
-for the LLM. Track progress with:
+2. **Then**, start PYTR + For You:
 
-```bash
-docker compose logs -f foryou
-# look for: ollama pull gemma3:4b: pulling manifest (NN%)
-```
+   ```bash
+   docker compose build && docker compose down && docker compose up -d
+   ```
 
-### GPU passthrough
+The foryou container reaches the host service via
+`host.docker.internal:11434` (wired through `extra_hosts` in the compose file).
+While the shared service pulls models, foryou already serves — only Discover /
+Surprise / persona wait for the LLM.
 
-Handled automatically by `setup-foryou.sh`:
+### Point at something else
 
-| Detected | What the script does |
-|---|---|
-| NVIDIA | Picks `ollama/ollama:latest` + writes `deploy.resources.reservations.devices` (requires `nvidia-container-toolkit` on host — script warns if missing) |
-| AMD    | Picks `ollama/ollama:rocm` + binds `/dev/kfd` + `/dev/dri` + adds video/render groups (requires `amdgpu` kernel driver) |
-| None   | CPU image, no override file |
-
-### Override: point at an existing Ollama
-
-If you already run Ollama on the host or another machine:
+Change one variable. Another machine on the LAN:
 
 ```bash
 # .env
-FORYOU_OLLAMA_URL=http://192.168.1.50:11434
-FORYOU_OLLAMA_AUTOPULL=0
+FORYOU_LLM_BASE_URL=http://192.168.1.50:11434/v1
 ```
 
-Then drop the bundled service: leave `foryou` out of `COMPOSE_PROFILES` for
-the ollama container only — easiest way is `docker compose up -d pytr foryou
-discovery cookie-beast` (omit `ollama`).
+A remote OpenAI-compatible provider:
+
+```bash
+# .env
+FORYOU_LLM_BASE_URL=https://api.groq.com/openai/v1
+FORYOU_LLM_MODEL=llama-3.3-70b-versatile
+FORYOU_LLM_API_KEY=gsk_...
+```
+
+GPU passthrough and model management live with the shared service — see
+`Containers/ollama/README.md`.
 
 ## Privacy modes
 

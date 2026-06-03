@@ -18,8 +18,18 @@ DB_PATH = DATA_DIR / "foryou.db"
 # PYTR internal URL (used to call /api/internal/profile-export/{uuid})
 PYTR_INTERNAL_URL = os.environ.get("FORYOU_PYTR_URL", "http://pytr:8000")
 
-# LLM backend selection: none | ollama | llamacpp | api
-LLM_BACKEND = os.environ.get("FORYOU_LLM_BACKEND", "ollama").lower()
+# LLM backend selection: none | openai | ollama | llamacpp | api
+LLM_BACKEND = os.environ.get("FORYOU_LLM_BACKEND", "openai").lower()
+
+# OpenAI-compatible backend (default) — a plain HTTP client against any /v1
+# endpoint: the shared Ollama service, another local server (vLLM, llama.cpp,
+# LM Studio), or a remote provider. This is how foryou stays a thin client.
+LLM_BASE_URL = os.environ.get("FORYOU_LLM_BASE_URL", "http://host.docker.internal:11434/v1")
+LLM_MODEL = os.environ.get("FORYOU_LLM_MODEL", "gemma3:4b")
+LLM_API_KEY = os.environ.get("FORYOU_LLM_API_KEY", "")
+EMBED_MODEL = os.environ.get("FORYOU_EMBED_MODEL", "embeddinggemma")
+
+# Native Ollama backend (legacy/optional) — talks Ollama's own /api/* protocol.
 OLLAMA_URL = os.environ.get("FORYOU_OLLAMA_URL", "http://ollama:11434")
 OLLAMA_MODEL = os.environ.get("FORYOU_OLLAMA_MODEL", "gemma3:4b")
 OLLAMA_EMBED_MODEL = os.environ.get("FORYOU_OLLAMA_EMBED_MODEL", "embeddinggemma")
@@ -33,8 +43,8 @@ API_PROVIDER = os.environ.get("FORYOU_API_PROVIDER", "gemini").lower()
 API_KEY = os.environ.get("FORYOU_API_KEY", "")
 API_MODEL = os.environ.get("FORYOU_API_MODEL", "")
 
-# Embedding backend: ollama | hash
-EMBED_BACKEND = os.environ.get("FORYOU_EMBED_BACKEND", "ollama").lower()
+# Embedding backend: openai | ollama | hash
+EMBED_BACKEND = os.environ.get("FORYOU_EMBED_BACKEND", "openai").lower()
 EMBED_DIM_HASH = 256  # dimension when using the deterministic hash fallback
 
 COOKIES_FILE = Path(os.environ.get("FORYOU_COOKIES", "/app/data/cookies.txt"))

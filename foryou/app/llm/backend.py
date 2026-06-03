@@ -68,7 +68,103 @@ class NoneLLM(LLMBackend):
         raise RuntimeError("LLM backend disabled (FORYOU_LLM_BACKEND=none)")
 
 
-# ── Ollama backend (BYO local) ───────────────────────────────────────────────
+# ── OpenAI-compatible backend (default; BYO endpoint) ────────────────────────
+
+class OpenAILLM(LLMBackend):
+    """Talks to any OpenAI-compatible ``/v1`` endpoint.
+
+    The universal client: point ``FORYOU_LLM_BASE_URL`` at the shared Ollama
+    service, another local server (vLLM, llama.cpp, LM Studio), or a remote
+    provider. Uses the egress-free client like the native ollama backend — the
+    endpoint is operator-chosen and trusted. The curated, privacy-gated cloud
+    providers live in the separate ``api`` backend instead.
+    """
+    name = "openai"
+
+    def __init__(self):
+        self.model = config.LLM_MODEL
+        self.base = config.LLM_BASE_URL.rstrip("/")
+        self.api_key = config.LLM_API_KEY
+        self._cached_available: bool | None = None
+        self._available_ts = 0.0
+
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+
+    async def available(self) -> bool:
+        # Cheap 5s cache — onboarding/feed paths probe this on every call.
+        import time
+        if self._cached_available is not None and (time.time() - self._available_ts) < 5:
+            return self._cached_available
+        try:
+            r = await get_client().get(f"{self.base}/models", headers=self._headers(), timeout=2.0)
+            ok = r.status_code == 200
+        except Exception:
+            ok = False
+        self._cached_available = ok
+        self._available_ts = time.time()
+        return ok
+
+    async def generate(self, prompt: str, *, system: str | None = None,
+                       json_mode: bool = False, max_tokens: int = 1024,
+                       temperature: float = 0.4, **_: Any) -> LLMResponse:
+        msgs: list[dict[str, str]] = []
+        if system:
+            msgs.append({"role": "system", "content": system})
+        msgs.append({"role": "user", "content": prompt})
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": msgs,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": False,
+        }
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
+        r = await get_client().post(f"{self.base}/chat/completions",
+                                    headers=self._headers(), json=body, timeout=120.0)
+        r.raise_for_status()
+        text = r.json()["choices"][0]["message"]["content"]
+        return LLMResponse(text=text or "", backend=self.name, model=self.model)
+
+
+class OpenAIEmbedding(EmbeddingBackend):
+    name = "openai"
+
+    def __init__(self):
+        self.model = config.EMBED_MODEL
+        self.base = config.LLM_BASE_URL.rstrip("/")
+        self.api_key = config.LLM_API_KEY
+        self.dim = 768  # EmbeddingGemma default; lazily corrected after first call.
+
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+
+    async def available(self) -> bool:
+        try:
+            r = await get_client().get(f"{self.base}/models", headers=self._headers(), timeout=2.0)
+            return r.status_code == 200
+        except Exception:
+            return False
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        r = await get_client().post(
+            f"{self.base}/embeddings",
+            headers=self._headers(),
+            json={"model": self.model, "input": texts},
+            timeout=60.0,
+        )
+        r.raise_for_status()
+        data = r.json().get("data", [])
+        out = [d.get("embedding", []) for d in data]
+        if out and out[0] and self.dim != len(out[0]):
+            self.dim = len(out[0])
+        return out
+
+
+# ── Ollama backend (native /api/*, legacy) ───────────────────────────────────
 
 class OllamaLLM(LLMBackend):
     name = "ollama"
@@ -346,6 +442,8 @@ def get_llm_backend() -> LLMBackend:
         b = config.LLM_BACKEND
         if b == "none":
             _llm_singleton = NoneLLM()
+        elif b == "openai":
+            _llm_singleton = OpenAILLM()
         elif b == "ollama":
             _llm_singleton = OllamaLLM()
         elif b == "llamacpp":
@@ -362,7 +460,9 @@ def get_embedding_backend() -> EmbeddingBackend:
     global _emb_singleton
     if _emb_singleton is None:
         b = config.EMBED_BACKEND
-        if b == "ollama":
+        if b == "openai":
+            _emb_singleton = OpenAIEmbedding()
+        elif b == "ollama":
             _emb_singleton = OllamaEmbedding()
         else:
             _emb_singleton = HashEmbedding()

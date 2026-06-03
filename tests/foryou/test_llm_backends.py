@@ -26,6 +26,14 @@ def test_unknown_backend_falls_back_to_none():
     assert b.name == "none"
 
 
+def test_openai_backend_dispatch():
+    config.LLM_BACKEND = "openai"
+    config.EMBED_BACKEND = "openai"
+    bk.reset_backends_for_tests()
+    assert bk.get_llm_backend().name == "openai"
+    assert bk.get_embedding_backend().name == "openai"
+
+
 async def test_hash_embedding_deterministic():
     config.EMBED_BACKEND = "hash"
     bk.reset_backends_for_tests()

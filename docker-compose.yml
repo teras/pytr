@@ -38,45 +38,31 @@ services:
       - MAX_INTERVAL=3600
     shm_size: 2g
 
-  ollama:
-    # CPU default. For GPU acceleration run ./setup-foryou.sh once — it
-    # autodetects NVIDIA/AMD/none and writes docker-compose.override.yml.
-    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
-    profiles: [foryou]
-    restart: unless-stopped
-    # No exposed port — only the foryou sidecar talks to it, on the internal Docker network.
-    volumes:
-      - ollama-models:/root/.ollama
-
   foryou:
     build: ./foryou
     profiles: [foryou]
     restart: unless-stopped
-    depends_on:
-      - ollama
     # No exposed port — accessed only via the PYTR reverse-proxy on the internal Docker network.
     volumes:
       - ./data:/app/data
+    # Reach the shared Ollama LLM service running on the host (see Containers/ollama).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - PYTR_UID=${UID:-1000}
       - PYTR_GID=${GID:-1000}
-      # LLM backend: none | ollama | llamacpp | api
-      - FORYOU_LLM_BACKEND=${FORYOU_LLM_BACKEND:-ollama}
-      # Default: the bundled ollama sidecar on the internal network. Override only
-      # if you want to point at a host install or a remote Ollama.
-      - FORYOU_OLLAMA_URL=${FORYOU_OLLAMA_URL:-http://ollama:11434}
-      - FORYOU_OLLAMA_MODEL=${FORYOU_OLLAMA_MODEL:-gemma3:4b}
-      - FORYOU_OLLAMA_EMBED_MODEL=${FORYOU_OLLAMA_EMBED_MODEL:-embeddinggemma}
-      # The foryou container pulls these models from Ollama on first boot if missing.
-      - FORYOU_OLLAMA_AUTOPULL=${FORYOU_OLLAMA_AUTOPULL:-1}
-      # Cloud LLM API (used only when FORYOU_LLM_BACKEND=api)
+      # LLM backend: none | openai | ollama | llamacpp | api
+      - FORYOU_LLM_BACKEND=${FORYOU_LLM_BACKEND:-openai}
+      - FORYOU_EMBED_BACKEND=${FORYOU_EMBED_BACKEND:-openai}
+      # OpenAI-compatible endpoint. Default: the shared Ollama service on the
+      # host. Point at any /v1 endpoint — local server or remote provider.
+      - FORYOU_LLM_BASE_URL=${FORYOU_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      - FORYOU_LLM_MODEL=${FORYOU_LLM_MODEL:-gemma3:4b}
+      - FORYOU_EMBED_MODEL=${FORYOU_EMBED_MODEL:-embeddinggemma}
+      - FORYOU_LLM_API_KEY=${FORYOU_LLM_API_KEY:-}
+      # Curated, privacy-gated cloud providers (only when FORYOU_LLM_BACKEND=api)
       - FORYOU_API_PROVIDER=${FORYOU_API_PROVIDER:-gemini}
       - FORYOU_API_KEY=${FORYOU_API_KEY:-}
       - FORYOU_API_MODEL=${FORYOU_API_MODEL:-}
-      # Embedding backend: ollama | hash (deterministic fallback, lightweight)
-      - FORYOU_EMBED_BACKEND=${FORYOU_EMBED_BACKEND:-ollama}
       # Shared cookies file (read-only) — used by yt-dlp for Charts, search, Mixes.
       - FORYOU_COOKIES=/app/data/cookies.txt
-
-volumes:
-  ollama-models:

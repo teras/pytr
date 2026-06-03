@@ -42,10 +42,11 @@ async def lifespan(_app):
     # Pre-fill the global candidate pool with universal content so the very first
     # feed generation after onboarding has something to rank instead of nothing.
     job_runner.trigger_oneshot(job_scheduled.bootstrap_candidates)
-    # Auto-pull Ollama models in the background so first boot just works.
-    # Doesn't block readiness — feeds that don't need LLM serve immediately.
+    # Legacy native-ollama autopull — a no-op unless FORYOU_LLM/EMBED_BACKEND=ollama.
+    # With the default OpenAI-compatible backend, model provisioning is the shared
+    # Ollama service's job (Containers/ollama). Never blocks readiness.
     autopull_task = asyncio.create_task(ollama_ensure_models())
-    log.info("foryou ready — llm_backend=%s embed_backend=%s (ollama autopull + bootstrap in background)",
+    log.info("foryou ready — llm_backend=%s embed_backend=%s (bootstrap in background)",
              config.LLM_BACKEND, config.EMBED_BACKEND)
     yield
     autopull_task.cancel()
