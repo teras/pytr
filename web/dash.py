@@ -34,75 +34,135 @@ _AUDIO_EXTS = {'m4a', 'mp4', 'webm'}
 # ── Proxy helper (shared with stream-live) ───────────────────────────────────
 
 
+# YouTube throttles each connection to a videoplayback URL to roughly twice the
+# format's encoded bitrate (it paces delivery, resetting per fresh connection). A
+# single connection therefore sits near real-time and stalls under jitter. We defeat
+# this by fetching the requested byte range as parallel ≤2MB sub-requests, each on a
+# fresh connection, and streaming them to the client in order — multiplying
+# throughput well past real-time (smooth up to 4K) without SABR. This mirrors how
+# invidious-companion chunks videoplayback requests.
+_PROXY_CHUNK = 2 * 1024 * 1024   # 2 MB per upstream sub-request
+_PROXY_CONCURRENCY = 6           # parallel sub-requests in flight
+
+
+async def _fetch_chunk(url: str, lo: int, hi: int):
+    """GET a single byte range [lo, hi] on a fresh connection."""
+    return await http_client.get(url, headers={'Range': f'bytes={lo}-{hi}'})
+
+
 async def proxy_range_request(request: Request, video_url: str, filesize: int = None):
-    """Proxy a YouTube URL with range request support, forwarding upstream headers."""
+    """Proxy a YouTube URL, defeating the per-connection throttle by fetching the
+    requested byte range as parallel ≤2MB sub-requests and streaming them in order."""
     range_header = request.headers.get('range')
 
-    upstream_headers = {}
+    start = 0
+    end = None  # inclusive; None = open-ended (stream to EOF)
     if range_header:
-        # Fix dash.js 32-bit overflow: for files >4GB, the end byte of the
-        # last segment wraps around due to 32-bit truncation in the SIDX parser.
-        # The start is always correct, so reconstruct end's high bits from it.
-        m = re.match(r'bytes=(\d+)-(\d+)', range_header)
+        m = re.match(r'bytes=(\d+)-(\d*)', range_header)
         if m:
-            start, end = int(m.group(1)), int(m.group(2))
-            if start > end:
-                end = ((start >> 32) << 32) | (end & 0xFFFFFFFF)
+            start = int(m.group(1))
+            if m.group(2):
+                end = int(m.group(2))
+                # Fix dash.js 32-bit overflow: for files >4GB the end byte wraps
+                # due to 32-bit truncation in the SIDX parser. Start is always
+                # correct, so reconstruct end's high bits from it.
                 if start > end:
-                    # Segment crosses a 4GB boundary — carry into next block
-                    end += (1 << 32)
-                range_header = f'bytes={start}-{end}'
-                log.info(f"Fixed 32-bit overflow in Range header: bytes={start}-{end}")
-        upstream_headers['Range'] = range_header
-    elif filesize:
-        upstream_headers['Range'] = 'bytes=0-'
+                    end = ((start >> 32) << 32) | (end & 0xFFFFFFFF)
+                    if start > end:
+                        # Segment crosses a 4GB boundary — carry into next block
+                        end += (1 << 32)
+                    log.info(f"Fixed 32-bit overflow in Range header: bytes={start}-{end}")
 
+    # The first sub-request doubles as a size probe: its Content-Range gives the total.
+    first_hi = start + _PROXY_CHUNK - 1
+    if end is not None:
+        first_hi = min(first_hi, end)
     try:
-        upstream = await http_client.send(
-            http_client.build_request('GET', video_url, headers=upstream_headers),
-            stream=True,
-        )
+        first = await _fetch_chunk(video_url, start, first_hi)
     except Exception as e:
         log.warning(f"Upstream connection error: {e}")
         raise HTTPException(status_code=502, detail="Upstream connection failed")
 
-    if upstream.status_code == 416:
+    if first.status_code == 416:
         # Range not satisfiable — return empty response so dash.js ends gracefully
-        log.warning(f"416 Range Not Satisfiable: requested={range_header}")
-        await upstream.aclose()
+        log.warning(f"416 Range Not Satisfiable: requested bytes={start}-{first_hi}")
         return Response(status_code=200, content=b'', headers={
             'Content-Length': '0',
             'Access-Control-Allow-Origin': '*',
         })
-
-    if upstream.status_code >= 400:
-        await upstream.aclose()
-        log.warning(f"Upstream error {upstream.status_code}")
-        raise HTTPException(status_code=upstream.status_code, detail="Upstream error")
+    if first.status_code >= 400:
+        log.warning(f"Upstream error {first.status_code}")
+        raise HTTPException(status_code=first.status_code, detail="Upstream error")
 
     resp_headers = {
         'Accept-Ranges': 'bytes',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Expose-Headers': 'Content-Range, Content-Length',
         'Cache-Control': 'no-cache',
+        'Content-Type': first.headers.get('content-type', 'video/mp4'),
     }
 
-    ct = upstream.headers.get('content-type', 'video/mp4')
-    resp_headers['Content-Type'] = ct
+    first_bytes = first.content
 
-    if upstream.headers.get('content-range'):
-        resp_headers['Content-Range'] = upstream.headers['content-range']
-    if upstream.headers.get('content-length'):
-        resp_headers['Content-Length'] = upstream.headers['content-length']
+    # If upstream ignored the Range and returned the whole file (200), serve it as-is.
+    if first.status_code != 206:
+        resp_headers['Content-Length'] = str(len(first_bytes))
 
-    status = 206 if upstream.status_code == 206 else 200
+        async def stream_whole():
+            yield first_bytes
+
+        return StreamingResponse(stream_whole(), status_code=200, headers=resp_headers)
+
+    # Total file size from Content-Range ("bytes start-end/total").
+    total = None
+    cr = first.headers.get('content-range', '')
+    if '/' in cr:
+        tail = cr.rsplit('/', 1)[-1]
+        if tail.isdigit():
+            total = int(tail)
+    if end is None:
+        end = (total - 1) if total is not None else (start + len(first_bytes) - 1)
+
+    if range_header:
+        status = 206
+        if total is not None:
+            resp_headers['Content-Range'] = f'bytes {start}-{end}/{total}'
+    else:
+        status = 200
+    resp_headers['Content-Length'] = str(end - start + 1)
 
     async def stream_body():
-        try:
-            async for chunk in upstream.aiter_bytes(65536):
-                yield chunk
-        finally:
-            await upstream.aclose()
+        yield first_bytes
+        pos = first_hi + 1
+        if pos > end:
+            return
+        # Remaining (lo, hi) sub-ranges, fetched with a bounded sliding window of
+        # parallel fresh connections and yielded strictly in order.
+        ranges = []
+        while pos <= end:
+            hi = min(pos + _PROXY_CHUNK - 1, end)
+            ranges.append((pos, hi))
+            pos = hi + 1
+        tasks = {}
+        nxt = 0
+        for _ in range(min(_PROXY_CONCURRENCY, len(ranges))):
+            lo, hi = ranges[nxt]
+            tasks[nxt] = asyncio.create_task(_fetch_chunk(video_url, lo, hi))
+            nxt += 1
+        for i in range(len(ranges)):
+            try:
+                r = await tasks.pop(i)
+            except Exception as e:
+                log.warning(f"chunk fetch error: {e}")
+                return
+            if r.status_code >= 400:
+                log.warning(f"chunk {ranges[i]} -> {r.status_code}")
+                return
+            yield r.content
+            if nxt < len(ranges):
+                lo, hi = ranges[nxt]
+                tasks[nxt] = asyncio.create_task(_fetch_chunk(video_url, lo, hi))
+                nxt += 1
 
     return StreamingResponse(stream_body(), status_code=status, headers=resp_headers)
 
