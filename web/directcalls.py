@@ -423,15 +423,22 @@ def _parse_lockup_view_model(vm: dict) -> dict | None:
 
 
 def _extract_continuation_token(items: list) -> str | None:
-    """Find the continuation token in a list of renderer items."""
+    """Find the continuation token in a list of renderer items.
+
+    Handles both the direct shape (continuationEndpoint.continuationCommand)
+    and the wrapped shape used by playlist continuations
+    (continuationEndpoint.commandExecutorCommand.commands[].continuationCommand).
+    """
     for item in items:
-        cont_renderer = item.get("continuationItemRenderer", {})
-        token = (cont_renderer
-                 .get("continuationEndpoint", {})
-                 .get("continuationCommand", {})
-                 .get("token"))
+        endpoint = (item.get("continuationItemRenderer", {})
+                    .get("continuationEndpoint", {}))
+        token = endpoint.get("continuationCommand", {}).get("token")
         if token:
             return token
+        for cmd in endpoint.get("commandExecutorCommand", {}).get("commands", []):
+            token = cmd.get("continuationCommand", {}).get("token")
+            if token:
+                return token
     return None
 
 
@@ -834,6 +841,77 @@ def _parse_grid_video_renderer(renderer: dict) -> dict | None:
         "is_live": is_live,
         "thumbnail": _extract_video_thumbnail(renderer, video_id),
     }
+
+
+def _parse_playlist_video_items(items: list, channel_name: str) -> list[dict]:
+    """Parse playlist items, handling both layouts YouTube alternates between:
+    legacy playlistVideoRenderer and the newer lockupViewModel.
+    """
+    results = []
+    for item in items:
+        renderer = item.get("playlistVideoRenderer")
+        if renderer:
+            video = _parse_video_renderer(renderer)
+        else:
+            lvm = item.get("lockupViewModel")
+            video = _parse_lockup_view_model(lvm) if lvm else None
+        if video:
+            if not video.get("channel") or video["channel"] == "Unknown":
+                video["channel"] = channel_name
+            results.append(video)
+    return results
+
+
+async def channel_uploads_first(channel_id: str, channel_name: str) -> tuple[list[dict], str | None]:
+    """Fetch a channel's auto-generated "Uploads" playlist (UU... id).
+
+    Fallback for channels whose Videos tab is empty/unviewable — notably
+    auto-generated "- Topic" (Art Track) channels, whose songs only appear
+    in the uploads playlist. Returns (results, continuation_token).
+    """
+    uploads_id = "UU" + channel_id[2:]
+    data = await _innertube_post("browse", {"browseId": "VL" + uploads_id})
+
+    results = []
+    token = None
+    tabs = (data
+            .get("contents", {})
+            .get("twoColumnBrowseResultsRenderer", {})
+            .get("tabs", []))
+    for tab in tabs:
+        sections = (tab.get("tabRenderer", {})
+                    .get("content", {})
+                    .get("sectionListRenderer", {})
+                    .get("contents", []))
+        for section in sections:
+            section_items = section.get("itemSectionRenderer", {}).get("contents", [])
+            for cont in section_items:
+                # Legacy layout: items nested under playlistVideoListRenderer.
+                nested = cont.get("playlistVideoListRenderer", {}).get("contents")
+                if nested:
+                    results.extend(_parse_playlist_video_items(nested, channel_name))
+                    token = token or _extract_continuation_token(nested)
+                else:
+                    # Newer layout: lockupViewModel items directly in the section.
+                    results.extend(_parse_playlist_video_items([cont], channel_name))
+            token = token or _extract_continuation_token(section_items)
+        if results:
+            break
+
+    return results, token
+
+
+async def channel_uploads_next(continuation_token: str, channel_name: str | None = None) -> tuple[list[dict], str | None]:
+    """Paginated uploads-playlist request using a continuation token."""
+    data = await _innertube_post("browse", {"continuation": continuation_token})
+    items = []
+    for action in data.get("onResponseReceivedActions", []):
+        items = action.get("appendContinuationItemsAction", {}).get("continuationItems", [])
+        if items:
+            break
+    results = _parse_playlist_video_items(items, channel_name or "")
+    token = _extract_continuation_token(items)
+    return results, token
 
 
 async def fetch_trending(category: str, hl: str | None = None, gl: str | None = None) -> list[dict]:

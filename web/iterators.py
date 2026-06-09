@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from helpers import register_cleanup
 from directcalls import (search_first, search_next, channel_first, channel_next,
                          channel_playlists_first, channel_playlists_next,
+                         channel_uploads_first, channel_uploads_next,
                          fetch_related, fetch_related_continuation)
 
 log = logging.getLogger(__name__)
@@ -63,6 +64,15 @@ async def create_channel(session_token: str, channel_id: str) -> tuple[str, str,
     """Get channel videos and return (channel_name, avatar_url, subscriber_count, first_batch, cursor_id)."""
     channel_name, avatar_url, subscriber_count, results, yt_token = await channel_first(channel_id)
 
+    cursor_type = "channel"
+
+    # Fallback for channels with an empty/unviewable Videos tab (e.g. auto-generated
+    # "- Topic" channels): pull the auto-generated Uploads playlist instead.
+    if not results:
+        up_results, up_token = await channel_uploads_first(channel_id, channel_name)
+        if up_results:
+            results, yt_token, cursor_type = up_results, up_token, "channel_uploads"
+
     if not results:
         return channel_name, avatar_url, subscriber_count, [], None
 
@@ -71,7 +81,7 @@ async def create_channel(session_token: str, channel_id: str) -> tuple[str, str,
 
     cursor_id = secrets.token_urlsafe(16)
     _get_bucket(session_token)[cursor_id] = CursorState(
-        type="channel",
+        type=cursor_type,
         continuation_token=yt_token,
         channel_name=channel_name,
         pulled=len(results),
@@ -148,6 +158,8 @@ async def fetch_more(session_token: str, cursor_id: str) -> tuple[list[dict], st
         results, yt_token = await search_next(state.continuation_token)
     elif state.type == "channel":
         results, yt_token = await channel_next(state.continuation_token, state.channel_name)
+    elif state.type == "channel_uploads":
+        results, yt_token = await channel_uploads_next(state.continuation_token, state.channel_name)
     elif state.type == "channel_playlists":
         results, yt_token = await channel_playlists_next(state.continuation_token)
     elif state.type == "related":
