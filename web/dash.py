@@ -8,6 +8,7 @@ import time
 from urllib.parse import quote
 from xml.sax.saxutils import escape as xml_escape
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -42,12 +43,43 @@ _AUDIO_EXTS = {'m4a', 'mp4', 'webm'}
 # throughput well past real-time (smooth up to 4K) without SABR. This mirrors how
 # invidious-companion chunks videoplayback requests.
 _PROXY_CHUNK = 2 * 1024 * 1024   # 2 MB per upstream sub-request
-_PROXY_CONCURRENCY = 6           # parallel sub-requests in flight
+# Throughput scales linearly with concurrency until the server's uplink saturates
+# (~4 connections at ≈31 Mbps each); beyond that extra connections add no speed,
+# only load. 3 gives ample headroom above any format's bitrate without waste.
+_PROXY_CONCURRENCY = 3           # parallel sub-requests in flight
+_PROXY_RETRIES = 3               # attempts per sub-request before giving up
+_PROXY_RETRY_BACKOFF = 0.25      # seconds, linear backoff between attempts
+
+
+class _UpstreamChunkError(Exception):
+    """Raised mid-stream when a sub-request fails after all retries. Breaking the
+    client connection (incomplete transfer) makes the player issue a clean
+    re-request, instead of silently receiving a truncated 206 it can't detect."""
 
 
 async def _fetch_chunk(url: str, lo: int, hi: int):
-    """GET a single byte range [lo, hi] on a fresh connection."""
-    return await http_client.get(url, headers={'Range': f'bytes={lo}-{hi}'})
+    """GET a single byte range [lo, hi] on a fresh connection.
+
+    Retries transient upstream failures (connection resets, timeouts, 5xx) so a
+    momentary googlevideo hiccup re-fetches the chunk instead of stalling playback.
+    """
+    headers = {'Range': f'bytes={lo}-{hi}'}
+    last_exc = None
+    for attempt in range(_PROXY_RETRIES):
+        try:
+            r = await http_client.get(url, headers=headers)
+            if r.status_code < 500:
+                return r
+            last_exc = None
+            log.warning(f"chunk {lo}-{hi}: upstream {r.status_code} (attempt {attempt + 1}/{_PROXY_RETRIES})")
+        except httpx.RequestError as e:
+            last_exc = e
+            log.warning(f"chunk {lo}-{hi}: {type(e).__name__} (attempt {attempt + 1}/{_PROXY_RETRIES})")
+        if attempt + 1 < _PROXY_RETRIES:
+            await asyncio.sleep(_PROXY_RETRY_BACKOFF * (attempt + 1))
+    if last_exc is not None:
+        raise last_exc
+    return r
 
 
 async def proxy_range_request(request: Request, video_url: str, filesize: int = None):
@@ -149,20 +181,26 @@ async def proxy_range_request(request: Request, video_url: str, filesize: int = 
             lo, hi = ranges[nxt]
             tasks[nxt] = asyncio.create_task(_fetch_chunk(video_url, lo, hi))
             nxt += 1
-        for i in range(len(ranges)):
-            try:
-                r = await tasks.pop(i)
-            except Exception as e:
-                log.warning(f"chunk fetch error: {e}")
-                return
-            if r.status_code >= 400:
-                log.warning(f"chunk {ranges[i]} -> {r.status_code}")
-                return
-            yield r.content
-            if nxt < len(ranges):
-                lo, hi = ranges[nxt]
-                tasks[nxt] = asyncio.create_task(_fetch_chunk(video_url, lo, hi))
-                nxt += 1
+        try:
+            for i in range(len(ranges)):
+                try:
+                    r = await tasks.pop(i)
+                except Exception as e:
+                    log.warning(f"chunk {ranges[i]} fetch error after retries: {e}")
+                    raise _UpstreamChunkError() from e
+                if r.status_code >= 400:
+                    log.warning(f"chunk {ranges[i]} -> {r.status_code} after retries")
+                    raise _UpstreamChunkError()
+                yield r.content
+                if nxt < len(ranges):
+                    lo, hi = ranges[nxt]
+                    tasks[nxt] = asyncio.create_task(_fetch_chunk(video_url, lo, hi))
+                    nxt += 1
+        finally:
+            # Cancel any sub-requests still in flight so they don't keep
+            # downloading bytes we'll never use after an early exit.
+            for t in tasks.values():
+                t.cancel()
 
     return StreamingResponse(stream_body(), status_code=status, headers=resp_headers)
 
