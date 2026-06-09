@@ -813,7 +813,8 @@ def _parse_grid_video_renderer(renderer: dict) -> dict | None:
             channel = ch_runs[0].get("text", "")
             break
 
-    views = renderer.get("viewCountText", {}).get("simpleText", "")
+    views = (renderer.get("shortViewCountText", {}).get("simpleText", "")
+             or renderer.get("viewCountText", {}).get("simpleText", ""))
     published = renderer.get("publishedTimeText", {}).get("simpleText", "")
 
     duration_str = _extract_duration_str(renderer)
@@ -838,6 +839,7 @@ def _parse_grid_video_renderer(renderer: dict) -> dict | None:
         "duration_str": duration_str or ("" if is_live else _format_duration(duration)),
         "channel": channel or "Unknown",
         "published": published,
+        "views": views,
         "is_live": is_live,
         "thumbnail": _extract_video_thumbnail(renderer, video_id),
     }

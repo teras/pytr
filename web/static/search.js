@@ -512,8 +512,8 @@ function createVideoCard(item) {
     }
 
     // Regular video card
-    const meta = item.published ? `<span class="video-published">${escapeHtml(item.published)}</span>`
-               : '';
+    const meta = [item.views, item.published || item.date]
+        .filter(Boolean).map(escapeHtml).join(' \u00b7 ');
     const durationBadge = item.is_live ? '<span class="duration live">LIVE</span>'
                         : item.duration_str ? `<span class="duration">${escapeHtml(item.duration_str)}</span>` : '';
     return `<a class="video-card" href="/watch?v=${escapeAttr(item.id)}" data-id="${escapeAttr(item.id)}" data-title="${escapeAttr(item.title)}" data-channel="${escapeAttr(item.channel || '')}" data-duration="${item.duration || 0}">
@@ -817,14 +817,20 @@ function _renderQueue() {
 
     queueList.innerHTML = _queue.videos.map((v, i) => {
         const active = i === _queue.currentIndex ? ' active' : '';
+        const durBadge = v.is_live ? '<span class="queue-item-duration live">LIVE</span>'
+                       : v.duration_str ? `<span class="queue-item-duration">${escapeHtml(v.duration_str)}</span>` : '';
+        const meta = [v.views, v.published || v.date]
+            .filter(Boolean).map(escapeHtml).join(' · ');
         return `<div class="queue-item${active}" data-index="${i}" data-id="${escapeAttr(v.id)}">
             <span class="queue-item-index">${i + 1}</span>
             <div class="queue-item-thumb">
                 <img src="${escapeAttr(v.thumbnail)}" alt="" loading="lazy">
+                ${durBadge}
             </div>
             <div class="queue-item-info">
                 <div class="queue-item-title">${escapeHtml(v.title)}</div>
                 ${v.channel ? `<div class="queue-item-channel">${escapeHtml(v.channel)}</div>` : ''}
+                ${meta ? `<div class="queue-item-meta">${meta}</div>` : ''}
             </div>
         </div>`;
     }).join('');

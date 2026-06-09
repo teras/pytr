@@ -915,11 +915,29 @@ h1 {
 }
 
 .queue-item-thumb {
+    position: relative;
     width: 60px;
     height: 34px;
     flex-shrink: 0;
     border-radius: 4px;
     overflow: hidden;
+}
+
+.queue-item-duration {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    padding: 0 3px;
+    font-size: 10px;
+    line-height: 14px;
+    font-weight: 600;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.8);
+    border-radius: 3px;
+}
+
+.queue-item-duration.live {
+    background: var(--color-brand);
 }
 
 .queue-item-thumb img {
@@ -948,6 +966,12 @@ h1 {
     font-size: 11px;
     color: #888;
     margin-top: 2px;
+}
+
+.queue-item-meta {
+    font-size: 11px;
+    color: #888;
+    margin-top: 1px;
 }
 
 /* Shared Tab Styles (channel tabs, list tabs) */
