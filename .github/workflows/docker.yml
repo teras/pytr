@@ -15,7 +15,7 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
 
       # WebOS prerequisites
       - name: Install librsvg2-bin
@@ -39,19 +39,19 @@ jobs:
         run: ./build.sh --no-docker
 
       # Docker build + push
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           push: true
           tags: teras/pytr:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.discovery
@@ -59,7 +59,7 @@ jobs:
           tags: teras/pytr-discovery:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: ./cookie-beast
           push: true
