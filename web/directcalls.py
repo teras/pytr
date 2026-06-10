@@ -257,28 +257,35 @@ def _extract_lockup_metadata(metadata: dict) -> dict:
     """Extract all metadata parts from lockupMetadataViewModel's metadata rows.
 
     Returns dict with channel, views, date extracted from metadataRows.
-    Layout is positional: row 0 = [channel], row 1 = [views, date].
+    Layout is positional but the row count varies:
+    - Channel page: one row = [views, date] (channel name omitted as redundant).
+    - Multi-channel listings (search etc.): row 0 = [channel], last row = [views, date].
+    - Related: row 0 = [channel], row 1 = [views, date], trailing badge row(s).
+    The views/date pair is the last text row; a preceding text row holds the channel.
+    Rows carrying only badges (no metadataParts) are ignored.
     """
     rows = (metadata
             .get("metadata", {})
             .get("contentMetadataViewModel", {})
             .get("metadataRows", []))
+    rows = [r for r in rows if r.get("metadataParts")]
 
     result = {"channel": "", "views": "", "date": ""}
+    if not rows:
+        return result
 
-    # Row 0, part 0: channel name
-    if rows:
+    # Channel name only present when an extra row precedes the views/date row.
+    if len(rows) > 1:
         parts0 = rows[0].get("metadataParts", [])
         if parts0:
             result["channel"] = parts0[0].get("text", {}).get("content", "")
 
-    # Row 1: views (part 0) and date (part 1)
-    if len(rows) > 1:
-        parts1 = rows[1].get("metadataParts", [])
-        if parts1:
-            result["views"] = parts1[0].get("text", {}).get("content", "")
-        if len(parts1) > 1:
-            result["date"] = parts1[1].get("text", {}).get("content", "")
+    # Last row: views (part 0) and date (part 1)
+    parts = rows[-1].get("metadataParts", [])
+    if parts:
+        result["views"] = parts[0].get("text", {}).get("content", "")
+    if len(parts) > 1:
+        result["date"] = parts[1].get("text", {}).get("content", "")
 
     return result
 
