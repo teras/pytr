@@ -107,6 +107,7 @@ let pendingSeek = null; // {time, play} — set during audio language switch or 
 let isLiveStream = false; // true when playing a live stream
 let liveRetried = false; // true after one recovery attempt
 let _dashAutoRefreshed = false; // prevent DASH error → playVideo loop
+let _dashRefreshResetTimer = null; // clears the flag only after sustained playback
 
 // Parse YouTube t= param: "120", "2m30s", "1h2m30s"
 function parseYouTubeTime(t) {
@@ -901,6 +902,7 @@ function showPlayerError(title, message) {
     overlay.className = 'player-error-overlay';
     overlay.innerHTML = `<div class="player-error-icon">!</div><p>${escapeHtml(message || 'This video is currently unavailable.')}</p><button class="player-error-retry">Retry</button>`;
     overlay.querySelector('.player-error-retry').addEventListener('click', () => {
+        _dashAutoRefreshed = false; // manual retry gets a fresh auto-refresh credit
         const vid = new URLSearchParams(window.location.search).get('v');
         if (vid) playVideo(vid);
     });
@@ -1102,7 +1104,11 @@ function startDashPlayer(videoId) {
     dashPlayer.initialize(videoPlayer, appendCookieParam(`/api/dash/${videoId}`), true);
 
     dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
-        _dashAutoRefreshed = false;
+        // Re-arm the auto-refresh only after sustained playback — resetting
+        // here immediately would re-grant a restart on every cycle of
+        // "manifest OK → segments 403 → restart", looping forever.
+        clearTimeout(_dashRefreshResetTimer);
+        _dashRefreshResetTimer = setTimeout(() => { _dashAutoRefreshed = false; }, 15000);
         videoQualities = buildQualitiesDash(dashPlayer);
         if (videoQualities.length === 0) return;
 
@@ -1148,6 +1154,9 @@ function startDashPlayer(videoId) {
             console.warn('DASH failed again, falling back to HLS');
             dashPlayer.destroy(); dashPlayer = null;
             startHlsPlayer(videoId, appendCookieParam(`/api/hls/master/${videoId}`));
+        } else {
+            dashPlayer.destroy(); dashPlayer = null;
+            showPlayerError(videoTitle.textContent, 'Playback keeps failing. Try again in a moment.');
         }
     });
 }
@@ -1213,8 +1222,15 @@ function startHlsPlayer(videoId, manifestUrl, live = false) {
             liveRetried = true;
             startHlsPlayer(videoId, manifestUrl, true);
         } else if (!live) {
-            console.error('HLS fatal error, falling back to DASH:', data);
-            startDashPlayer(videoId);
+            if (_dashAutoRefreshed) {
+                // We already burned the DASH auto-refresh and its HLS fallback
+                // this session — going back to DASH would ping-pong forever.
+                console.error('HLS fatal error after DASH failures, giving up:', data);
+                showPlayerError(videoTitle.textContent, 'Playback keeps failing. Try again in a moment.');
+            } else {
+                console.error('HLS fatal error, falling back to DASH:', data);
+                startDashPlayer(videoId);
+            }
         }
     });
 }

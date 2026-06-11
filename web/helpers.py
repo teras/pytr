@@ -206,9 +206,17 @@ register_cleanup(make_cache_cleanup(_info_cache, _INFO_CACHE_TTL, "info"))
 _info_lock = threading.Lock()
 
 
-def invalidate_video_cache(video_id: str):
-    """Remove a video from the info cache (e.g. when CDN URLs expire)."""
+def invalidate_video_cache(video_id: str, min_age: float = 0) -> bool:
+    """Remove a video from the info cache (e.g. when CDN URLs expire).
+
+    min_age: only invalidate entries older than this many seconds — prevents
+    re-extraction storms when freshly extracted URLs also fail upstream.
+    Returns True if an entry was removed."""
+    entry = _info_cache.get(video_id)
+    if entry is None or time.time() - entry.get('created', 0) < min_age:
+        return False
     _info_cache.pop(video_id, None)
+    return True
 
 
 def get_video_info(video_id: str, cookie_mode: str = "auto") -> dict:

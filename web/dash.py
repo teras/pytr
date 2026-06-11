@@ -447,7 +447,7 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
     )
     for i, fmt in enumerate(valid_video):
         probe = valid_video_probes[i]
-        proxy_url = f'/api/videoplayback?url={quote(fmt["url"], safe="")}'
+        proxy_url = f'/api/videoplayback?v={video_id}&url={quote(fmt["url"], safe="")}'
         height = fmt.get('height', 0)
         width = fmt.get('width', 0)
         fps = fmt.get('fps', 30)
@@ -542,7 +542,7 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
 
     # Audio AdaptationSet
     afmt = audio_fmts[0]
-    proxy_url = f'/api/videoplayback?url={quote(afmt["url"], safe="")}'
+    proxy_url = f'/api/videoplayback?v={video_id}&url={quote(afmt["url"], safe="")}'
     codecs = afmt.get('acodec', 'mp4a.40.2')
     bandwidth = int((afmt.get('tbr') or afmt.get('abr') or 0) * 1000) or 128000
 
@@ -600,8 +600,20 @@ async def videoplayback_options():
 
 
 @router.get("/api/videoplayback")
-async def videoplayback_proxy(url: str, request: Request, auth: bool = Depends(require_auth_or_embed)):
+async def videoplayback_proxy(url: str, request: Request, v: str = "", auth: bool = Depends(require_auth_or_embed)):
     """Proxy range requests to YouTube CDN for DASH playback."""
     if not is_youtube_url(url):
         raise HTTPException(status_code=403, detail="URL not allowed")
-    return await proxy_range_request(request, url)
+    try:
+        return await proxy_range_request(request, url)
+    except HTTPException as e:
+        # YouTube sometimes invalidates videoplayback URLs long before their
+        # `expire` timestamp (403). The info/manifest caches would keep serving
+        # the same dead URLs for hours, so drop them — the player's next
+        # manifest request re-extracts fresh URLs. min_age guards against
+        # re-extraction storms when even fresh URLs fail.
+        if e.status_code in (403, 410) and v and VIDEO_ID_RE.match(v):
+            if invalidate_video_cache(v, min_age=30):
+                _dash_cache.pop(v, None)
+                log.warning(f"Upstream {e.status_code} for {v}: invalidated info+DASH caches")
+        raise
