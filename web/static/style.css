@@ -490,6 +490,29 @@ h1 {
     text-decoration: underline;
 }
 
+.yt-time-toggle {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    user-select: none;
+}
+
+.yt-time-toggle input {
+    cursor: pointer;
+    margin: 0;
+}
+
+.yt-time-toggle span {
+    opacity: 0.5;
+}
+
+.yt-time-toggle input:checked + span {
+    opacity: 1;
+}
+
 .video-info-row {
     display: flex;
     justify-content: space-between;

@@ -952,6 +952,26 @@ function stopPlayer() {
     videoPlayer.load();
 }
 
+function updateYouTubeLink() {
+    const ytLink = document.getElementById('youtube-link');
+    if (!ytLink || !currentVideoId) return;
+    let url = `https://www.youtube.com/watch?v=${currentVideoId}`;
+    const timeCheck = document.getElementById('yt-time-check');
+    if (timeCheck && timeCheck.checked) {
+        const t = Math.floor(videoPlayer.currentTime || 0);
+        if (t > 0) url += `&t=${t}s`;
+    }
+    ytLink.href = url;
+}
+
+(function initYouTubeTimeToggle() {
+    const timeCheck = document.getElementById('yt-time-check');
+    const ytLink = document.getElementById('youtube-link');
+    if (timeCheck) timeCheck.addEventListener('change', updateYouTubeLink);
+    // Refresh the timestamp at the moment of navigation so it reflects the live position
+    if (ytLink) ytLink.addEventListener('mousedown', updateYouTubeLink);
+})();
+
 async function playVideo(videoId, title, channel, duration, startTime) {
     stopPlayer();
     currentVideoId = videoId;
@@ -960,8 +980,7 @@ async function playVideo(videoId, title, channel, duration, startTime) {
     videoTitle.textContent = title || '';
     videoChannel.textContent = channel || '';
     videoChannel.href = '#';
-    const ytLink = document.getElementById('youtube-link');
-    if (ytLink) ytLink.href = `https://www.youtube.com/watch?v=${videoId}`;
+    updateYouTubeLink();
     videoMeta.textContent = '';
     window.dispatchEvent(new Event('video-changed'));
     videoDescription.textContent = '';
