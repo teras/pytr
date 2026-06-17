@@ -65,6 +65,11 @@ const audioBtnContainer = document.getElementById('audio-btn-container');
 const audioBtn = document.getElementById('audio-btn');
 const audioMenu = document.getElementById('audio-menu');
 
+// Download
+const downloadBtnContainer = document.getElementById('download-btn-container');
+const downloadBtn = document.getElementById('download-btn');
+const downloadMenu = document.getElementById('download-menu');
+
 // Related
 const relatedVideos = document.getElementById('related-videos');
 
@@ -209,6 +214,34 @@ function populateAudioMenu(tracks, currentLang) {
     });
 }
 
+// ── Download ──────────────────────────────────────────────────────────────────
+
+downloadBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const wasOpen = !downloadMenu.classList.contains('hidden');
+    closeAllMenus();
+    if (!wasOpen) { downloadMenu.classList.remove('hidden'); positionMenu(downloadMenu); }
+});
+
+downloadMenu.addEventListener('click', (e) => e.stopPropagation());
+
+downloadMenu.querySelectorAll('.download-option').forEach(opt => {
+    opt.addEventListener('click', (e) => {
+        e.stopPropagation();
+        downloadMenu.classList.add('hidden');
+        if (!currentVideoId) return;
+        const kind = opt.dataset.kind;
+        // Same-origin anchor with the auth cookie; the server sets the filename
+        // via Content-Disposition, so the browser downloads without leaving the page.
+        const a = document.createElement('a');
+        a.href = appendCookieParam(`/api/download/${currentVideoId}?kind=${kind}`);
+        a.download = '';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    });
+});
+
 function switchAudioLanguage(lang) {
     if (!currentVideoId) return;
 
@@ -243,6 +276,7 @@ function switchAudioLanguage(lang) {
 function closeAllMenus() {
     qualityMenu.classList.add('hidden');
     audioMenu.classList.add('hidden');
+    downloadMenu.classList.add('hidden');
     subtitleMenu.classList.add('hidden');
     document.getElementById('summarize-menu').classList.add('hidden');
     const pm = document.getElementById('profile-menu');
@@ -897,6 +931,7 @@ clearListBtn.addEventListener('click', async () => {
 function showPlayerError(title, message) {
     videoTitle.textContent = title || 'Video unavailable';
     qualitySelector.classList.add('hidden');
+    downloadBtnContainer.classList.add('hidden');
     document.getElementById('private-mode-btn-player').classList.add('hidden');
     const overlay = document.createElement('div');
     overlay.className = 'player-error-overlay';
@@ -930,6 +965,8 @@ function stopPlayer() {
     qualityMenu.classList.add('hidden');
     audioBtnContainer.classList.add('hidden');
     audioMenu.classList.add('hidden');
+    downloadBtnContainer.classList.add('hidden');
+    downloadMenu.classList.add('hidden');
     document.getElementById('private-mode-btn-player').classList.add('hidden');
     currentActiveHeight = 0;
     videoQualities = [];
@@ -986,6 +1023,7 @@ async function playVideo(videoId, title, channel, duration, startTime) {
     videoDescription.textContent = '';
     videoDescription.classList.add('hidden');
     qualitySelector.classList.remove('hidden');
+    downloadBtnContainer.classList.remove('hidden');
     document.getElementById('private-mode-btn-player').classList.remove('hidden');
     qualityBtn.textContent = '\ud83c\udfac \u2014';
     qualityBtn.disabled = true;

@@ -172,6 +172,7 @@ from routes.tv_setup import router as tv_setup_router, page_router as tv_setup_p
 from routes.remote import router as remote_router
 from routes.lounge import router as lounge_router
 from routes.foryou import router as foryou_router
+from routes.download import router as download_router
 
 app.include_router(auth_router)
 app.include_router(dash_router)
@@ -185,6 +186,7 @@ app.include_router(tv_setup_page_router)
 app.include_router(remote_router)
 app.include_router(lounge_router)
 app.include_router(foryou_router)
+app.include_router(download_router)
 
 
 # Catch-all for legacy YouTube custom URLs (e.g. /limpbizkit → /channel/UC...).

@@ -567,8 +567,14 @@ h1 {
 }
 
 /* Quality Selector */
-.quality-selector {
+.quality-selector,
+#download-btn-container {
     position: relative;
+}
+
+/* Download is meaningless on a TV (no filesystem; WebView ignores downloads). */
+body.tv-nav-active #download-btn-container {
+    display: none;
 }
 
 .player-btn {
@@ -597,7 +603,8 @@ h1 {
 .quality-menu,
 .audio-menu,
 .subtitle-menu,
-.summarize-menu {
+.summarize-menu,
+.download-menu {
     position: absolute;
     top: 100%;
     right: 0;
@@ -616,7 +623,8 @@ h1 {
 .quality-menu.drop-up,
 .audio-menu.drop-up,
 .subtitle-menu.drop-up,
-.summarize-menu.drop-up {
+.summarize-menu.drop-up,
+.download-menu.drop-up {
     top: auto;
     bottom: 100%;
     margin-top: 0;
@@ -626,7 +634,8 @@ h1 {
 .quality-option,
 .audio-option,
 .subtitle-option,
-.summarize-option {
+.summarize-option,
+.download-option {
     padding: 8px 14px;
     font-size: 13px;
     color: var(--color-text);
@@ -638,7 +647,8 @@ h1 {
 .quality-option:hover,
 .audio-option:hover,
 .subtitle-option:hover,
-.summarize-option:hover {
+.summarize-option:hover,
+.download-option:hover {
     background-color: var(--color-bg-button);
 }
 
