@@ -445,7 +445,16 @@ function handleInitialRoute() {
         const listId = params.get('list');
         const startTime = parseYouTubeTime(params.get('t') || params.get('start'));
         const index = parseInt(params.get('index'), 10);
-        const url = listId ? `/watch?v=${videoId}&list=${listId}` : `/watch?v=${videoId}`;
+        // Preserve the full incoming query verbatim, dropping only transient params
+        // (index is consumed below). This keeps t=, start= and anything else intact
+        // across the login/profile-select gate.
+        const buildWatchUrl = (vid) => {
+            const p = new URLSearchParams(window.location.search);
+            p.set('v', vid);
+            p.delete('index');
+            return '/watch?' + p.toString();
+        };
+        const url = buildWatchUrl(videoId);
         history.replaceState({ view: 'video', videoId, title: '', channel: '', duration: 0, playlistId: listId || undefined }, '', url);
         showVideoView();
         if (listId && index > 0) {
@@ -457,7 +466,7 @@ function handleInitialRoute() {
                     _queue.currentIndex = index;
                     _renderQueue();
                     playVideo(target.id, target.title || '', '', 0, startTime);
-                    history.replaceState({ view: 'video', videoId: target.id, title: target.title || '', channel: '', duration: 0, playlistId: listId }, '', `/watch?v=${target.id}&list=${listId}`);
+                    history.replaceState({ view: 'video', videoId: target.id, title: target.title || '', channel: '', duration: 0, playlistId: listId }, '', buildWatchUrl(target.id));
                 } else {
                     // Index out of range — fall back to the video from the URL
                     playVideo(videoId, '', '', 0, startTime);
