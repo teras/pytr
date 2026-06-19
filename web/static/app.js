@@ -108,6 +108,9 @@ let preferredQuality = parseInt(localStorage.getItem('preferredQuality')) || 108
 let currentActiveHeight = 0;
 // Quality list: [{height, bandwidth, qualityIndex}]
 let videoQualities = [];
+// Quality hints from /api/info: [{height, bandwidth}] — known before the MPD
+// loads, used to pick the right initial quality on first DASH load.
+let dashQualityHints = [];
 let pendingSeek = null; // {time, play} — set during audio language switch or t= param
 let isLiveStream = false; // true when playing a live stream
 let liveRetried = false; // true after one recovery attempt
@@ -992,6 +995,7 @@ function stopPlayer() {
     document.getElementById('private-mode-btn-player').classList.add('hidden');
     currentActiveHeight = 0;
     videoQualities = [];
+    dashQualityHints = [];
     isLiveStream = false;
     liveRetried = false;
     const liveBadge = document.getElementById('live-badge');
@@ -1122,6 +1126,7 @@ async function playVideo(videoId, title, channel, duration, startTime) {
         }
 
         loadSubtitleTracks(videoId, info.subtitle_tracks || []);
+        dashQualityHints = info.qualities || [];
         window.currentChapters = info.chapters || [];
         if (info.storyboard && typeof _osd !== 'undefined') {
             _osd.setStoryboard(videoId, info.storyboard);
@@ -1167,9 +1172,9 @@ async function playVideo(videoId, title, channel, duration, startTime) {
     fetchRelatedVideos(videoId);
 }
 
-// Approx initial-bitrate cap (kbps) per target height, for the first load when we
-// don't yet know the stream's exact bitrates. dash.js picks the highest VP9
-// representation at/under the cap. A user switch passes the exact bitrate instead.
+// Approx initial-bitrate cap (kbps) per target height. Fallback for when we
+// don't yet know the stream's exact bitrates (no /api/info hints). dash.js picks
+// the highest VP9 representation at/under the cap.
 function initialKbpsForHeight(h) {
     if (h >= 2160) return 45000;
     if (h >= 1440) return 18000;
@@ -1178,13 +1183,30 @@ function initialKbpsForHeight(h) {
     return 1300;
 }
 
+// Exact initial-bitrate cap (kbps) from /api/info quality hints: pick the target
+// height for the preference, then cap the bitrate BETWEEN it and the next higher
+// rep (midpoint) so dash.js lands exactly on it — same math as a user switch,
+// but applied on first load. Falls back to the blind cap if hints are missing.
+function initialKbpsFromHints(preferred) {
+    const hints = (dashQualityHints || []).slice().sort((a, b) => a.height - b.height);
+    if (!hints.length) return initialKbpsForHeight(preferred);
+    const target = getTargetQuality(hints.map(q => q.height), preferred);
+    const idx = hints.findIndex(q => q.height === target);
+    if (idx < 0) return initialKbpsForHeight(preferred);
+    const entry = hints[idx];
+    const next = hints[idx + 1];
+    return next
+        ? Math.round((entry.bandwidth + next.bandwidth) / 2 / 1000)
+        : Math.round((entry.bandwidth / 1000) * 1.3);
+}
+
 function startDashPlayer(videoId, startTime, initKbps) {
     currentPlayerType = 'dash';
     dashPlayer = dashjs.MediaPlayer().create();
     // Pick quality up-front via initialBitrate. dash.js v5.2.0's post-load manual
     // setRepresentation* is unreliable (stays at the initial/lowest rep), so we
     // start the stream directly at the desired quality instead of switching later.
-    const initialKbps = initKbps || initialKbpsForHeight(preferredQuality);
+    const initialKbps = initKbps || initialKbpsFromHints(preferredQuality);
     dashPlayer.updateSettings({
         streaming: {
             buffer: {

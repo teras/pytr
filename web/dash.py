@@ -300,6 +300,27 @@ def _collect_dash_formats(info: dict) -> tuple[dict, dict]:
     return video_by_container, audio_by_container
 
 
+def dash_video_qualities(info: dict) -> list[dict]:
+    """Resolution/bitrate list mirroring the DASH MPD's video representations.
+
+    Same container pick + dedup as get_dash_manifest, and the same bandwidth
+    formula as the MPD Representations. Lets the client choose the right initial
+    quality up-front from the (cached) /api/info response, without waiting for —
+    or re-fetching — the MPD. Sorted ascending by height.
+    """
+    video_by_container, _ = _collect_dash_formats(info)
+    if not video_by_container:
+        return []
+    container = 'webm' if 'webm' in video_by_container else 'mp4'
+    return [
+        {
+            'height': f.get('height', 0),
+            'bandwidth': int((f.get('tbr') or f.get('vbr') or 0) * 1000) or 1000000,
+        }
+        for f in _dedup_by_height(video_by_container[container])
+    ]
+
+
 # ── DASH manifest endpoint ───────────────────────────────────────────────────
 
 @router.get("/api/dash/{video_id}")

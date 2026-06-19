@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from auth import require_auth, require_auth_or_embed
-from dash import proxy_range_request
+from dash import proxy_range_request, dash_video_qualities
 from helpers import CACHE_DIR, VIDEO_ID_RE, format_number, register_cleanup, make_cache_cleanup, get_video_info as _cached_info, invalidate_video_cache, http_client, is_youtube_url
 
 log = logging.getLogger(__name__)
@@ -124,6 +124,7 @@ async def get_video_info(video_id: str, cookies: str = "auto", auth: bool = Depe
             'hls_manifest_url': f'/api/hls/master/{video_id}' if has_multi_audio else None,
             'chapters': info.get('chapters') or [],
             'storyboard': storyboard,
+            'qualities': dash_video_qualities(info),
         }
     except Exception as e:
         err_msg = str(e)
