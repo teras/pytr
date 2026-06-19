@@ -142,16 +142,29 @@ function populateQualityMenu() {
             const height = parseInt(opt.dataset.height);
             const entry = videoQualities.find(q => q.height === height);
             if (!entry || qualityBtn.disabled) return;
-            applyQualitySwitch(entry);
             preferredQuality = height;
             localStorage.setItem('preferredQuality', height);
             if (typeof savePreference === 'function') savePreference('quality', height);
             qualityMenu.classList.add('hidden');
+            updateQualityHighlight(height);
             if (currentPlayerType === 'dash') {
-                qualityBtn.disabled = true;
-                qualityBtn.textContent = `\ud83c\udfac ${height}p\u2026`;
+                // dash.js v5.2.0's manual setRepresentation* doesn't reliably apply
+                // (stays at the initial representation). Instead we cold-restart the
+                // stream pinned to the chosen quality at the current time. Set the
+                // initialBitrate cap BETWEEN this rep and the next higher one so
+                // dash.js lands exactly on it (a fixed margin can overshoot into the
+                // next level for low qualities, e.g. 480→720).
+                const idx = videoQualities.indexOf(entry);
+                const next = videoQualities[idx + 1]; // sorted ascending by height
+                const kbps = next
+                    ? Math.round((entry.bandwidth + next.bandwidth) / 2 / 1000)
+                    : Math.round((entry.bandwidth / 1000) * 1.3);
+                const t = videoPlayer.currentTime;
+                try { dashPlayer.destroy(); } catch (err) {}
+                dashPlayer = null;
+                startDashPlayer(currentVideoId, t, kbps);
             } else {
-                updateQualityHighlight(height);
+                applyQualitySwitch(entry);
             }
         });
     });
@@ -1154,20 +1167,45 @@ async function playVideo(videoId, title, channel, duration, startTime) {
     fetchRelatedVideos(videoId);
 }
 
-function startDashPlayer(videoId) {
+// Approx initial-bitrate cap (kbps) per target height, for the first load when we
+// don't yet know the stream's exact bitrates. dash.js picks the highest VP9
+// representation at/under the cap. A user switch passes the exact bitrate instead.
+function initialKbpsForHeight(h) {
+    if (h >= 2160) return 45000;
+    if (h >= 1440) return 18000;
+    if (h >= 1080) return 7000;
+    if (h >= 720) return 3000;
+    return 1300;
+}
+
+function startDashPlayer(videoId, startTime, initKbps) {
     currentPlayerType = 'dash';
     dashPlayer = dashjs.MediaPlayer().create();
+    // Pick quality up-front via initialBitrate. dash.js v5.2.0's post-load manual
+    // setRepresentation* is unreliable (stays at the initial/lowest rep), so we
+    // start the stream directly at the desired quality instead of switching later.
+    const initialKbps = initKbps || initialKbpsForHeight(preferredQuality);
     dashPlayer.updateSettings({
         streaming: {
             buffer: {
                 fastSwitchEnabled: true,
                 flushBufferAtTrackSwitch: true,
             },
-            abr: { autoSwitchBitrate: { video: false } },
+            abr: {
+                autoSwitchBitrate: { video: false },
+                initialBitrate: { video: initialKbps },
+            },
             retryAttempts: { MPD: 0 },
         },
     });
-    dashPlayer.initialize(videoPlayer, appendCookieParam(`/api/dash/${videoId}`), true);
+    const dashUrl = appendCookieParam(`/api/dash/${videoId}`);
+    // A 4th startTime arg makes dash.js begin buffering AT that position (used by
+    // the quality-switch cold-restart so it resumes where the user was).
+    if (startTime != null) {
+        dashPlayer.initialize(videoPlayer, dashUrl, true, startTime);
+    } else {
+        dashPlayer.initialize(videoPlayer, dashUrl, true);
+    }
 
     dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
         // Re-arm the auto-refresh only after sustained playback — resetting
@@ -1180,17 +1218,19 @@ function startDashPlayer(videoId) {
 
         const heights = videoQualities.map(q => q.height);
         const targetHeight = getTargetQuality(heights, preferredQuality);
-        const targetEntry = videoQualities.find(q => q.height === targetHeight);
-
-        if (targetEntry) {
-            applyQualitySwitch(targetEntry);
-            updateQualityHighlight(targetHeight);
-        }
-
+        // Quality is selected up-front via initialBitrate, not switched here.
+        // Show the expected target; QUALITY_CHANGE_RENDERED corrects it to what
+        // dash.js actually settles on.
+        updateQualityHighlight(targetHeight);
         populateQualityMenu();
 
-        // Restore position: pendingSeek (from audio switch) takes priority
-        if (pendingSeek) {
+        // Position: a cold-restart (quality switch) passes startTime, already
+        // applied by dash.js — just resume. Otherwise pendingSeek (audio switch)
+        // then saved position.
+        if (startTime != null) {
+            if (!videoPlayer.paused) videoPlayer.play();
+            applySubtitlePreference();
+        } else if (pendingSeek) {
             videoPlayer.currentTime = pendingSeek.time;
             if (pendingSeek.play) videoPlayer.play();
             applySubtitlePreference();
@@ -1386,6 +1426,20 @@ videoPlayer.addEventListener('loadedmetadata', () => {
         qualityMenu.innerHTML = '';
     }
 });
+
+// Once real playback starts, drop the poster so it doesn't flash back during a
+// seek/re-buffer. setBestPoster() re-arms it per video in playVideo().
+videoPlayer.addEventListener('playing', () => videoPlayer.removeAttribute('poster'));
+
+// Seek preview: while seeking, overlay the storyboard thumbnail of the TARGET
+// position (where we're going) until the new frame is ready \u2014 instead of a black
+// frame or the default card. On 'seeking' currentTime is already the target.
+videoPlayer.addEventListener('seeking', () => {
+    if (window._osd && _osd.showSeekFreeze) _osd.showSeekFreeze(videoPlayer.currentTime);
+});
+['seeked', 'playing'].forEach(ev => videoPlayer.addEventListener(ev, () => {
+    if (window._osd && _osd.hideSeekFreeze) _osd.hideSeekFreeze();
+}));
 
 // ── Summarize Button ────────────────────────────────────────────────────────
 

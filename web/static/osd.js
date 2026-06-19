@@ -234,6 +234,49 @@ function formatTime(s, refS) {
         if (tooltip) { tooltip.innerHTML = ''; tooltip.style.display = ''; }
     };
 
+    // ── Seek freeze overlay ─────────────────────────────────────────────
+    // While seeking, cover the player with the storyboard tile of the TARGET
+    // time (where we're going), scaled to fill, until the new frame is ready.
+    // App wires this to the video's seeking/seeked events. No-op without a
+    // storyboard. Segments are same-origin, so the sprite loads fine.
+    function _seekFreezeEl() {
+        let ov = document.getElementById('seek-freeze-overlay');
+        if (!ov) {
+            const host = document.getElementById(_containerId || 'player-container');
+            if (!host) return null;
+            ov = document.createElement('div');
+            ov.id = 'seek-freeze-overlay';
+            ov.className = 'seek-freeze-overlay';
+            host.appendChild(ov);
+        }
+        return ov;
+    }
+
+    _osd.showSeekFreeze = function (time) {
+        if (!_sbData) return;
+        const info = _getPreviewForTime(time);
+        if (!info) return;
+        const img = _sbImages[info.sheetIndex];
+        if (!img) return;
+        const ov = _seekFreezeEl();
+        if (!ov) return;
+        const sb = _sbData;
+        let W = ov.clientWidth, H = ov.clientHeight;
+        if (!W || !H) { const v = _getVideo(); if (v) { W = v.clientWidth; H = v.clientHeight; } }
+        if (!W || !H) return;
+        // Scale the whole sprite sheet so one tile fills the overlay, then offset
+        // to the target tile.
+        ov.style.backgroundImage = 'url(' + img.src + ')';
+        ov.style.backgroundSize = (sb.columns * W) + 'px ' + (sb.rows * H) + 'px';
+        ov.style.backgroundPosition = '-' + (info.col * W) + 'px -' + (info.row * H) + 'px';
+        ov.style.display = 'block';
+    };
+
+    _osd.hideSeekFreeze = function () {
+        const ov = document.getElementById('seek-freeze-overlay');
+        if (ov) ov.style.display = 'none';
+    };
+
     // ── Click-to-seek on progress bar ────────────────────────────────────
 
     function setupSeekBar() {

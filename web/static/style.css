@@ -406,6 +406,18 @@ h1 {
     object-fit: contain;
 }
 
+/* Seek freeze overlay — storyboard preview of the seek target, shown over the
+   video while it re-buffers. Above the video, below the OSD controls. */
+.seek-freeze-overlay {
+    position: absolute;
+    inset: 0;
+    display: none;
+    background-repeat: no-repeat;
+    background-color: #000;
+    z-index: 5;
+    pointer-events: none;
+}
+
 /* Player error overlay */
 .player-error-overlay {
     position: absolute;
