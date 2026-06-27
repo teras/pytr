@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import re
+from pathlib import Path
 
 from helpers import _format_duration, http_client
 
@@ -58,53 +59,95 @@ async def _fetch_client_version() -> str:
 
 _detected_region: str | None = None
 _detected_lang: str | None = None
+_region_lock = asyncio.Lock()
+# Persist a successful detection across restarts so we don't re-hit the rate-
+# limited geo-IP services (ipapi.co free tier returns 429 quickly) on every boot.
+_REGION_CACHE_FILE = Path(__file__).parent / "data" / "region.json"
+
+
+def _load_region_cache() -> tuple[str, str] | None:
+    """Read a previously persisted (region, lang). Returns None if absent/invalid."""
+    try:
+        data = json.loads(_REGION_CACHE_FILE.read_text())
+        code = data.get("region", "")
+        lang = data.get("lang", "en")
+        if re.fullmatch(r'[A-Z]{2}', code):
+            return (code, lang if re.fullmatch(r'[a-z]{2}', lang) else "en")
+    except Exception:
+        pass
+    return None
+
+
+def _save_region_cache(code: str, lang: str) -> None:
+    try:
+        _REGION_CACHE_FILE.parent.mkdir(exist_ok=True)
+        _REGION_CACHE_FILE.write_text(json.dumps({"region": code, "lang": lang}))
+    except Exception as e:
+        log.warning(f"Could not persist region cache: {e}")
 
 
 async def _detect_region() -> tuple[str | None, str]:
     """Detect server region + language via free geo IP service. Cached after first call.
 
     Returns (country_code, language_code). Primary language extracted from
-    ipapi.co's 'languages' field (e.g. "el-GR,en,fr" → "el").
+    ipapi.co's 'languages' field (e.g. "el-GR,en,fr" → "el"). A lock serializes
+    the first concurrent callers so boot fires a single request, not N, and a
+    successful result is persisted to disk to survive restarts.
     """
     global _detected_region, _detected_lang
     if _detected_region is not None:
         return (_detected_region or None, _detected_lang or "en")
 
-    # ipapi.co returns both country_code and languages in one call
-    try:
-        resp = await http_client.get("https://ipapi.co/json/", timeout=5.0)
-        resp.raise_for_status()
-        data = resp.json()
-        code = data.get("country_code", "")
-        # languages is like "el-GR,en,fr" — take the primary language code
-        langs = data.get("languages", "")
-        lang = langs.split(",")[0].split("-")[0].strip() if langs else ""
-        if re.fullmatch(r'[A-Z]{2}', code):
-            _detected_region = code
-            _detected_lang = lang if re.fullmatch(r'[a-z]{2}', lang) else "en"
-            log.info(f"Detected server region: {code}, language: {_detected_lang}")
-            return (code, _detected_lang)
-    except Exception as e:
-        log.warning(f"Region detection failed (ipapi.co): {e}")
+    async with _region_lock:
+        # Another coroutine may have filled the cache while we waited for the lock.
+        if _detected_region is not None:
+            return (_detected_region or None, _detected_lang or "en")
 
-    # Fallback: ip-api.com (country only, no language)
-    try:
-        resp = await http_client.get(
-            "http://ip-api.com/json/?fields=countryCode", timeout=5.0)
-        resp.raise_for_status()
-        code = resp.json().get("countryCode", "")
-        if re.fullmatch(r'[A-Z]{2}', code):
-            _detected_region = code
-            _detected_lang = "en"
-            log.info(f"Detected server region: {code}, language: en (fallback)")
-            return (code, "en")
-    except Exception as e:
-        log.warning(f"Region detection failed (ip-api.com): {e}")
+        # Reuse a persisted result from a previous run before touching the network.
+        cached = _load_region_cache()
+        if cached is not None:
+            _detected_region, _detected_lang = cached
+            log.info(f"Loaded region from cache: {cached[0]}, language: {cached[1]}")
+            return (cached[0], cached[1])
 
-    _detected_region = ""
-    _detected_lang = "en"
-    log.warning("Could not detect region, omitting gl parameter")
-    return (None, "en")
+        # ipapi.co returns both country_code and languages in one call
+        try:
+            resp = await http_client.get("https://ipapi.co/json/", timeout=5.0)
+            resp.raise_for_status()
+            data = resp.json()
+            code = data.get("country_code", "")
+            # languages is like "el-GR,en,fr" — take the primary language code
+            langs = data.get("languages", "")
+            lang = langs.split(",")[0].split("-")[0].strip() if langs else ""
+            if re.fullmatch(r'[A-Z]{2}', code):
+                _detected_region = code
+                _detected_lang = lang if re.fullmatch(r'[a-z]{2}', lang) else "en"
+                _save_region_cache(_detected_region, _detected_lang)
+                log.info(f"Detected server region: {code}, language: {_detected_lang}")
+                return (code, _detected_lang)
+        except Exception as e:
+            log.warning(f"Region detection failed (ipapi.co): {e}")
+
+        # Fallback: ip-api.com (country only, no language)
+        try:
+            resp = await http_client.get(
+                "http://ip-api.com/json/?fields=countryCode", timeout=5.0)
+            resp.raise_for_status()
+            code = resp.json().get("countryCode", "")
+            if re.fullmatch(r'[A-Z]{2}', code):
+                _detected_region = code
+                _detected_lang = "en"
+                _save_region_cache(code, "en")
+                log.info(f"Detected server region: {code}, language: en (fallback)")
+                return (code, "en")
+        except Exception as e:
+            log.warning(f"Region detection failed (ip-api.com): {e}")
+
+        # Don't persist failure: leave the door open to retry on next boot.
+        _detected_region = ""
+        _detected_lang = "en"
+        log.warning("Could not detect region, omitting gl parameter")
+        return (None, "en")
 
 
 def _build_context(version: str, gl: str | None = None, hl: str = "en") -> dict:
