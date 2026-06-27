@@ -215,6 +215,16 @@ const _COUNTRIES = [
     { code: 'ZW', label: 'Zimbabwe' },
 ];
 
+// Summary (TL;DW) output language: special "match a source" modes first, then
+// every concrete language from _LANGUAGES (minus its 'auto detect' entry).
+const _SUMMARY_LANGS = [
+    { code: 'auto', label: 'Auto (subtitles → content → transcript)' },
+    { code: 'subtitle', label: 'Same as subtitles' },
+    { code: 'content', label: 'Same as content language' },
+    { code: 'transcript', label: 'Same as transcript' },
+    ..._LANGUAGES.slice(1),
+];
+
 function _buildSearchableSelect(id, items, selected) {
     const current = items.find(i => i.code === selected) || items[0];
     return `
@@ -502,6 +512,7 @@ function applyProfilePrefs() {
     }
     localStorage.setItem('contentLang', currentProfile.content_lang || 'auto');
     localStorage.setItem('contentRegion', currentProfile.content_region || 'auto');
+    localStorage.setItem('summaryLang', currentProfile.summary_lang || 'auto');
 }
 
 function updateProfileButton() {
@@ -725,6 +736,10 @@ function showEditProfileForm() {
                         </div>
                     </div>
                     <div class="edit-pin-section">
+                        <label class="pref-label">Summary language (TL;DW)</label>
+                        ${_buildSearchableSelect('edit-summary-lang', _SUMMARY_LANGS, currentProfile.summary_lang || 'auto')}
+                    </div>
+                    <div class="edit-pin-section">
                         <label class="edit-pin-label">
                             <input type="checkbox" id="edit-pin-toggle" ${hasPin ? 'checked' : ''}>
                             PIN lock
@@ -836,6 +851,14 @@ function showEditProfileForm() {
             currentProfile.content_region = newRegion;
             localStorage.setItem('contentRegion', newRegion);
             savePreference('content_region', newRegion);
+        }
+
+        // Save summary (TL;DW) output language preference
+        const newSummaryLang = modal.querySelector('input[name="edit-summary-lang"]').value;
+        if (newSummaryLang !== (currentProfile.summary_lang || 'auto')) {
+            currentProfile.summary_lang = newSummaryLang;
+            localStorage.setItem('summaryLang', newSummaryLang);
+            savePreference('summary_lang', newSummaryLang);
         }
 
         if (form._cleanupEmojiListener) form._cleanupEmojiListener();

@@ -127,6 +127,8 @@ def init_db():
             conn.execute("ALTER TABLE profiles ADD COLUMN content_lang TEXT NOT NULL DEFAULT 'auto'")
         if "content_region" not in cols:
             conn.execute("ALTER TABLE profiles ADD COLUMN content_region TEXT NOT NULL DEFAULT 'auto'")
+        if "summary_lang" not in cols:
+            conn.execute("ALTER TABLE profiles ADD COLUMN summary_lang TEXT NOT NULL DEFAULT 'auto'")
         # Migration: add playlist/mix columns to favorites if missing
         fav_cols = [r[1] for r in conn.execute("PRAGMA table_info(favorites)").fetchall()]
         for col, typ, default in [
@@ -254,6 +256,7 @@ def get_profile(profile_id: int) -> dict | None:
         "exclusive_playback": r["exclusive_playback"],
         "content_lang": r["content_lang"] if "content_lang" in r.keys() else "auto",
         "content_region": r["content_region"] if "content_region" in r.keys() else "auto",
+        "summary_lang": r["summary_lang"] if "summary_lang" in r.keys() else "auto",
         "sb_prefs": r["sb_prefs"],
     }
 
@@ -286,6 +289,7 @@ def create_profile(name: str, pin: str | None = None, avatar_color: str = "#cc00
         "exclusive_playback": 1,
         "content_lang": "auto",
         "content_region": "auto",
+        "summary_lang": "auto",
         "sb_prefs": "{}",
     }
 
@@ -332,6 +336,7 @@ def update_profile(profile_id: int, name: str | None = None,
         "exclusive_playback": r["exclusive_playback"],
         "content_lang": r["content_lang"] if "content_lang" in r.keys() else "auto",
         "content_region": r["content_region"] if "content_region" in r.keys() else "auto",
+        "summary_lang": r["summary_lang"] if "summary_lang" in r.keys() else "auto",
         "sb_prefs": r["sb_prefs"],
     }
 
@@ -425,6 +430,11 @@ def update_content_lang(profile_id: int, lang: str):
 def update_content_region(profile_id: int, region: str):
     with _connect() as conn:
         conn.execute("UPDATE profiles SET content_region = ? WHERE id = ?", (region, profile_id))
+
+
+def update_summary_lang(profile_id: int, lang: str):
+    with _connect() as conn:
+        conn.execute("UPDATE profiles SET summary_lang = ? WHERE id = ?", (lang, profile_id))
 
 
 def update_sb_prefs(profile_id: int, prefs_json: str):

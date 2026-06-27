@@ -37,6 +37,7 @@ class UpdatePrefsReq(BaseModel):
     exclusive_playback: int | None = None
     content_lang: str | None = None
     content_region: str | None = None
+    summary_lang: str | None = None
 
 class SavePositionReq(BaseModel):
     video_id: str
@@ -208,6 +209,8 @@ async def update_preferences(req: UpdatePrefsReq, profile_id: int = Depends(requ
         db.update_content_lang(profile_id, req.content_lang)
     if req.content_region is not None:
         db.update_content_region(profile_id, req.content_region)
+    if req.summary_lang is not None:
+        db.update_summary_lang(profile_id, req.summary_lang)
     return {"ok": True}
 
 

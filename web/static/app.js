@@ -1517,6 +1517,28 @@ function getBestSubtitleLang() {
     return subtitleTracks[0].lang;
 }
 
+// Decide which language the TL;DW summary should be written in, based on the
+// profile's summary_lang setting. An explicit language code wins outright. The
+// "match X" modes follow their source then fall back through the rest. 'auto'
+// prefers subtitles → content language → transcript → browser → English.
+// `transcriptLang` is the language of the captions we actually fetched.
+function resolveSummaryLang(transcriptLang) {
+    const mode = localStorage.getItem('summaryLang') || 'auto';
+    const subRaw = localStorage.getItem('subtitle_lang');
+    const contentRaw = localStorage.getItem('contentLang');
+    const sub = (subRaw && subRaw !== 'off') ? subRaw : null;
+    const content = (contentRaw && contentRaw !== 'auto') ? contentRaw : null;
+    const nav = navigator.language || null;
+    if (!['auto', 'subtitle', 'content', 'transcript'].includes(mode)) return mode;
+    const chains = {
+        auto:       [sub, content, transcriptLang, nav],
+        subtitle:   [sub, transcriptLang, content, nav],
+        content:    [content, transcriptLang, sub, nav],
+        transcript: [transcriptLang, sub, content, nav],
+    };
+    return chains[mode].find(Boolean) || 'en';
+}
+
 async function getSummarizePrompt() {
     const lang = getBestSubtitleLang();
     if (!lang || !currentVideoId) return null;
@@ -1527,7 +1549,12 @@ async function getSummarizePrompt() {
         const text = parseVTT(vtt);
         if (!text) return null;
         const url = `${location.origin}/watch?v=${currentVideoId}`;
-        return `Summarize this video transcript in 1-2 paragraphs (more if needed for longer videos). At the end, list the key topics/sections in this exact format:\n- [MM:SS](${url}&t=SECONDS) Topic title\n\nExample:\n- [0:00](${url}&t=0) Introduction\n- [3:45](${url}&t=225) Main topic\n\nTranscript:\n` + text;
+        // Resolve the summary output language from the profile's summary_lang
+        // setting (passing the transcript's own language as one of the sources).
+        const uiLang = resolveSummaryLang(lang).split('-')[0];
+        let langName = 'English';
+        try { langName = new Intl.DisplayNames(['en'], { type: 'language' }).of(uiLang) || 'English'; } catch (e) {}
+        return `Summarize this video transcript in a single paragraph. Even for long videos, keep it to one paragraph. Respond entirely in ${langName}. At the end, list the key topics/sections in this exact format:\n- [MM:SS](${url}&t=SECONDS) Topic title\n\nExample:\n- [0:00](${url}&t=0) Introduction\n- [3:45](${url}&t=225) Main topic\n\nTranscript:\n` + text;
     } catch (e) {
         return null;
     }
