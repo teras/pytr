@@ -1520,8 +1520,11 @@ function getBestSubtitleLang() {
 // Decide which language the TL;DW summary should be written in, based on the
 // profile's summary_lang setting. An explicit language code wins outright. The
 // "match X" modes follow their source then fall back through the rest. 'auto'
-// prefers subtitles → content language → transcript → browser → English.
-// `transcriptLang` is the language of the captions we actually fetched.
+// prefers the shown subtitles → content language → browser → English.
+// `transcriptLang` is the language of the captions we actually fetched — i.e.
+// the subtitles currently shown — so it, not the saved `sub` preference, is the
+// real "subtitles" source: the preference may name a language this video has no
+// captions for, which would otherwise request a summary in an absent language.
 function resolveSummaryLang(transcriptLang) {
     const mode = localStorage.getItem('summaryLang') || 'auto';
     const subRaw = localStorage.getItem('subtitle_lang');
@@ -1531,8 +1534,8 @@ function resolveSummaryLang(transcriptLang) {
     const nav = navigator.language || null;
     if (!['auto', 'subtitle', 'content', 'transcript'].includes(mode)) return mode;
     const chains = {
-        auto:       [sub, content, transcriptLang, nav],
-        subtitle:   [sub, transcriptLang, content, nav],
+        auto:       [transcriptLang, content, sub, nav],
+        subtitle:   [transcriptLang, sub, content, nav],
         content:    [content, transcriptLang, sub, nav],
         transcript: [transcriptLang, sub, content, nav],
     };
@@ -1551,7 +1554,9 @@ async function getSummarizePrompt() {
         const url = `${location.origin}/watch?v=${currentVideoId}`;
         // Resolve the summary output language from the profile's summary_lang
         // setting (passing the transcript's own language as one of the sources).
-        const uiLang = resolveSummaryLang(lang).split('-')[0];
+        // Keep the full code (e.g. zh-TW, pt-PT) so DisplayNames preserves the
+        // regional/script variant ("Chinese (Taiwan)") instead of the generic one.
+        const uiLang = resolveSummaryLang(lang);
         let langName = 'English';
         try { langName = new Intl.DisplayNames(['en'], { type: 'language' }).of(uiLang) || 'English'; } catch (e) {}
         return `Summarize this video transcript in a single paragraph. Even for long videos, keep it to one paragraph. Respond entirely in ${langName}. At the end, list the key topics/sections in this exact format:\n- [MM:SS](${url}&t=SECONDS) Topic title\n\nExample:\n- [0:00](${url}&t=0) Introduction\n- [3:45](${url}&t=225) Main topic\n\nTranscript:\n` + text;

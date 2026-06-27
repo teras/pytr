@@ -225,7 +225,10 @@ const _SUMMARY_LANGS = [
     ..._LANGUAGES.slice(1),
 ];
 
-function _buildSearchableSelect(id, items, selected) {
+// `separatorAt` is the index of the first concrete entry, i.e. how many special
+// "match a source" modes precede the real list (1 for the single 'auto' entry,
+// 4 for the summary-language select). The divider renders just before it.
+function _buildSearchableSelect(id, items, selected, separatorAt = 1) {
     const current = items.find(i => i.code === selected) || items[0];
     return `
         <div class="searchable-select" data-id="${id}">
@@ -233,7 +236,7 @@ function _buildSearchableSelect(id, items, selected) {
             <div class="ss-dropdown hidden">
                 <input type="text" class="ss-search" placeholder="Search..." autocomplete="off">
                 <div class="ss-list">${items.map((i, idx) =>
-                    `${idx === 1 ? '<div class="ss-separator"></div>' : ''}<div class="ss-item${i.code === selected ? ' active' : ''}" data-code="${escapeAttr(i.code)}">${escapeHtml(i.label)}</div>`
+                    `${idx === separatorAt ? '<div class="ss-separator"></div>' : ''}<div class="ss-item${i.code === selected ? ' active' : ''}" data-code="${escapeAttr(i.code)}">${escapeHtml(i.label)}</div>`
                 ).join('')}</div>
             </div>
             <input type="hidden" name="${id}" value="${escapeAttr(selected)}">
@@ -737,7 +740,7 @@ function showEditProfileForm() {
                     </div>
                     <div class="edit-pin-section">
                         <label class="pref-label">Summary language (TL;DW)</label>
-                        ${_buildSearchableSelect('edit-summary-lang', _SUMMARY_LANGS, currentProfile.summary_lang || 'auto')}
+                        ${_buildSearchableSelect('edit-summary-lang', _SUMMARY_LANGS, currentProfile.summary_lang || 'auto', 4)}
                     </div>
                     <div class="edit-pin-section">
                         <label class="edit-pin-label">

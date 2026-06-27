@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from pathlib import Path
 
 from helpers import _format_duration, http_client
@@ -60,18 +61,31 @@ async def _fetch_client_version() -> str:
 _detected_region: str | None = None
 _detected_lang: str | None = None
 _region_lock = asyncio.Lock()
+# After a total detection failure, back off until this epoch before retrying, so
+# a transient 429 at boot doesn't disable `gl` for the whole process lifetime
+# (the network is hit again once the rate-limit window has passed).
+_region_retry_after: float = 0.0
+_REGION_FAIL_COOLDOWN = 600        # seconds to wait before retrying after a failure
+_REGION_TTL = 7 * 24 * 3600        # re-verify a persisted region after a week
 # Persist a successful detection across restarts so we don't re-hit the rate-
 # limited geo-IP services (ipapi.co free tier returns 429 quickly) on every boot.
 _REGION_CACHE_FILE = Path(__file__).parent / "data" / "region.json"
 
 
 def _load_region_cache() -> tuple[str, str] | None:
-    """Read a previously persisted (region, lang). Returns None if absent/invalid."""
+    """Read a previously persisted (region, lang). Returns None if absent, invalid,
+    or older than _REGION_TTL — a stale or mis-detected region then self-corrects
+    on the next call instead of sticking forever."""
     try:
         data = json.loads(_REGION_CACHE_FILE.read_text())
+        ts = data.get("ts")
+        if not isinstance(ts, (int, float)) or (time.time() - ts) > _REGION_TTL:
+            return None  # undated legacy entry or expired → re-detect
         code = data.get("region", "")
         lang = data.get("lang", "en")
-        if re.fullmatch(r'[A-Z]{2}', code):
+        if not isinstance(lang, str):
+            lang = "en"
+        if isinstance(code, str) and re.fullmatch(r'[A-Z]{2}', code):
             return (code, lang if re.fullmatch(r'[a-z]{2}', lang) else "en")
     except Exception:
         pass
@@ -81,7 +95,8 @@ def _load_region_cache() -> tuple[str, str] | None:
 def _save_region_cache(code: str, lang: str) -> None:
     try:
         _REGION_CACHE_FILE.parent.mkdir(exist_ok=True)
-        _REGION_CACHE_FILE.write_text(json.dumps({"region": code, "lang": lang}))
+        _REGION_CACHE_FILE.write_text(
+            json.dumps({"region": code, "lang": lang, "ts": time.time()}))
     except Exception as e:
         log.warning(f"Could not persist region cache: {e}")
 
@@ -94,7 +109,7 @@ async def _detect_region() -> tuple[str | None, str]:
     the first concurrent callers so boot fires a single request, not N, and a
     successful result is persisted to disk to survive restarts.
     """
-    global _detected_region, _detected_lang
+    global _detected_region, _detected_lang, _region_retry_after
     if _detected_region is not None:
         return (_detected_region or None, _detected_lang or "en")
 
@@ -102,6 +117,10 @@ async def _detect_region() -> tuple[str | None, str]:
         # Another coroutine may have filled the cache while we waited for the lock.
         if _detected_region is not None:
             return (_detected_region or None, _detected_lang or "en")
+
+        # A recent failure is still in its cooldown — skip the network this time.
+        if time.time() < _region_retry_after:
+            return (None, "en")
 
         # Reuse a persisted result from a previous run before touching the network.
         cached = _load_region_cache()
@@ -143,10 +162,13 @@ async def _detect_region() -> tuple[str | None, str]:
         except Exception as e:
             log.warning(f"Region detection failed (ip-api.com): {e}")
 
-        # Don't persist failure: leave the door open to retry on next boot.
-        _detected_region = ""
-        _detected_lang = "en"
-        log.warning("Could not detect region, omitting gl parameter")
+        # Don't persist failure and don't latch it for the whole run: leave
+        # _detected_region as None and just back off, so we retry after the
+        # cooldown (and on next boot) instead of omitting gl forever.
+        _region_retry_after = time.time() + _REGION_FAIL_COOLDOWN
+        log.warning(
+            f"Could not detect region, omitting gl parameter "
+            f"(retrying in {_REGION_FAIL_COOLDOWN}s)")
         return (None, "en")
 
 
