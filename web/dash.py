@@ -374,8 +374,17 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
     video_container = 'webm' if 'webm' in video_by_container else 'mp4'
     video_fmts = _dedup_by_height(video_by_container[video_container])
 
-    # Pick best audio: prefer mp4/m4a (widest browser support), fall back to webm
-    audio_container = 'mp4' if 'mp4' in audio_by_container else 'webm'
+    # Match audio container to the video container. Mixing webm video with mp4
+    # audio led to YouTube invalidating the mp4 audio URL mid-playback (403)
+    # while the webm video URL from the same extraction kept working, causing a
+    # restart loop. Same-container audio comes from the same extraction and is
+    # safe for browser support: if the browser plays the webm/VP9 video we
+    # serve, it plays webm/opus audio too. Fall back to the other container if
+    # the matching one has no audio-only formats.
+    if video_container in audio_by_container:
+        audio_container = video_container
+    else:
+        audio_container = 'mp4' if 'mp4' in audio_by_container else 'webm'
     audio_fmts_raw = audio_by_container.get(audio_container, [])
     # Keep single best audio. Prefer the original track over alternates like
     # descriptive audio (yt-dlp marks descriptive tracks with negative
