@@ -68,18 +68,63 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg
 
-      - name: Smoke test — play video for 5 seconds
+      - name: Smoke test — verify extraction and play production path
         if: steps.check.outputs.update == 'true'
         run: |
+          set -uo pipefail
           VIDEO_ID="dQw4w9WgXcQ"
-          echo ":: Fetching video info..."
-          TITLE=$(curl -sf "http://localhost:8000/api/info/$VIDEO_ID" | jq -r '.title')
-          echo "   Title: $TITLE"
-          [ -n "$TITLE" ] && [ "$TITLE" != "null" ]
+          BASE="http://localhost:8000"
 
-          echo ":: Playing 5 seconds via stream proxy..."
-          timeout 30 ffmpeg -loglevel warning -i "http://localhost:8000/api/stream-live/$VIDEO_ID" -t 5 -f null - 2>&1
+          # A genuine yt-dlp regression fails on every attempt (extraction
+          # yields no formats), so retries only absorb transient datacenter
+          # 403s on googlevideo — they can never mask a real break.
+          retry() {
+            local n=1 max=3
+            while ! "$@"; do
+              [ "$n" -ge "$max" ] && return 1
+              echo "   attempt $n failed, retrying in 5s..."
+              n=$((n+1)); sleep 5
+            done
+          }
+
+          # 1. Extraction (metadata) — pure yt-dlp, fetches no googlevideo
+          #    bytes, so it is IP-independent and the real regression detector.
+          check_info() {
+            local title
+            title=$(curl -sf "$BASE/api/info/$VIDEO_ID" | jq -r '.title') || return 1
+            [ -n "$title" ] && [ "$title" != "null" ] && echo "   Title: $title"
+          }
+          echo ":: [1/2] Extraction — /api/info"
+          retry check_info || { echo "::error::extraction failed — yt-dlp regression"; exit 1; }
+
+          # 2. DASH — the primary production path. Builds the MPD (adaptive
+          #    format extraction + range-probe) and plays 5s through the
+          #    chunked /api/videoplayback proxy that bypasses YouTube's
+          #    per-connection throttle. This is exactly what users play.
+          check_dash() {
+            local mpd
+            mpd=$(curl -sf "$BASE/api/dash/$VIDEO_ID") || return 1
+            grep -q "<MPD" <<<"$mpd" || return 1
+            grep -q "<Representation" <<<"$mpd" || return 1
+            grep -q "/api/videoplayback" <<<"$mpd" || return 1
+            timeout 60 ffmpeg -loglevel error -i "$BASE/api/dash/$VIDEO_ID" -t 5 -f null -
+          }
+          echo ":: [2/2] DASH playback — /api/dash (production path)"
+          retry check_dash || { echo "::error::DASH production path failed"; exit 1; }
+
           echo "Smoke test passed!"
+
+          # Progressive (22/18) is the last-resort proxy, NOT a gate: YouTube
+          # intermittently 403s progressive formats from datacenter IPs, which
+          # is environmental, not a yt-dlp regression. HLS is skipped too — a
+          # single-audio VOD exposes no HLS manifest via the default client
+          # (HLS is only used for multi-audio / live). Both are reported only.
+          echo ":: (info) progressive /api/stream-live — non-fatal"
+          if timeout 30 ffmpeg -loglevel error -i "$BASE/api/stream-live/$VIDEO_ID" -t 5 -f null -; then
+            echo "   progressive OK"
+          else
+            echo "::warning::progressive stream-live failed (expected on datacenter IPs; not a regression)"
+          fi
 
       - name: Cleanup test container
         if: always() && steps.check.outputs.update == 'true'
