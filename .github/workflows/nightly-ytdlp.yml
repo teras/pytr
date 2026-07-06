@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   check-and-update:
@@ -130,25 +130,9 @@ jobs:
         if: always() && steps.check.outputs.update == 'true'
         run: docker rm -f pytr-test 2>/dev/null || true
 
-      # Push image and commit only if tests passed
-      - uses: docker/login-action@v4
+      # Canary only: a passing run means the new version is safe to ship.
+      # Releasing is manual — bump web/requirements.txt on main, which triggers
+      # the :latest image build (docker.yml). No auto-commit, no staging branch.
+      - name: Report
         if: steps.check.outputs.update == 'true'
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Push Docker image as nightly
-        if: steps.check.outputs.update == 'true'
-        run: |
-          docker tag pytr:nightly-test teras/pytr:nightly
-          docker push teras/pytr:nightly
-
-      - name: Commit to nightly branch
-        if: steps.check.outputs.update == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -B nightly
-          git add web/requirements.txt
-          git commit -m "update yt-dlp to ${{ steps.check.outputs.latest }}"
-          git push -f origin nightly
+        run: echo "::notice::yt-dlp ${{ steps.check.outputs.latest }} passed the smoke test — bump web/requirements.txt on main to release."
