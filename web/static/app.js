@@ -4,11 +4,13 @@
 
 // ── Utilities ───────────────────────────────────────────────────────────────
 
-/** Append ?cookies=<mode> (or &cookies=<mode>) to a URL based on localStorage */
+/** Append ?cookies=<mode>&uid=<viewer> to a URL. cookies = cookie mode; uid =
+ *  per-viewer guest identity so anonymous extractions use the viewer's own jar. */
 function appendCookieParam(url) {
     const mode = (typeof getCookieMode === 'function') ? getCookieMode() : (localStorage.getItem('cookieMode') || 'auto');
+    const uid = (typeof getAnonUid === 'function') ? getAnonUid() : '';
     const sep = url.includes('?') ? '&' : '?';
-    return `${url}${sep}cookies=${mode}`;
+    return `${url}${sep}cookies=${mode}&uid=${encodeURIComponent(uid)}`;
 }
 
 // ── DOM Elements ────────────────────────────────────────────────────────────

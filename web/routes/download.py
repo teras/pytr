@@ -163,7 +163,7 @@ async def _merge_to_mkv(video_path: Path, audio_path: Path, out_path: Path, vide
 
 @router.get("/api/download/{video_id}")
 async def download(video_id: str, request: Request, kind: str = "video",
-                   cookies: str = "auto", auth: bool = Depends(require_auth)):
+                   cookies: str = "auto", uid: str = "", auth: bool = Depends(require_auth)):
     """Download a video as MKV (max quality, merged) or audio-only (original track)."""
     if not VIDEO_ID_RE.match(video_id):
         raise HTTPException(status_code=400, detail="Invalid video ID")
@@ -171,7 +171,7 @@ async def download(video_id: str, request: Request, kind: str = "video",
         raise HTTPException(status_code=400, detail="Invalid kind")
 
     try:
-        info = await asyncio.to_thread(get_video_info, video_id, cookies)
+        info = await asyncio.to_thread(get_video_info, video_id, cookies, uid)
     except Exception as e:
         clean = re.sub(r'^(?:ERROR:\s*)?\[youtube\]\s*[\w-]+:\s*', '', str(e))
         if 'Sign in' in str(e) or 'bot' in str(e):

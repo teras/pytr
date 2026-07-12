@@ -48,11 +48,11 @@ register_cleanup(make_cache_cleanup(_subtitle_cache, _SUBTITLE_CACHE_TTL, "subti
 
 
 @router.get("/info/{video_id}")
-async def get_video_info(video_id: str, cookies: str = "auto", auth: bool = Depends(require_auth_or_embed)):
+async def get_video_info(video_id: str, cookies: str = "auto", uid: str = "", auth: bool = Depends(require_auth_or_embed)):
     """Get video info (views, likes, etc.)"""
     _check_video_id(video_id)
     try:
-        info = await asyncio.to_thread(_cached_info, video_id, cookies)
+        info = await asyncio.to_thread(_cached_info, video_id, cookies, uid)
 
         upload_date = info.get('upload_date', '')
         if upload_date and len(upload_date) == 8:

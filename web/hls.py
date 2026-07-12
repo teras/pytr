@@ -154,6 +154,7 @@ async def get_hls_master(
     audio: str | None = None,
     live: bool = False,
     cookies: str = "auto",
+    uid: str = "",
     auth: bool = Depends(require_auth_or_embed),
 ):
     """Fetch YouTube's HLS master manifest, filter by audio language, rewrite URIs.
@@ -169,7 +170,7 @@ async def get_hls_master(
     cached = _hls_cache.get(video_id) if not live else None
     if not cached or time.time() - cached['created'] >= _HLS_CACHE_TTL:
         try:
-            info = await asyncio.to_thread(get_video_info, video_id, cookies)
+            info = await asyncio.to_thread(get_video_info, video_id, cookies, uid)
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 

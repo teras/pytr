@@ -1138,6 +1138,7 @@ if (profileSwitcherBtn) {
                     <button class="cookie-btn${getCookieMode() === 'on' ? ' active' : ''}" data-mode="on">On</button>
                 </div>
             </div>` : ''}
+            ${!isTv ? '<div class="profile-menu-item" data-action="reset-guest">Reset guest identity</div>' : ''}
             ${!isTv || localStorage.getItem('tv-mode') === 'desktop' || !otherProfiles.length ? '<div class="profile-menu-divider"></div>' : ''}
             <div class="profile-menu-item profile-menu-logout" data-action="logout">Logout ${escapeHtml(currentProfile.name)}</div>
             ${window._pytrVersion ? `<div class="profile-menu-version">${escapeHtml(window._pytrVersion)}</div>` : ''}
@@ -1188,6 +1189,8 @@ if (profileSwitcherBtn) {
                     if (window.loungeTarget) window.loungeTarget.unpair();
                 } else if (action === 'tv-mode') {
                     if (typeof window.toggleTvMode === 'function') window.toggleTvMode();
+                } else if (action === 'reset-guest') {
+                    resetGuestIdentity().then(ok => showTinyToast(ok ? 'Guest identity reset' : 'Reset failed'));
                 } else if (action === 'logout') {
                     const tvMode = localStorage.getItem('tv-mode');
                     if (window._pytrIsIframe) {
@@ -1518,6 +1521,42 @@ async function showSettingsModal() {
 
 function getCookieMode() {
     return localStorage.getItem('cookieMode') || 'auto';
+}
+
+// Per-viewer guest identity: each profile extracts under its own anonymous
+// cookie jar (privacy — no shared hyper-active guest). Prefer the active
+// profile; fall back to a stable per-browser id (embed / pre-login).
+function getAnonUid() {
+    if (currentProfile && currentProfile.id != null) return 'p' + currentProfile.id;
+    let id = localStorage.getItem('anonUid');
+    if (!id) {
+        id = 'b' + Math.random().toString(36).slice(2, 12);
+        localStorage.setItem('anonUid', id);
+    }
+    return id;
+}
+
+// Brief transient confirmation (no global toast system exists).
+function showTinyToast(msg) {
+    const t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);' +
+        'background:#222;color:#fff;padding:10px 18px;border-radius:8px;font-size:14px;' +
+        'z-index:10000;opacity:0;transition:opacity .2s;box-shadow:0 2px 12px rgba(0,0,0,.4)';
+    document.body.appendChild(t);
+    requestAnimationFrame(() => { t.style.opacity = '1'; });
+    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 2000);
+}
+
+// Reset the active viewer's guest identity (menu action). Server deletes only
+// this viewer's jar; the next extraction starts a fresh identity.
+async function resetGuestIdentity() {
+    try {
+        await fetch('/api/reset-guest?uid=' + encodeURIComponent(getAnonUid()), { method: 'POST' });
+        return true;
+    } catch (e) {
+        return false;
+    }
 }
 
 function setCookieMode(mode) {

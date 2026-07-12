@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from auth import require_auth, require_auth_or_embed
 from container import probe_ranges
-from helpers import register_cleanup, make_cache_cleanup, get_video_info, invalidate_video_cache, init_ydl, http_client, is_youtube_url, VIDEO_ID_RE
+from helpers import register_cleanup, make_cache_cleanup, get_video_info, invalidate_video_cache, init_ydl, http_client, is_youtube_url, VIDEO_ID_RE, reset_anon_jar
 
 log = logging.getLogger(__name__)
 
@@ -324,7 +324,7 @@ def dash_video_qualities(info: dict) -> list[dict]:
 # ── DASH manifest endpoint ───────────────────────────────────────────────────
 
 @router.get("/api/dash/{video_id}")
-async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = Depends(require_auth_or_embed)):
+async def get_dash_manifest(video_id: str, cookies: str = "auto", uid: str = "", auth: bool = Depends(require_auth_or_embed)):
     """Generate DASH MPD manifest with proxied URLs.
 
     Uses a single container type for video to avoid track-switching issues.
@@ -341,7 +341,7 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
                         headers={'Cache-Control': 'no-cache'})
 
     try:
-        info = await asyncio.to_thread(get_video_info, video_id, cookies)
+        info = await asyncio.to_thread(get_video_info, video_id, cookies, uid)
     except Exception as e:
         err_msg = str(e)
         clean_msg = re.sub(r'^(?:ERROR:\s*)?\[youtube\]\s*[\w-]+:\s*', '', err_msg)
@@ -363,7 +363,7 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
         invalidate_video_cache(video_id)
         await asyncio.to_thread(init_ydl)
         try:
-            info = await asyncio.to_thread(get_video_info, video_id, cookies)
+            info = await asyncio.to_thread(get_video_info, video_id, cookies, uid)
         except Exception:
             raise HTTPException(status_code=404, detail="No DASH video formats available")
         duration = info.get('duration') or 0
@@ -479,7 +479,7 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
     )
     for i, fmt in enumerate(valid_video):
         probe = valid_video_probes[i]
-        proxy_url = f'/api/videoplayback?v={video_id}&cm={cookies}&url={quote(fmt["url"], safe="")}'
+        proxy_url = f'/api/videoplayback?v={video_id}&cm={cookies}&uid={quote(uid, safe="")}&url={quote(fmt["url"], safe="")}'
         height = fmt.get('height', 0)
         width = fmt.get('width', 0)
         fps = fmt.get('fps', 30)
@@ -574,7 +574,7 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
 
     # Audio AdaptationSet
     afmt = audio_fmts[0]
-    proxy_url = f'/api/videoplayback?v={video_id}&cm={cookies}&url={quote(afmt["url"], safe="")}'
+    proxy_url = f'/api/videoplayback?v={video_id}&cm={cookies}&uid={quote(uid, safe="")}&url={quote(afmt["url"], safe="")}'
     codecs = afmt.get('acodec', 'mp4a.40.2')
     bandwidth = int((afmt.get('tbr') or afmt.get('abr') or 0) * 1000) or 128000
 
@@ -632,7 +632,7 @@ register_cleanup(make_cache_cleanup(_healed_urls, _DASH_CACHE_TTL, "healed-URL")
 _ITAG_RE = re.compile(r'[?&]itag=(\d+)')
 
 
-async def _self_heal_url(video_id: str, itag: str, dead_url: str, cookie_mode: str):
+async def _self_heal_url(video_id: str, itag: str, dead_url: str, cookie_mode: str, anon_uid: str = ""):
     """Re-extract fresh info once after an upstream 403/410 and return a fresh
     URL for the same itag, or None if healing is not possible.
 
@@ -651,7 +651,7 @@ async def _self_heal_url(video_id: str, itag: str, dead_url: str, cookie_mode: s
         invalidate_video_cache(video_id)
         _dash_cache.pop(video_id, None)
         try:
-            info = await asyncio.to_thread(get_video_info, video_id, cookie_mode)
+            info = await asyncio.to_thread(get_video_info, video_id, cookie_mode, anon_uid)
         except Exception as e:
             log.warning(f"Self-heal re-extraction failed for {video_id}: {e}")
             return None
@@ -683,7 +683,7 @@ async def videoplayback_options():
 
 
 @router.get("/api/videoplayback")
-async def videoplayback_proxy(url: str, request: Request, v: str = "", cm: str = "auto", auth: bool = Depends(require_auth_or_embed)):
+async def videoplayback_proxy(url: str, request: Request, v: str = "", cm: str = "auto", uid: str = "", auth: bool = Depends(require_auth_or_embed)):
     """Proxy range requests to YouTube CDN for DASH playback."""
     if not is_youtube_url(url):
         raise HTTPException(status_code=403, detail="URL not allowed")
@@ -703,7 +703,7 @@ async def videoplayback_proxy(url: str, request: Request, v: str = "", cm: str =
             # possible (circuit breaker, extraction failure), fall through to
             # cache invalidation so the frontend fallback re-extracts; min_age
             # guards against re-extraction storms when even fresh URLs fail.
-            fresh = await _self_heal_url(video_id, itag, url, cm)
+            fresh = await _self_heal_url(video_id, itag, url, cm, uid)
             if fresh:
                 log.info(f"Self-healed {video_id} itag {itag} after upstream {e.status_code}")
                 return await proxy_range_request(request, fresh)
@@ -711,3 +711,11 @@ async def videoplayback_proxy(url: str, request: Request, v: str = "", cm: str =
                 _dash_cache.pop(video_id, None)
                 log.warning(f"Upstream {e.status_code} for {video_id}: invalidated info+DASH caches")
         raise
+
+
+@router.post("/api/reset-guest")
+async def reset_guest(uid: str = "", auth: bool = Depends(require_auth)):
+    """Force-rotate this viewer's anonymous guest identity. The next extraction
+    starts a fresh guest jar. Only the caller's own identity is affected."""
+    rotated = await asyncio.to_thread(reset_anon_jar, uid)
+    return {"ok": True, "rotated": rotated}

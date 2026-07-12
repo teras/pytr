@@ -1,6 +1,7 @@
 # Copyright (c) 2026 Panayotis Katsaloulis
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Shared configuration, yt-dlp instances, helper functions, and cleanup registry."""
+import hashlib
 import logging
 import re
 import threading
@@ -38,7 +39,16 @@ COOKIES_FILE = Path("data/cookies.txt")
 # YouTube than a brand-new visitor per extraction — fewer transient 403s on
 # IPs YouTube distrusts (non-residential ASNs) — without tying playback to any
 # Google account. Deleting the file rotates the identity.
+#
+# The jar is PER-USER: each viewer (profile, or a per-browser id) extracts under
+# their own guest identity, so YouTube never sees one hyper-active guest that
+# blends the whole household's activity — better privacy and each looks like a
+# normal single viewer. Only the guest COOKIE is per-user; the resulting (signed,
+# server-portable) videoplayback URLs stay in a shared cache, so a given video is
+# still extracted only once for everyone. COOKIES_ANON_FILE is the shared default
+# jar for profile-less paths (embed, pre-login); per-user jars live in the dir.
 COOKIES_ANON_FILE = Path("data/cookies-anon.txt")
+COOKIES_ANON_DIR = Path("data/anon")
 
 # Privacy: the guest jar would otherwise accumulate watch activity into one
 # pseudonymous profile forever. After this much idle time the identity is
@@ -116,28 +126,81 @@ def _maybe_reload_cookies():
         init_ydl()
 
 
-def _maybe_rotate_anon_session():
-    """Rotate the anonymous guest identity if it has been idle too long.
+def _anon_jar_path(anon_uid: str) -> Path:
+    """Filesystem path for a viewer's guest cookie jar.
 
-    The jar's mtime is its last use (saved after every anonymous extraction),
-    so idle time survives restarts."""
-    try:
-        if (COOKIES_ANON_FILE.is_file()
-                and time.time() - COOKIES_ANON_FILE.stat().st_mtime > _ANON_SESSION_IDLE_MAX):
-            COOKIES_ANON_FILE.unlink()
-            log.info("Anonymous guest session idle >%dh — rotating identity",
-                     _ANON_SESSION_IDLE_MAX // 3600)
-            init_ydl()
-    except OSError as e:
-        log.warning("Could not rotate anonymous session: %s", e)
+    The uid comes from the client (profile id, or a per-browser id); it is hashed
+    so it can never be used for path traversal and filenames stay uniform. An
+    empty uid maps to the shared default jar (embed / pre-login paths)."""
+    if not anon_uid:
+        return COOKIES_ANON_FILE
+    token = hashlib.sha1(anon_uid.encode('utf-8', 'replace')).hexdigest()[:16]
+    return COOKIES_ANON_DIR / f"{token}.txt"
 
 
-def _save_anon_cookies():
+def _load_anon_jar(anon_uid: str):
+    """Point the shared anon yt-dlp instance at this viewer's guest jar.
+
+    Called under _info_lock (extraction is serialized), so swapping the jar on
+    the single anon instance is safe. Rotates the identity if it has been idle
+    past the window — each viewer's jar carries its own inactivity clock, and the
+    clock resets on every extraction so it stays stable during a viewing session."""
+    path = _anon_jar_path(anon_uid)
+    jar = ydl_info.cookiejar
+    jar.clear()
+    jar.filename = str(path)
+    if path.is_file():
+        if time.time() - path.stat().st_mtime > _ANON_SESSION_IDLE_MAX:
+            try:
+                path.unlink()
+                log.info("Guest identity idle >%dh — rotating", _ANON_SESSION_IDLE_MAX // 3600)
+            except OSError:
+                pass
+        else:
+            try:
+                jar.load(ignore_discard=True, ignore_expires=True)
+            except Exception:
+                pass
+
+
+def _save_anon_jar(anon_uid: str):
     """Persist the guest session so the visitor identity survives restarts."""
     try:
-        ydl_info.cookiejar.save()
+        if anon_uid:
+            COOKIES_ANON_DIR.mkdir(parents=True, exist_ok=True)
+        ydl_info.cookiejar.save(ignore_discard=True, ignore_expires=True)
     except Exception as e:
-        log.warning("Could not save anonymous cookies: %s", e)
+        log.warning("Could not save guest cookies: %s", e)
+
+
+def reset_anon_jar(anon_uid: str) -> bool:
+    """Force-rotate a viewer's guest identity (menu action). Returns True if a
+    jar existed and was removed; the next extraction starts a fresh identity."""
+    try:
+        path = _anon_jar_path(anon_uid)
+        if path.is_file():
+            path.unlink()
+            return True
+    except OSError as e:
+        log.warning("Could not reset guest jar: %s", e)
+    return False
+
+
+def _sweep_anon_jars():
+    """GC per-user guest jars whose owners haven't returned within the idle
+    window, so abandoned identities don't linger on disk."""
+    try:
+        if not COOKIES_ANON_DIR.is_dir():
+            return
+        now = time.time()
+        for f in COOKIES_ANON_DIR.glob("*.txt"):
+            try:
+                if now - f.stat().st_mtime > _ANON_SESSION_IDLE_MAX:
+                    f.unlink()
+            except OSError:
+                pass
+    except Exception as e:
+        log.warning("Could not sweep guest jars: %s", e)
 
 
 # Initialize on import
@@ -242,6 +305,7 @@ _NEGATIVE_CACHE_TTL = 300  # 5 minutes — cache failures to avoid hammering You
 
 
 register_cleanup(make_cache_cleanup(_info_cache, _INFO_CACHE_TTL, "info"))
+register_long_cleanup(_sweep_anon_jars)
 
 
 _info_lock = threading.Lock()
@@ -260,7 +324,7 @@ def invalidate_video_cache(video_id: str, min_age: float = 0) -> bool:
     return True
 
 
-def get_video_info(video_id: str, cookie_mode: str = "auto") -> dict:
+def get_video_info(video_id: str, cookie_mode: str = "auto", anon_uid: str = "") -> dict:
     """Get yt-dlp info dict for a video, with caching (5h TTL).
 
     cookie_mode:
@@ -268,6 +332,11 @@ def get_video_info(video_id: str, cookie_mode: str = "auto") -> dict:
       "auto" — anonymous first; auto-fallback to cookies on age-restriction
                (cached per-video) or throttle (global 10min cooldown)
       "on"   — always use cookies (if available)
+
+    anon_uid: identifies the viewer for the anonymous path — an anonymous
+    extraction runs under this viewer's own guest cookie jar (privacy: no shared
+    hyper-active guest). The result is cached per-video (shared), so a video is
+    still extracted only once regardless of how many viewers watch it.
 
     Thread-safe: ydl_info.extract_info() is not safe to call concurrently,
     so we serialize with a global lock (double-checked pattern).
@@ -289,7 +358,6 @@ def get_video_info(video_id: str, cookie_mode: str = "auto") -> dict:
 
     with _info_lock:
         _maybe_reload_cookies()
-        _maybe_rotate_anon_session()
         # Re-check after acquiring lock (another thread may have populated cache)
         cached = _info_cache.get(video_id)
         if cached:
@@ -319,8 +387,9 @@ def get_video_info(video_id: str, cookie_mode: str = "auto") -> dict:
             if use_auth_first:
                 info = ydl_info_auth.extract_info(url, download=False)
             else:
+                _load_anon_jar(anon_uid)
                 info = ydl_info.extract_info(url, download=False)
-                _save_anon_cookies()
+                _save_anon_jar(anon_uid)
             cache_entry = {'info': info, 'created': now}
             if cached and cached.get('age_restricted'):
                 cache_entry['age_restricted'] = True  # preserve flag
