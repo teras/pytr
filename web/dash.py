@@ -333,6 +333,8 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
 
     if not VIDEO_ID_RE.match(video_id):
         raise HTTPException(status_code=400, detail="Invalid video ID")
+    if cookies not in ("off", "auto", "on"):
+        cookies = "auto"
     cached = _dash_cache.get(video_id)
     if cached and time.time() - cached['created'] < _DASH_CACHE_TTL:
         return Response(cached['mpd'], media_type='application/dash+xml',
@@ -477,7 +479,7 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
     )
     for i, fmt in enumerate(valid_video):
         probe = valid_video_probes[i]
-        proxy_url = f'/api/videoplayback?v={video_id}&url={quote(fmt["url"], safe="")}'
+        proxy_url = f'/api/videoplayback?v={video_id}&cm={cookies}&url={quote(fmt["url"], safe="")}'
         height = fmt.get('height', 0)
         width = fmt.get('width', 0)
         fps = fmt.get('fps', 30)
@@ -572,7 +574,7 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
 
     # Audio AdaptationSet
     afmt = audio_fmts[0]
-    proxy_url = f'/api/videoplayback?v={video_id}&url={quote(afmt["url"], safe="")}'
+    proxy_url = f'/api/videoplayback?v={video_id}&cm={cookies}&url={quote(afmt["url"], safe="")}'
     codecs = afmt.get('acodec', 'mp4a.40.2')
     bandwidth = int((afmt.get('tbr') or afmt.get('abr') or 0) * 1000) or 128000
 
@@ -613,6 +615,57 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", auth: bool = D
                     headers={'Cache-Control': 'no-cache'})
 
 
+# ── Self-heal for dead videoplayback URLs ────────────────────────────────────
+
+# YouTube sometimes invalidates videoplayback URLs long before their `expire`
+# timestamp (transient 403, aggressive on IPs it distrusts). dash.js keeps
+# requesting through the old manifest's URLs for hours, so after a heal we keep
+# a remap (video_id, itag) -> fresh URL and rewrite every subsequent request,
+# avoiding a 403 round-trip per segment.
+_healed_urls: dict = {}  # (video_id, itag) -> {"url": str, "created": float}
+_HEAL_WINDOW = 60        # s — max one re-extraction per video per window (circuit breaker)
+_last_heal: dict = {}    # video_id -> time of last re-extraction
+_heal_locks: dict = {}   # video_id -> asyncio.Lock
+
+register_cleanup(make_cache_cleanup(_healed_urls, _DASH_CACHE_TTL, "healed-URL"))
+
+_ITAG_RE = re.compile(r'[?&]itag=(\d+)')
+
+
+async def _self_heal_url(video_id: str, itag: str, dead_url: str, cookie_mode: str):
+    """Re-extract fresh info once after an upstream 403/410 and return a fresh
+    URL for the same itag, or None if healing is not possible.
+
+    Concurrent failures for the same video (audio + video 403 together) share a
+    single re-extraction via the per-video lock; a repeat failure within
+    _HEAL_WINDOW of the last heal trips the circuit breaker so a genuinely
+    blocked video never triggers an extraction storm."""
+    lock = _heal_locks.setdefault(video_id, asyncio.Lock())
+    async with lock:
+        healed = _healed_urls.get((video_id, itag))
+        if healed and healed['url'] != dead_url:
+            return healed['url']  # another request already healed this video
+        if time.time() - _last_heal.get(video_id, 0) < _HEAL_WINDOW:
+            return None  # freshly healed URL is failing too — give up
+        _last_heal[video_id] = time.time()
+        invalidate_video_cache(video_id)
+        _dash_cache.pop(video_id, None)
+        try:
+            info = await asyncio.to_thread(get_video_info, video_id, cookie_mode)
+        except Exception as e:
+            log.warning(f"Self-heal re-extraction failed for {video_id}: {e}")
+            return None
+        now = time.time()
+        fresh = None
+        for f in info.get('formats', []):
+            fid, furl = f.get('format_id'), f.get('url')
+            if fid and furl:
+                _healed_urls[(video_id, fid)] = {'url': furl, 'created': now}
+                if fid == itag:
+                    fresh = furl
+        return fresh
+
+
 # ── Videoplayback proxy endpoint ─────────────────────────────────────────────
 
 @router.options("/api/videoplayback")
@@ -630,20 +683,31 @@ async def videoplayback_options():
 
 
 @router.get("/api/videoplayback")
-async def videoplayback_proxy(url: str, request: Request, v: str = "", auth: bool = Depends(require_auth_or_embed)):
+async def videoplayback_proxy(url: str, request: Request, v: str = "", cm: str = "auto", auth: bool = Depends(require_auth_or_embed)):
     """Proxy range requests to YouTube CDN for DASH playback."""
     if not is_youtube_url(url):
         raise HTTPException(status_code=403, detail="URL not allowed")
+    video_id = v if VIDEO_ID_RE.match(v) else ""
+    m = _ITAG_RE.search(url)
+    itag = m.group(1) if m else ""
+    if video_id and itag:
+        healed = _healed_urls.get((video_id, itag))
+        if healed:
+            url = healed['url']  # manifest may still carry a dead URL for hours
     try:
         return await proxy_range_request(request, url)
     except HTTPException as e:
-        # YouTube sometimes invalidates videoplayback URLs long before their
-        # `expire` timestamp (403). The info/manifest caches would keep serving
-        # the same dead URLs for hours, so drop them — the player's next
-        # manifest request re-extracts fresh URLs. min_age guards against
-        # re-extraction storms when even fresh URLs fail.
-        if e.status_code in (403, 410) and v and VIDEO_ID_RE.match(v):
-            if invalidate_video_cache(v, min_age=30):
-                _dash_cache.pop(v, None)
-                log.warning(f"Upstream {e.status_code} for {v}: invalidated info+DASH caches")
+        if e.status_code in (403, 410) and video_id and itag:
+            # Self-heal: one re-extraction swaps in a fresh URL for the same
+            # itag and the request is retried transparently. If healing is not
+            # possible (circuit breaker, extraction failure), fall through to
+            # cache invalidation so the frontend fallback re-extracts; min_age
+            # guards against re-extraction storms when even fresh URLs fail.
+            fresh = await _self_heal_url(video_id, itag, url, cm)
+            if fresh:
+                log.info(f"Self-healed {video_id} itag {itag} after upstream {e.status_code}")
+                return await proxy_range_request(request, fresh)
+            if invalidate_video_cache(video_id, min_age=30):
+                _dash_cache.pop(video_id, None)
+                log.warning(f"Upstream {e.status_code} for {video_id}: invalidated info+DASH caches")
         raise

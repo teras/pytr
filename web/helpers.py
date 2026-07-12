@@ -33,6 +33,21 @@ ydl_info_auth: yt_dlp.YoutubeDL | None = None   # authenticated — with cookies
 
 COOKIES_FILE = Path("data/cookies.txt")
 
+# Anonymous guest session (no account). A stable visitor identity (persisted
+# guest cookies: VISITOR_INFO1_LIVE, YSC, ...) gets friendlier treatment from
+# YouTube than a brand-new visitor per extraction — fewer transient 403s on
+# IPs YouTube distrusts (non-residential ASNs) — without tying playback to any
+# Google account. Deleting the file rotates the identity.
+COOKIES_ANON_FILE = Path("data/cookies-anon.txt")
+
+# Privacy: the guest jar would otherwise accumulate watch activity into one
+# pseudonymous profile forever. After this much idle time the identity is
+# rotated, splitting activity into disconnected sessions that cookies can't
+# chain together. The idle clock resets on every extraction, so within a
+# continuous viewing session the identity stays stable (trusted); the window
+# only controls how long it lingers after watching stops.
+_ANON_SESSION_IDLE_MAX = 2 * 3600
+
 _AGE_RESTRICTED_PATTERNS = (
     'sign in to confirm your age',
     'age-restricted',
@@ -75,7 +90,9 @@ _cookies_mtime: float = 0
 def init_ydl():
     """(Re)create the global yt-dlp instances."""
     global ydl_info, ydl_info_auth, _cookies_mtime
-    ydl_info = yt_dlp.YoutubeDL(dict(_BASE_YDL_OPTS))
+    anon_opts = dict(_BASE_YDL_OPTS)
+    anon_opts['cookiefile'] = str(COOKIES_ANON_FILE)  # persistent guest session
+    ydl_info = yt_dlp.YoutubeDL(anon_opts)
     if COOKIES_FILE.is_file():
         _cookies_mtime = COOKIES_FILE.stat().st_mtime
         auth_opts = dict(_BASE_YDL_OPTS)
@@ -97,6 +114,30 @@ def _maybe_reload_cookies():
     if mtime != _cookies_mtime:
         log.info("cookies.txt changed, reloading yt-dlp instances")
         init_ydl()
+
+
+def _maybe_rotate_anon_session():
+    """Rotate the anonymous guest identity if it has been idle too long.
+
+    The jar's mtime is its last use (saved after every anonymous extraction),
+    so idle time survives restarts."""
+    try:
+        if (COOKIES_ANON_FILE.is_file()
+                and time.time() - COOKIES_ANON_FILE.stat().st_mtime > _ANON_SESSION_IDLE_MAX):
+            COOKIES_ANON_FILE.unlink()
+            log.info("Anonymous guest session idle >%dh — rotating identity",
+                     _ANON_SESSION_IDLE_MAX // 3600)
+            init_ydl()
+    except OSError as e:
+        log.warning("Could not rotate anonymous session: %s", e)
+
+
+def _save_anon_cookies():
+    """Persist the guest session so the visitor identity survives restarts."""
+    try:
+        ydl_info.cookiejar.save()
+    except Exception as e:
+        log.warning("Could not save anonymous cookies: %s", e)
 
 
 # Initialize on import
@@ -248,6 +289,7 @@ def get_video_info(video_id: str, cookie_mode: str = "auto") -> dict:
 
     with _info_lock:
         _maybe_reload_cookies()
+        _maybe_rotate_anon_session()
         # Re-check after acquiring lock (another thread may have populated cache)
         cached = _info_cache.get(video_id)
         if cached:
@@ -278,6 +320,7 @@ def get_video_info(video_id: str, cookie_mode: str = "auto") -> dict:
                 info = ydl_info_auth.extract_info(url, download=False)
             else:
                 info = ydl_info.extract_info(url, download=False)
+                _save_anon_cookies()
             cache_entry = {'info': info, 'created': now}
             if cached and cached.get('age_restricted'):
                 cache_entry['age_restricted'] = True  # preserve flag
