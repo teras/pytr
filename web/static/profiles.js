@@ -713,13 +713,23 @@ function showEditProfileForm() {
         <div class="pin-modal-content" style="max-width:380px">
             <div class="edit-profile-tabs">
                 <button type="button" class="edit-tab active" data-tab="profile">Profile</button>
+                <button type="button" class="edit-tab" data-tab="playback">Playback</button>
                 ${hasSB ? '<button type="button" class="edit-tab" data-tab="sponsorblock">SponsorBlock</button>' : ''}
             </div>
-            <div class="edit-tab-panel" data-panel="profile">
-                <form id="edit-profile-form" class="profile-form">
+            <form id="edit-profile-form" class="profile-form">
+                <div class="edit-tab-panel" data-panel="profile">
                     <input type="text" id="edit-profile-name" placeholder="Name" maxlength="30" value="${escapeAttr(currentProfile.name)}" required>
                     <p class="pin-error hidden" id="edit-profile-error"></p>
                     ${buildAvatarPickerHtml(currentProfile.avatar_color, currentProfile.avatar_emoji)}
+                    <div class="edit-pin-section">
+                        <label class="edit-pin-label">
+                            <input type="checkbox" id="edit-pin-toggle" ${hasPin ? 'checked' : ''}>
+                            PIN lock
+                        </label>
+                        <input type="password" id="edit-pin-input" class="${hasPin ? '' : 'hidden'}" placeholder="${hasPin ? 'New PIN (leave empty to keep)' : '4-digit PIN'}" maxlength="4" pattern="[0-9]*" inputmode="numeric">
+                    </div>
+                </div>
+                <div class="edit-tab-panel hidden" data-panel="playback">
                     <div class="edit-pin-section">
                         <label class="edit-pin-label">
                             <input type="checkbox" id="edit-exclusive-playback" ${currentProfile.exclusive_playback ? 'checked' : ''}>
@@ -742,19 +752,26 @@ function showEditProfileForm() {
                         <label class="pref-label">Summary language (TL;DW)</label>
                         ${_buildSearchableSelect('edit-summary-lang', _SUMMARY_LANGS, currentProfile.summary_lang || 'auto', 4)}
                     </div>
+                    ${window._cookiesAvailable ? `<div class="edit-pin-section">
+                        <div class="cookie-toggle-row">
+                            <span class="cookie-toggle-label">Cookies</span>
+                            <div class="cookie-toggle-btns" data-action="cookie-toggle">
+                                <button type="button" class="cookie-btn${getCookieMode() === 'off' ? ' active' : ''}" data-mode="off">Off</button>
+                                <button type="button" class="cookie-btn${getCookieMode() === 'auto' ? ' active' : ''}" data-mode="auto">Auto</button>
+                                <button type="button" class="cookie-btn${getCookieMode() === 'on' ? ' active' : ''}" data-mode="on">On</button>
+                            </div>
+                        </div>
+                    </div>` : ''}
                     <div class="edit-pin-section">
-                        <label class="edit-pin-label">
-                            <input type="checkbox" id="edit-pin-toggle" ${hasPin ? 'checked' : ''}>
-                            PIN lock
-                        </label>
-                        <input type="password" id="edit-pin-input" class="${hasPin ? '' : 'hidden'}" placeholder="${hasPin ? 'New PIN (leave empty to keep)' : '4-digit PIN'}" maxlength="4" pattern="[0-9]*" inputmode="numeric">
+                        <label class="pref-label">Guest identity (anonymous playback)</label>
+                        <button type="button" id="edit-reset-guest" style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:transparent;color:inherit;cursor:pointer">Reset guest identity</button>
                     </div>
-                    <div class="pin-actions">
-                        <button type="button" class="pin-cancel">Cancel</button>
-                        <button type="submit">Save</button>
-                    </div>
-                </form>
-            </div>
+                </div>
+                <div class="pin-actions">
+                    <button type="button" class="pin-cancel">Cancel</button>
+                    <button type="submit">Save</button>
+                </div>
+            </form>
             ${hasSB ? `<div class="edit-tab-panel hidden" data-panel="sponsorblock">
                 ${buildSponsorBlockSettings()}
                 <div class="pin-actions">
@@ -767,13 +784,19 @@ function showEditProfileForm() {
     attachAvatarPickerListeners('edit-profile-form');
     _attachSearchableSelect(modal);
 
-    // Tab switching
+    // Tab switching. Profile + Playback panels live inside the form (so one Save
+    // persists both); SponsorBlock is a separate panel. The shared Save/Cancel bar
+    // sits in the form, so hide the whole form on the SponsorBlock tab.
     modal.querySelectorAll('.edit-tab').forEach(tab => {
         tab.addEventListener('click', () => {
-            modal.querySelectorAll('.edit-tab').forEach(t => t.classList.remove('active'));
+            const t = tab.dataset.tab;
+            modal.querySelectorAll('.edit-tab').forEach(x => x.classList.remove('active'));
             tab.classList.add('active');
             modal.querySelectorAll('.edit-tab-panel').forEach(p => p.classList.add('hidden'));
-            modal.querySelector(`[data-panel="${tab.dataset.tab}"]`).classList.remove('hidden');
+            const panel = modal.querySelector(`[data-panel="${t}"]`);
+            if (panel) panel.classList.remove('hidden');
+            const form = modal.querySelector('#edit-profile-form');
+            if (form) form.classList.toggle('hidden', t === 'sponsorblock');
         });
     });
 
@@ -785,6 +808,28 @@ function showEditProfileForm() {
         pinInput.classList.toggle('hidden', !pinToggle.checked);
         if (!pinToggle.checked) pinInput.value = '';
     });
+
+    modal.querySelectorAll('.cookie-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            setCookieMode(btn.dataset.mode);
+            modal.querySelectorAll('.cookie-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        });
+    });
+
+    const resetGuestBtn = modal.querySelector('#edit-reset-guest');
+    if (resetGuestBtn) {
+        resetGuestBtn.addEventListener('click', async () => {
+            resetGuestBtn.disabled = true;
+            const ok = await resetGuestIdentity();
+            resetGuestBtn.textContent = ok ? 'Guest identity reset ✓' : 'Reset failed';
+            setTimeout(() => {
+                resetGuestBtn.textContent = 'Reset guest identity';
+                resetGuestBtn.disabled = false;
+            }, 2000);
+        });
+    }
 
     const editForm = modal.querySelector('#edit-profile-form');
 
@@ -815,6 +860,7 @@ function showEditProfileForm() {
         } else if (wantsPin && newPin) {
             if (newPin.length !== 4 || !/^\d+$/.test(newPin)) {
                 errorEl.textContent = 'PIN must be exactly 4 digits';
+                modal.querySelector('.edit-tab[data-tab="profile"]').click();
                 errorEl.classList.remove('hidden');
                 return;
             }
@@ -829,6 +875,7 @@ function showEditProfileForm() {
         if (!resp.ok) {
             const err = await resp.json().catch(() => ({}));
             errorEl.textContent = err.detail || 'Failed to update profile';
+            modal.querySelector('.edit-tab[data-tab="profile"]').click();
             errorEl.classList.remove('hidden');
             return;
         }
@@ -1125,20 +1172,11 @@ if (profileSwitcherBtn) {
             ${profileItems}
             ${otherProfiles.length ? '<div class="profile-menu-divider"></div>' : ''}
             ${!isTv ? '<div class="profile-menu-item" data-action="edit-profile">Edit profile</div>' : ''}
-            ${isAdmin && !isTv ? '<div class="profile-menu-item" data-action="settings">Options</div>' : ''}
+            ${isAdmin && !isTv ? '<div class="profile-menu-item" data-action="settings">Admin options</div>' : ''}
             ${!isTv ? '<div class="profile-menu-item" data-action="remote-control">Remote Control</div>' : ''}
             ${isTv ? '<div class="profile-menu-item" data-action="youtube-link">YouTube Link</div>' : ''}
             ${loungeItem}
             ${!(isTv && localStorage.getItem('tv-mode') !== 'desktop') ? `<div class="profile-menu-item" data-action="tv-mode">${isTv ? 'Desktop Mode' : 'TV Mode'}</div>` : ''}
-            ${!isTv && window._cookiesAvailable ? `<div class="cookie-toggle-row">
-                <span class="cookie-toggle-label">Cookies</span>
-                <div class="cookie-toggle-btns" data-action="cookie-toggle">
-                    <button class="cookie-btn${getCookieMode() === 'off' ? ' active' : ''}" data-mode="off">Off</button>
-                    <button class="cookie-btn${getCookieMode() === 'auto' ? ' active' : ''}" data-mode="auto">Auto</button>
-                    <button class="cookie-btn${getCookieMode() === 'on' ? ' active' : ''}" data-mode="on">On</button>
-                </div>
-            </div>` : ''}
-            ${!isTv ? '<div class="profile-menu-item" data-action="reset-guest">Reset guest identity</div>' : ''}
             ${!isTv || localStorage.getItem('tv-mode') === 'desktop' || !otherProfiles.length ? '<div class="profile-menu-divider"></div>' : ''}
             <div class="profile-menu-item profile-menu-logout" data-action="logout">Logout ${escapeHtml(currentProfile.name)}</div>
             ${window._pytrVersion ? `<div class="profile-menu-version">${escapeHtml(window._pytrVersion)}</div>` : ''}
@@ -1189,8 +1227,6 @@ if (profileSwitcherBtn) {
                     if (window.loungeTarget) window.loungeTarget.unpair();
                 } else if (action === 'tv-mode') {
                     if (typeof window.toggleTvMode === 'function') window.toggleTvMode();
-                } else if (action === 'reset-guest') {
-                    resetGuestIdentity().then(ok => showTinyToast(ok ? 'Guest identity reset' : 'Reset failed'));
                 } else if (action === 'logout') {
                     const tvMode = localStorage.getItem('tv-mode');
                     if (window._pytrIsIframe) {
@@ -1206,17 +1242,6 @@ if (profileSwitcherBtn) {
                         window.location.href = '/logout';
                     }
                 }
-            });
-        });
-
-        // Cookie toggle buttons
-        profileMenu.querySelectorAll('.cookie-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const mode = btn.dataset.mode;
-                setCookieMode(mode);
-                profileMenu.querySelectorAll('.cookie-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
             });
         });
     });
@@ -1312,7 +1337,7 @@ async function showSettingsModal() {
 
         overlay.innerHTML = `
             <div class="pin-modal-content" style="max-width:400px">
-                <h3>Options</h3>
+                <h3>Admin options</h3>
                 <form id="settings-form" class="profile-form">
                     <div class="settings-profiles-header">
                         <label class="settings-label">Profiles</label>
@@ -1534,18 +1559,6 @@ function getAnonUid() {
         localStorage.setItem('anonUid', id);
     }
     return id;
-}
-
-// Brief transient confirmation (no global toast system exists).
-function showTinyToast(msg) {
-    const t = document.createElement('div');
-    t.textContent = msg;
-    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);' +
-        'background:#222;color:#fff;padding:10px 18px;border-radius:8px;font-size:14px;' +
-        'z-index:10000;opacity:0;transition:opacity .2s;box-shadow:0 2px 12px rgba(0,0,0,.4)';
-    document.body.appendChild(t);
-    requestAnimationFrame(() => { t.style.opacity = '1'; });
-    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 2000);
 }
 
 // Reset the active viewer's guest identity (menu action). Server deletes only
