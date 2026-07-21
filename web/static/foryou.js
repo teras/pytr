@@ -127,8 +127,8 @@
   }
 
   function _closeModal() {
-    document.getElementById('foryou-modal-overlay')?.remove();
-    document.getElementById('foryou-onb-banner')?.remove();
+    { var _mo = document.getElementById('foryou-modal-overlay'); if (_mo) _mo.remove(); }
+    { var _ob = document.getElementById('foryou-onb-banner'); if (_ob) _ob.remove(); }
   }
 
   // ── Feed tabs (extra tabs in the home tab bar) ─────────────────────────
@@ -207,7 +207,7 @@
       STATE.scrollObserver.disconnect();
       STATE.scrollObserver = null;
     }
-    document.getElementById('foryou-load-sentinel')?.remove();
+    { var _s = document.getElementById('foryou-load-sentinel'); if (_s) _s.remove(); }
   }
 
   function _setupScrollObserver(grid, feedId) {
@@ -252,7 +252,7 @@
 
   function _reattachSentinel(grid, feedId) {
     if (!STATE.scrollObserver) return;
-    document.getElementById('foryou-load-sentinel')?.remove();
+    { var _s = document.getElementById('foryou-load-sentinel'); if (_s) _s.remove(); }
     const sentinel = el('div', { id: 'foryou-load-sentinel', class: 'foryou-load-sentinel' });
     grid.appendChild(sentinel);
     STATE.scrollObserver.observe(sentinel);
@@ -264,7 +264,8 @@
         Δεν υπάρχουν ακόμη videos σε αυτό το feed.
         <button class="foryou-refresh-btn" id="foryou-refresh-now">Δημιουργία τώρα</button>
       </p>`;
-    document.getElementById('foryou-refresh-now')?.addEventListener('click', async (ev) => {
+    var _rn = document.getElementById('foryou-refresh-now');
+    if (_rn) _rn.addEventListener('click', async (ev) => {
       ev.target.disabled = true;
       ev.target.textContent = 'Σε εξέλιξη…';
       await api('POST', `/api/foryou/feeds/${feedId}/refresh`);
@@ -295,7 +296,7 @@
       grid.innerHTML = '';
     } else {
       // Keep the sentinel out of the way while we insert new cards before it.
-      document.getElementById('foryou-load-sentinel')?.remove();
+      { var _s = document.getElementById('foryou-load-sentinel'); if (_s) _s.remove(); }
     }
 
     // Build new cards in a fragment first → one DOM write, no layout thrash.
@@ -392,7 +393,7 @@
       _privacySelect(s.privacy_mode || 'balanced')));
     panel.appendChild(el('div', { class: 'foryou-row' },
       el('strong', {}, 'Hit rate (30d):'),
-      ` ${m.hit_rate_30d_pct ?? '—'} %  ·  (7d): ${m.hit_rate_7d_pct ?? '—'} %`));
+      ` ${m.hit_rate_30d_pct != null ? m.hit_rate_30d_pct : '—'} %  ·  (7d): ${m.hit_rate_7d_pct != null ? m.hit_rate_7d_pct : '—'} %`));
     panel.appendChild(el('div', { class: 'foryou-row' },
       el('strong', {}, 'Sparsity:'),
       ` ${s.sparsity_state} (richness=${Number(s.signal_richness || 0).toFixed(2)})`));

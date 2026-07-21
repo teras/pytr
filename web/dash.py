@@ -324,18 +324,23 @@ def dash_video_qualities(info: dict) -> list[dict]:
 # ── DASH manifest endpoint ───────────────────────────────────────────────────
 
 @router.get("/api/dash/{video_id}")
-async def get_dash_manifest(video_id: str, cookies: str = "auto", uid: str = "", auth: bool = Depends(require_auth_or_embed)):
+async def get_dash_manifest(video_id: str, cookies: str = "auto", uid: str = "", codec: str = "", auth: bool = Depends(require_auth_or_embed)):
     """Generate DASH MPD manifest with proxied URLs.
 
     Uses a single container type for video to avoid track-switching issues.
-    Prefers webm/VP9 (available 144p-4K). Falls back to mp4 only if no WebM.
+    Prefers webm/VP9 (available 144p-4K). With ?codec=h264 it serves mp4/H.264
+    (avc1) + AAC instead — for devices that can't decode VP9/opus (e.g. Android TV
+    WebViews without VP9). The frontend requests it only when the codec probe fails.
+    Falls back to mp4 only if no WebM.
     """
 
     if not VIDEO_ID_RE.match(video_id):
         raise HTTPException(status_code=400, detail="Invalid video ID")
     if cookies not in ("off", "auto", "on"):
         cookies = "auto"
-    cached = _dash_cache.get(video_id)
+    want_h264 = codec == "h264"
+    cache_key = f"{video_id}:h264" if want_h264 else video_id
+    cached = _dash_cache.get(cache_key)
     if cached and time.time() - cached['created'] < _DASH_CACHE_TTL:
         return Response(cached['mpd'], media_type='application/dash+xml',
                         headers={'Cache-Control': 'no-cache'})
@@ -372,9 +377,22 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", uid: str = "",
     if not video_by_container:
         raise HTTPException(status_code=404, detail="No DASH video formats available")
 
-    # Pick one container for video: prefer webm (VP9, 144p-4K), fall back to mp4.
-    video_container = 'webm' if 'webm' in video_by_container else 'mp4'
-    video_fmts = _dedup_by_height(video_by_container[video_container])
+    # Pick one container for video. Default: prefer webm (VP9, 144p-4K), fall back
+    # to mp4. With ?codec=h264, force mp4 and keep only H.264 (avc1) reps —
+    # dropping AV1 (av01), which the same legacy decoders that lack VP9 also can't
+    # play. Falls through to the default pick if no mp4/avc1 is available.
+    if want_h264 and 'mp4' in video_by_container:
+        h264_fmts = [f for f in video_by_container['mp4']
+                     if (f.get('vcodec') or '').lower().startswith('avc')]
+        if h264_fmts:
+            video_container = 'mp4'
+            video_fmts = _dedup_by_height(h264_fmts)
+        else:
+            video_container = 'webm' if 'webm' in video_by_container else 'mp4'
+            video_fmts = _dedup_by_height(video_by_container[video_container])
+    else:
+        video_container = 'webm' if 'webm' in video_by_container else 'mp4'
+        video_fmts = _dedup_by_height(video_by_container[video_container])
 
     # Match audio container to the video container. Mixing webm video with mp4
     # audio led to YouTube invalidating the mp4 audio URL mid-playback (403)
@@ -609,7 +627,7 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", uid: str = "",
     log.info(f"DASH {video_id}: {len(valid_video)} video ({video_container}) "
              f"+ 1 audio ({audio_container}), max {max(heights)}p")
 
-    _dash_cache[video_id] = {'mpd': mpd, 'created': time.time()}
+    _dash_cache[cache_key] = {'mpd': mpd, 'created': time.time()}
 
     return Response(mpd, media_type='application/dash+xml',
                     headers={'Cache-Control': 'no-cache'})
