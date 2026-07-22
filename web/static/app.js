@@ -1147,9 +1147,8 @@ async function playVideo(videoId, title, channel, duration, startTime) {
             document.querySelector('.video-title-row').appendChild(badge);
             startHlsPlayer(videoId, appendCookieParam(`/api/hls/master/${videoId}?live=1`), true);
         } else {
-            // Regular video: start with DASH (full quality, up to 4K). Devices that
-            // can't decode VP9/opus get the H.264 variant — see startDashPlayer /
-            // prefersH264. Progressive stays as the last-resort fallback on error.
+            // Regular video: start with DASH (full quality, up to 4K). HLS and then
+            // H.264 progressive stay as the last-resort fallbacks on error.
             startDashPlayer(videoId);
 
             // If multi-audio available, show audio selector (HLS used only on language switch)
@@ -1204,33 +1203,10 @@ function initialKbpsFromHints(preferred) {
         : Math.round((entry.bandwidth / 1000) * 1.3);
 }
 
-// Our default DASH manifest serves VP9 video + opus audio. Some devices can't
-// decode those, so the video sticks on the poster while the rest of the UI works.
-// A low-tier VP9 level is enough to probe: no VP9 at all means every
-// representation fails; opus is required too or the audio track stalls.
-function canPlayDashCodecs() {
-    if (typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported) return false;
-    return MediaSource.isTypeSupported('video/webm; codecs="vp09.00.10.08"')
-        && MediaSource.isTypeSupported('audio/webm; codecs="opus"');
-}
-
-// Whether to request the H.264/AAC DASH variant (?codec=h264) instead of VP9/opus.
-// We trust the codec probe: isTypeSupported() reports the truth on the devices we
-// target (verified on WebOS 6.5 / Chromium 79 — it claims VP9+opus AND actually
-// plays them once dash.js loads). So a device only gets H.264 when it genuinely
-// can't decode VP9/opus (e.g. Android TV WebViews without VP9). Everything that CAN
-// play VP9 keeps it — full quality up to 4K. The earlier WebOS breakage was never a
-// codec lie; it was the dash.js "modern" CDN build failing to parse on Chromium 79
-// (see index.html — we load the legacy/ES5 build).
-function prefersH264() {
-    return !canPlayDashCodecs();
-}
-
 // Last-resort player: H.264/AAC muxed progressive (/api/stream-live, format 22/18).
 // A universal codec that plays where MSE DASH/HLS can't — plain <video> src, no
 // MSE. Single quality, no adaptive switching, but it plays. Reached only as the
-// final fallback when the DASH → HLS chain gives up (devices that can't decode
-// VP9/opus are already served the H.264 DASH variant up-front; see prefersH264).
+// final fallback when the DASH → HLS chain gives up.
 function startProgressivePlayer(videoId, startTime) {
     currentPlayerType = 'progressive';
     if (dashPlayer) { try { dashPlayer.destroy(); } catch (e) {} dashPlayer = null; }
@@ -1277,9 +1253,9 @@ function startDashPlayer(videoId, startTime, initKbps) {
         streaming: {
             // CMCD (client telemetry) tries `new URL(baseURL)` on our relative
             // /api/videoplayback BaseURLs and throws "Invalid URL", which aborts
-            // segment fetches for SegmentBase (mp4/H.264) reps — the video never
-            // starts. WebM/VP9 uses SegmentList and dodged it, so it only surfaced
-            // for the H.264 variant. We don't use CMCD; turn it off.
+            // segment fetches for SegmentBase (mp4) reps — the video never starts.
+            // WebM/VP9 uses SegmentList and dodges it, so it only bites the mp4
+            // fallback (when no WebM is available). We don't use CMCD; turn it off.
             cmcd: { enabled: false },
             buffer: {
                 fastSwitchEnabled: true,
@@ -1292,7 +1268,7 @@ function startDashPlayer(videoId, startTime, initKbps) {
             retryAttempts: { MPD: 0 },
         },
     });
-    const dashUrl = appendCookieParam(`/api/dash/${videoId}${prefersH264() ? '?codec=h264' : ''}`);
+    const dashUrl = appendCookieParam(`/api/dash/${videoId}`);
     // A 4th startTime arg makes dash.js begin buffering AT that position (used by
     // the quality-switch cold-restart so it resumes where the user was).
     if (startTime != null) {
