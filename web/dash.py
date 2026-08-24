@@ -533,8 +533,14 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", uid: str = "",
         filesize = fmt.get('filesize') or fmt.get('filesize_approx') or 0
         cues = probe.get('cues') or []
         if video_container == 'webm' and cues and filesize:
+            # No @duration here: the explicit SegmentTimeline below carries the
+            # real per-segment durations. A bogus @duration="1000" (1s) makes
+            # dash.js miscount buffer level and over-buffer ~5-6x on long videos
+            # (segments are really ~5-6s), overflowing MSE → QuotaExceeded →
+            # MEDIA_ERR_DECODE on seek. With SegmentTimeline present, @duration
+            # is redundant per spec.
             mpd_lines.append(
-                f'<SegmentList timescale="1000" duration="1000">'
+                f'<SegmentList timescale="1000">'
                 f'<Initialization range="0-{probe["init_end"]}"/>'
             )
             # Per-segment durations: each cue's duration is the delta to the

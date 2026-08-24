@@ -963,15 +963,120 @@ function showPlayerError(title, message) {
     const overlay = document.createElement('div');
     overlay.className = 'player-error-overlay';
     overlay.innerHTML = `<div class="player-error-icon">!</div><p>${escapeHtml(message || 'This video is currently unavailable.')}</p><button class="player-error-retry">Retry</button>`;
-    overlay.querySelector('.player-error-retry').addEventListener('click', () => {
+    const retryBtn = overlay.querySelector('.player-error-retry');
+    retryBtn.addEventListener('click', () => {
         _dashAutoRefreshed = false; // manual retry gets a fresh auto-refresh credit
         const vid = new URLSearchParams(window.location.search).get('v');
         if (vid) playVideo(vid);
     });
     playerContainer.appendChild(overlay);
+    // TV mode: put D-pad focus on Retry so the user can press OK immediately.
+    if (document.body.classList.contains('tv-mode')) {
+        try { retryBtn.focus(); } catch (e) {}
+    }
+}
+
+// Seek recovery — DETERMINISTIC: acts only on the concrete MEDIA_ERR_DECODE event
+// (not on any fuzzy "looks stuck" guess). Firefox's WebM/VP9 MSE occasionally
+// throws a decode error on a seek and dash.js does NOT recover (buffer empties,
+// playback dies). When that specific error fires we reload dash.js at the intended
+// seek target — but only once the user has stopped dragging, so we never fight an
+// active scrub. Time-throttled; re-checks health first so a self-recovered player
+// is left alone.
+let _recAbort = null;
+let _recTimer = null;
+let _recNeeded = false;
+let _recLastMs = 0;
+let _recLastSeekMs = 0;
+let _recTimes = [];            // timestamps of recent reloads (rolling window)
+let _lastSeekTarget = null;
+let _pendingTarget = null;     // position to resume at, frozen when the decode error fires
+let _seekWasPaused = false;    // play/pause intent captured at seek time (reload must preserve it)
+const _REC_WINDOW_MS = 25000;  // if we reload this many times within this window…
+const _REC_MAX_IN_WINDOW = 3;  // …it's a decode-storm loop → stop and show manual Retry
+function _recNow() { return (window.performance && performance.now) ? performance.now() : 0; }
+function armSeekRecovery(videoId) {
+    if (_recAbort) _recAbort.abort();
+    _recAbort = new AbortController();
+    _recNeeded = false;
+    videoPlayer.addEventListener('seeking', () => {
+        _recLastSeekMs = _recNow();
+        _seekWasPaused = videoPlayer.paused;   // capture intent before any decode error stalls it
+        if (videoPlayer.currentTime > 0) _lastSeekTarget = videoPlayer.currentTime;
+        if (_recNeeded) scheduleSeekRecovery(videoId);   // push the reload past the drag
+    }, { signal: _recAbort.signal });
+    // Concrete gap-stuck recovery (not a guess): playback stalled with data buffered
+    // AHEAD of the playhead but nothing AT it, and the user isn't seeking. That state
+    // literally cannot play — a rapid backward drag leaves dash.js buffering forward
+    // while the playhead sits behind it. Reload at the seek target. Cannot misfire in
+    // normal playback (playhead is always inside the buffer) or end-of-buffer waits
+    // (no data ahead of the playhead then).
+    videoPlayer.addEventListener('waiting', () => {
+        const v = videoPlayer;
+        if (v.seeking || _recNow() - _recLastSeekMs < 700) return;
+        const ct = v.currentTime, b = v.buffered;
+        let atPlayhead = false, dataAhead = false;
+        for (let i = 0; i < b.length; i++) {
+            if (ct >= b.start(i) - 0.15 && ct <= b.end(i)) atPlayhead = true;
+            if (b.start(i) > ct + 0.5) dataAhead = true;
+        }
+        if (!atPlayhead && dataAhead) {
+            _pendingTarget = ct;   // the stuck playhead is where we want to resume
+            _recNeeded = true;
+            scheduleSeekRecovery(videoId);
+        }
+    }, { signal: _recAbort.signal });
+}
+function markDecodeError(videoId) {   // called only from the MEDIA_ERR_DECODE branch
+    // Freeze the resume position NOW — at the error the video still reports the real
+    // position; a moment later dash.js resets it to 0. Prefer the live time, fall
+    // back to the last seek target.
+    _pendingTarget = videoPlayer.currentTime > 0.5 ? videoPlayer.currentTime : _lastSeekTarget;
+    _recNeeded = true;
+    scheduleSeekRecovery(videoId);
+}
+function scheduleSeekRecovery(videoId) {
+    clearTimeout(_recTimer);
+    _recTimer = setTimeout(() => {
+        if (currentVideoId !== videoId || currentPlayerType !== 'dash') { _recNeeded = false; return; }
+        const now = _recNow();
+        if (now - _recLastSeekMs < 600) { scheduleSeekRecovery(videoId); return; }   // still dragging
+        const v = videoPlayer;
+        const t = _pendingTarget != null ? _pendingTarget : (_lastSeekTarget != null ? _lastSeekTarget : (v.currentTime || 0));
+        // Genuinely recovered only if it's playable AND landed near the intended
+        // spot. dash.js sometimes "recovers" but restarts from 0 — that must still
+        // trigger a reload to the right position.
+        if (!v.error && v.readyState >= 3 && !v.seeking && Math.abs(v.currentTime - t) < 5) {
+            _recNeeded = false; return;
+        }
+        if (now - _recLastMs < 2000) { scheduleSeekRecovery(videoId); return; }         // throttle
+        _recLastMs = now;
+        _recNeeded = false;
+        try { if (dashPlayer) dashPlayer.destroy(); } catch (e) {}
+        dashPlayer = null;
+        // Decode-storm guard: if we've already reloaded several times inside the
+        // rolling window, reloading again just churns (each reload plays for a
+        // second, decode-errors, repeat — never escaping). Stop and show a manual
+        // Retry so we don't hammer or spin forever. Window-based, so it triggers
+        // even when brief playback happens between reloads.
+        _recTimes = _recTimes.filter(ts => now - ts < _REC_WINDOW_MS);
+        if (_recTimes.length >= _REC_MAX_IN_WINDOW) {
+            console.warn('[PYTR] decode-storm → stopping reloads, showing manual retry');
+            _recTimes = [];
+            showPlayerError(videoTitle.textContent, 'Playback keeps failing. Try again.');
+            return;
+        }
+        _recTimes.push(now);
+        console.warn(`[PYTR] decode error → reloading dash at ${t.toFixed(1)} (${_recTimes.length}/${_REC_MAX_IN_WINDOW} in ${_REC_WINDOW_MS / 1000}s)`);
+        v.removeAttribute('src');
+        v.load();
+        startDashPlayer(videoId, t, null, !_seekWasPaused);   // preserve the pre-seek play/pause state
+    }, 700);
 }
 
 function stopPlayer() {
+    if (_recAbort) { _recAbort.abort(); _recAbort = null; }
+    clearTimeout(_recTimer); _recTimer = null; _recNeeded = false; _recTimes = []; _pendingTarget = null;
     const errOverlay = playerContainer.querySelector('.player-error-overlay');
     if (errOverlay) errOverlay.remove();
     if (!isLiveStream) savePosition();
@@ -1242,7 +1347,7 @@ function startProgressivePlayer(videoId, startTime) {
     }, { once: true });
 }
 
-function startDashPlayer(videoId, startTime, initKbps) {
+function startDashPlayer(videoId, startTime, initKbps, autoplay = true) {
     currentPlayerType = 'dash';
     dashPlayer = dashjs.MediaPlayer().create();
     // Pick quality up-front via initialBitrate. dash.js v5.2.0's post-load manual
@@ -1256,10 +1361,22 @@ function startDashPlayer(videoId, startTime, initKbps) {
             // segment fetches for SegmentBase (mp4) reps — the video never starts.
             // WebM/VP9 uses SegmentList and dodges it, so it only bites the mp4
             // fallback (when no WebM is available). We don't use CMCD; turn it off.
-            cmcd: { enabled: false },
+            // enabled:false is already the v5 default; the real culprit is
+            // applyParametersFromMpd (default true), which runs new URL() on our
+            // RELATIVE manifest/segment URLs and throws "Invalid URL" on every
+            // response — noisy and can disturb fetches. Turn it off.
+            cmcd: { enabled: false, applyParametersFromMpd: false },
             buffer: {
                 fastSwitchEnabled: true,
                 flushBufferAtTrackSwitch: true,
+                // Cap forward buffer. Under a rapid backward drag dash.js otherwise
+                // piles up hundreds of seconds forward (seen: 415s) → MSE
+                // QuotaExceeded → stall. A modest window keeps the flushes small.
+                bufferToKeep: 20,
+                bufferTimeAtTopQuality: 30,
+                bufferTimeAtTopQualityLongForm: 30,
+                longFormContentDurationThreshold: 600,
+                bufferTimeDefault: 20,
             },
             abr: {
                 autoSwitchBitrate: { video: false },
@@ -1268,14 +1385,19 @@ function startDashPlayer(videoId, startTime, initKbps) {
             retryAttempts: { MPD: 0 },
         },
     });
-    const dashUrl = appendCookieParam(`/api/dash/${videoId}`);
+    // Absolute URL on purpose: dash.js v5's CMCD response reporter runs
+    // new URL(request.url) on every response and (bug) ignores cmcd.enabled, so a
+    // relative "/api/dash/…" throws "Invalid URL" on every fetch. An absolute
+    // manifest URL makes it (and the BaseURLs dash.js resolves against it) valid.
+    const dashUrl = window.location.origin + appendCookieParam(`/api/dash/${videoId}`);
     // A 4th startTime arg makes dash.js begin buffering AT that position (used by
     // the quality-switch cold-restart so it resumes where the user was).
     if (startTime != null) {
-        dashPlayer.initialize(videoPlayer, dashUrl, true, startTime);
+        dashPlayer.initialize(videoPlayer, dashUrl, autoplay, startTime);
     } else {
-        dashPlayer.initialize(videoPlayer, dashUrl, true);
+        dashPlayer.initialize(videoPlayer, dashUrl, autoplay);
     }
+    armSeekRecovery(videoId);
 
     dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
         // Re-arm the auto-refresh only after sustained playback — resetting
@@ -1321,6 +1443,19 @@ function startDashPlayer(videoId, startTime, initKbps) {
 
     dashPlayer.on(dashjs.MediaPlayer.events.ERROR, (e) => {
         if (!e.error || currentVideoId !== videoId) return;
+        // MEDIA_ERR_DECODE: Firefox's WebM/VP9 MSE throws a transient decode error
+        // when a seek lands on a freshly-fetched segment. dash.js resets the
+        // MediaSource and re-buffers at the seek position on its own. Our heavy
+        // reload here would instead lose the seek (snapping back to the saved
+        // position) and, on a repeat, drop to HLS — so leave decode errors to
+        // dash.js's own recovery.
+        const code = e.error.code;
+        const msg = e.error.message || '';
+        if (code === 3 || (videoPlayer.error && videoPlayer.error.code === 3)
+                || /MEDIA_ERR_DECODE|could not be decoded|decode/i.test(msg)) {
+            markDecodeError(videoId);   // reload at the seek target once the drag settles
+            return;
+        }
         if (!_dashAutoRefreshed) {
             _dashAutoRefreshed = true;
             console.warn('DASH error, auto-refreshing session');
@@ -1448,11 +1583,26 @@ videoPlayer.addEventListener('volumechange', () => {
     localStorage.setItem('volume', videoPlayer.volume);
 });
 
+// Authoritative playback position. video.currentTime momentarily reads 0 while
+// dash.js resets its MediaSource after a WebM decode error; _lastGoodTime keeps
+// the real position so seeking and the OSD both base off it (not the transient 0,
+// and not each other). Updated on every timeupdate, regardless of UI state.
+let _lastGoodTime = 0;
+function reliablePlayerTime() {
+    const v = videoPlayer;
+    const cur = v.currentTime || 0;
+    if (cur < 0.5 && _lastGoodTime > 2 && v.readyState < 3 && !v.seeking) return _lastGoodTime;
+    return cur;
+}
+window.reliablePlayerTime = reliablePlayerTime;
+
 videoPlayer.addEventListener('timeupdate', () => {
+    if (videoPlayer.currentTime > 0 && videoPlayer.readyState >= 2) _lastGoodTime = videoPlayer.currentTime;
     if (isLiveStream) { updateLiveBadge(); return; }
     if (typeof checkSponsorBlock === 'function') checkSponsorBlock(videoPlayer.currentTime);
     // Position saving is handled by _broadcastPlayerState (throttled 1x/sec via WS)
 });
+window.addEventListener('video-changed', () => { _lastGoodTime = 0; });
 
 // ── Private Mode ────────────────────────────────────────────────────────────
 

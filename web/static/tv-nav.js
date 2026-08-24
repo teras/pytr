@@ -12,7 +12,7 @@
     _tv.navigateTopOverlay = () => 'exit';
     _tv.navigateBottomOverlay = () => false;
 
-    const FOCUSABLE = '.video-card, .related-card, .queue-item, .player-btn, .filter-btn, .list-tab, .sub-tab, .channel-tab, .profile-card, #search-input, #logo-link, #profile-switcher-btn, #player-container, .quality-option, .audio-option, .subtitle-option, .summarize-option, .profile-menu-item, .profile-menu-profile, .queue-toggle-area, .tv-top-home-btn, #profile-overlay input, #profile-overlay button, #profile-overlay a';
+    const FOCUSABLE = '.video-card, .related-card, .queue-item, .player-btn, .filter-btn, .list-tab, .sub-tab, .channel-tab, .profile-card, #search-input, #logo-link, #profile-switcher-btn, #player-container, .quality-option, .audio-option, .subtitle-option, .summarize-option, .profile-menu-item, .profile-menu-profile, .queue-toggle-area, .tv-top-home-btn, .player-error-retry, #profile-overlay input, #profile-overlay button, #profile-overlay a';
 
     const MENU_SELECTORS = [
         { menu: '#quality-menu', btn: '#quality-btn' },
@@ -21,36 +21,43 @@
     ];
 
     const SEEK_STEPS = [10, 10, 10, 10, 10, 20, 20, 30, 30, 60];
-    const SEEK_REPEAT_MS = 500;
+    const SEEK_COMMIT_MS = 350;   // commit one real seek this long after the last keypress
 
     let currentEl = null;
     let playerMode = false;
     let _seekCount = 0;
     let _seekDir = null;
-    let _seekResetTimer = null;
+    let _seekTarget = null;
+    let _seekCommitTimer = null;
 
-    let _previewHideTimer = null;
-
+    // Repeated seek-key presses accumulate into a single target and commit ONE real
+    // seek after the user stops (~350ms). The OSD bar + time + storyboard move to the
+    // target immediately for feedback, but video.currentTime changes only once — so
+    // dash.js does a single seek instead of one per press (N presses = N seeks would
+    // storm decode errors on Firefox WebM/VP9).
     function progressiveSeek(video, dir) {
+        if (!video || !video.duration) return;
         if (_seekDir !== dir) { _seekCount = 0; _seekDir = dir; }
         const step = SEEK_STEPS[Math.min(_seekCount, SEEK_STEPS.length - 1)];
         _seekCount++;
-        if (_seekResetTimer) clearTimeout(_seekResetTimer);
-        _seekResetTimer = setTimeout(() => { _seekCount = 0; _seekDir = null; }, SEEK_REPEAT_MS);
-        if (dir === 'right') {
-            video.currentTime = Math.min(video.duration || 0, video.currentTime + step);
-        } else {
-            video.currentTime = Math.max(0, video.currentTime - step);
-        }
-        // Show storyboard preview during TV seek
-        if (typeof _osd !== 'undefined' && _osd.showPreviewAtTime) {
-            _osd.showPreviewAtTime(video.currentTime);
-            if (_previewHideTimer) clearTimeout(_previewHideTimer);
-            _previewHideTimer = setTimeout(() => {
-                if (typeof _osd !== 'undefined' && _osd.hidePreview) _osd.hidePreview();
-                _previewHideTimer = null;
-            }, 1200);
-        }
+        // Base a fresh gesture off the authoritative player position, not raw
+        // currentTime which momentarily reads 0 during a dash.js reset flash —
+        // otherwise pressing the seek key during that flash jumps to 0.
+        const livePos = (typeof window.reliablePlayerTime === 'function')
+            ? window.reliablePlayerTime() : video.currentTime;
+        const base = _seekTarget != null ? _seekTarget : livePos;
+        _seekTarget = dir === 'right'
+            ? Math.min(video.duration, base + step)
+            : Math.max(0, base - step);
+        if (typeof _osd !== 'undefined' && _osd.setSeekPreview) _osd.setSeekPreview(_seekTarget);
+        if (_seekCommitTimer) clearTimeout(_seekCommitTimer);
+        _seekCommitTimer = setTimeout(() => {
+            _seekCommitTimer = null;
+            _seekCount = 0; _seekDir = null;
+            const target = _seekTarget; _seekTarget = null;
+            if (target != null) video.currentTime = target;   // the single real seek
+            if (typeof _osd !== 'undefined' && _osd.clearSeekPreview) _osd.clearSeekPreview();
+        }, SEEK_COMMIT_MS);
     }
 
     // ── Persistence & Toggle ───────────────────────────────────────────────

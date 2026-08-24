@@ -89,12 +89,28 @@ function formatTime(s, refS) {
     }
     window._getChapterAt = _getChapterAt;
 
+    let _lastDur = 0;
+    let _seekPreviewTime = null;   // pending arrow-seek target shown before we commit
+    // New video → forget the held duration so the bar honestly resets at the start.
+    window.addEventListener('video-changed', () => { _lastDur = 0; _seekPreviewTime = null; });
     function updateOsd() {
         const video = _getVideo();
         const osd = document.getElementById('tv-osd');
         if (!video || !osd) return;
-        const cur = video.currentTime || 0;
-        const dur = video.duration || 0;
+        // Hide the brief currentTime→0 flash while dash.js resets its MediaSource
+        // after a WebM decode error on seek: if the time drops to ~0 with no data
+        // ready and the user isn't seeking, it's that reset (never a real state) —
+        // hold the last position + duration until playback comes back. A genuine
+        // start (never played past 2s) or a user seek to 0 are unaffected.
+        // Position: arrow-seek preview target if a gesture is active, otherwise the
+        // authoritative player time (holds through a dash.js reset flash — single
+        // source of truth shared with the seek logic).
+        let cur = (_seekPreviewTime != null)
+            ? _seekPreviewTime
+            : (typeof window.reliablePlayerTime === 'function' ? window.reliablePlayerTime() : (video.currentTime || 0));
+        let dur = video.duration || 0;
+        if (dur > 0 && video.readyState >= 3) _lastDur = dur;
+        else if (dur < 1 && _lastDur > 0) dur = _lastDur;   // duration also collapses during the reset
         document.getElementById('osd-current').innerHTML = formatTime(cur, dur);
         document.getElementById('osd-total').textContent = formatTime(dur);
         const pct = dur > 0 ? (cur / dur) * 100 : 0;
@@ -232,6 +248,21 @@ function formatTime(s, refS) {
         _hidePreview(document.getElementById('osd-preview'));
         const tooltip = document.getElementById('osd-seek-tooltip');
         if (tooltip) { tooltip.innerHTML = ''; tooltip.style.display = ''; }
+    };
+
+    // Arrow-seek preview: while the user holds/repeats the seek key we move the bar,
+    // time and storyboard to the TARGET immediately, but the real video.currentTime
+    // is committed once (by tv-nav) after they stop — so dash.js does a single seek
+    // instead of one per keypress (which storms decode errors on Firefox WebM).
+    _osd.setSeekPreview = function (time) {
+        _seekPreviewTime = time;
+        showOsd();                 // reveal + repaint the bar/time at the target now
+        _osd.showPreviewAtTime(time);
+    };
+    _osd.clearSeekPreview = function () {
+        _seekPreviewTime = null;
+        _osd.hidePreview();
+        updateOsd();
     };
 
     // ── Seek freeze overlay ─────────────────────────────────────────────
