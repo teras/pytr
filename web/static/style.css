@@ -412,10 +412,16 @@ h1 {
     position: absolute;
     inset: 0;
     display: none;
-    background-repeat: no-repeat;
     background-color: #000;
     z-index: 5;
     pointer-events: none;
+}
+
+/* Single storyboard tile, sized/positioned by JS to match the video's contain
+   fit. Clips the sprite sheet so only the target tile shows. */
+.seek-freeze-tile {
+    position: absolute;
+    background-repeat: no-repeat;
 }
 
 /* Player error overlay */

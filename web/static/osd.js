@@ -278,6 +278,10 @@ function formatTime(s, refS) {
             ov = document.createElement('div');
             ov.id = 'seek-freeze-overlay';
             ov.className = 'seek-freeze-overlay';
+            const tile = document.createElement('div');
+            tile.id = 'seek-freeze-tile';
+            tile.className = 'seek-freeze-tile';
+            ov.appendChild(tile);
             host.appendChild(ov);
         }
         return ov;
@@ -291,15 +295,28 @@ function formatTime(s, refS) {
         if (!img) return;
         const ov = _seekFreezeEl();
         if (!ov) return;
+        const tile = ov.firstChild;
+        if (!tile) return;
         const sb = _sbData;
         let W = ov.clientWidth, H = ov.clientHeight;
         if (!W || !H) { const v = _getVideo(); if (v) { W = v.clientWidth; H = v.clientHeight; } }
         if (!W || !H) return;
-        // Scale the whole sprite sheet so one tile fills the overlay, then offset
-        // to the target tile.
-        ov.style.backgroundImage = 'url(' + img.src + ')';
-        ov.style.backgroundSize = (sb.columns * W) + 'px ' + (sb.rows * H) + 'px';
-        ov.style.backgroundPosition = '-' + (info.col * W) + 'px -' + (info.row * H) + 'px';
+        // Fit one tile into the overlay preserving the tile's aspect ratio
+        // (contain), matching the video's object-fit: contain, then centre it so
+        // vertical/odd-ratio videos aren't stretched. The inner tile element is
+        // sized to exactly one tile (dispW×dispH) and clips the sprite sheet, so
+        // neighbouring tiles don't bleed into the letter/pillar-box margins.
+        const tileAR = sb.width / sb.height;
+        let dispW, dispH;
+        if (tileAR > W / H) { dispW = W; dispH = W / tileAR; }
+        else { dispH = H; dispW = H * tileAR; }
+        tile.style.width = dispW + 'px';
+        tile.style.height = dispH + 'px';
+        tile.style.left = ((W - dispW) / 2) + 'px';
+        tile.style.top = ((H - dispH) / 2) + 'px';
+        tile.style.backgroundImage = 'url(' + img.src + ')';
+        tile.style.backgroundSize = (sb.columns * dispW) + 'px ' + (sb.rows * dispH) + 'px';
+        tile.style.backgroundPosition = '-' + (info.col * dispW) + 'px -' + (info.row * dispH) + 'px';
         ov.style.display = 'block';
     };
 
