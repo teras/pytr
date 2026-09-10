@@ -4,7 +4,7 @@
 import logging
 import struct
 
-from helpers import http_client
+from helpers import cdn_get
 
 log = logging.getLogger(__name__)
 
@@ -252,7 +252,7 @@ async def probe_ranges(url: str) -> dict | None:
     try:
         # First fetch: 4KB — enough for MP4, enough to detect WebM and usually
         # enough to read the EBML/Segment/Tracks headers + Cues size vint.
-        resp = await http_client.get(url, headers={'Range': 'bytes=0-4095'})
+        resp = await cdn_get(url, headers={'Range': 'bytes=0-4095'})
         if resp.status_code not in (200, 206):
             return None
 
@@ -282,7 +282,7 @@ async def probe_ranges(url: str) -> dict | None:
         # no geometric growth needed, no size-based fallback.
         if result.get('index_end'):
             target = result['index_end']
-            resp = await http_client.get(
+            resp = await cdn_get(
                 url, headers={'Range': f'bytes=0-{target}'}
             )
             if resp.status_code in (200, 206):
@@ -300,7 +300,7 @@ async def probe_ranges(url: str) -> dict | None:
         # must be unusually large. Grow geometrically; once we learn index_end
         # we can take the targeted path on the next iteration.
         for fetch_size in [256 * 1024, 2 * 1024 * 1024, 10 * 1024 * 1024]:
-            resp = await http_client.get(
+            resp = await cdn_get(
                 url, headers={'Range': f'bytes=0-{fetch_size - 1}'}
             )
             if resp.status_code not in (200, 206):
@@ -317,7 +317,7 @@ async def probe_ranges(url: str) -> dict | None:
             # Learned index_end → switch to targeted fetch
             if result.get('index_end'):
                 target = result['index_end']
-                resp = await http_client.get(
+                resp = await cdn_get(
                     url, headers={'Range': f'bytes=0-{target}'}
                 )
                 if resp.status_code in (200, 206):

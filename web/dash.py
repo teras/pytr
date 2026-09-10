@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from auth import require_auth, require_auth_or_embed
 from container import probe_ranges
-from helpers import register_cleanup, make_cache_cleanup, get_video_info, invalidate_video_cache, init_ydl, http_client, is_youtube_url, VIDEO_ID_RE, reset_anon_jar
+from helpers import register_cleanup, make_cache_cleanup, get_video_info, invalidate_video_cache, init_ydl, cdn_get, is_youtube_url, VIDEO_ID_RE, reset_anon_jar
 
 log = logging.getLogger(__name__)
 
@@ -62,12 +62,13 @@ async def _fetch_chunk(url: str, lo: int, hi: int):
 
     Retries transient upstream failures (connection resets, timeouts, 5xx) so a
     momentary googlevideo hiccup re-fetches the chunk instead of stalling playback.
+    An unreachable CDN host is skipped in favour of the URL's fallback hosts.
     """
     headers = {'Range': f'bytes={lo}-{hi}'}
     last_exc = None
     for attempt in range(_PROXY_RETRIES):
         try:
-            r = await http_client.get(url, headers=headers)
+            r = await cdn_get(url, headers=headers)
             if r.status_code < 500:
                 return r
             last_exc = None

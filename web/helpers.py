@@ -7,7 +7,7 @@ import re
 import threading
 import time
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import httpx
 import yt_dlp
@@ -276,6 +276,58 @@ def make_cache_cleanup(cache: dict, ttl: float, label: str):
 # ── Shared httpx async client ────────────────────────────────────────────────
 
 http_client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+
+
+# ── YouTube CDN host fallback ────────────────────────────────────────────────
+# Every videoplayback / HLS segment URL names fallback CDN hosts: `mn=sn-a,sn-b`
+# (query or path form) lists server names that can serve the same bytes, the
+# first being the one in the hostname (`rrN---sn-a.googlevideo.com`). When a host
+# is unreachable (typically a dead ISP-hosted Google Global Cache node) the
+# official player retries on the next name; we do the same. Hosts that failed at
+# the transport level are remembered briefly so later requests go straight to a
+# live one instead of waiting out timeouts, but are still tried last in case
+# every host looks dead.
+_DEAD_HOST_TTL = 120.0
+# A live CDN edge connects in milliseconds; a short connect timeout bounds how long
+# the first request after a node dies waits before moving on to a fallback host.
+_CDN_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
+_dead_hosts: dict = {}  # host -> time it last failed
+_CDN_HOST_RE = re.compile(r'^(https://rr\d+---)(sn-[a-z0-9-]+)(\.googlevideo\.com/.*)$', re.S)
+_CDN_MN_RE = re.compile(r'(?:[?&]mn=|/mn/)([^&/]+)')
+
+
+def _cdn_candidate_urls(url: str) -> list:
+    """The URL itself followed by the same URL on each fallback host from `mn`."""
+    m = _CDN_HOST_RE.match(url)
+    if not m:
+        return [url]
+    prefix, current, rest = m.groups()
+    mn = _CDN_MN_RE.search(url)
+    names = [current]
+    if mn:
+        names += [n for n in unquote(mn.group(1)).split(',') if n and n != current]
+    return [f'{prefix}{n}{rest}' for n in names]
+
+
+def _cdn_is_dead(url: str) -> bool:
+    return time.time() - _dead_hosts.get(urlparse(url).netloc, 0) < _DEAD_HOST_TTL
+
+
+async def cdn_get(url: str, headers: dict = None, stream: bool = False):
+    """GET a googlevideo URL, moving on to its fallback CDN hosts on transport
+    errors (connect failures, timeouts). With stream=True the body is left
+    unread and the caller must aclose() the response."""
+    last_exc = None
+    for u in sorted(_cdn_candidate_urls(url), key=_cdn_is_dead):  # stable: live hosts first
+        try:
+            req = http_client.build_request('GET', u, headers=headers, timeout=_CDN_TIMEOUT)
+            return await http_client.send(req, stream=stream)
+        except httpx.TransportError as e:
+            host = urlparse(u).netloc
+            _dead_hosts[host] = time.time()
+            log.warning(f"CDN {host}: {type(e).__name__}, trying next host")
+            last_exc = e
+    raise last_exc
 
 
 def _yt_url(video_id: str) -> str:

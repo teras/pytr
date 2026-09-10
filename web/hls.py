@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import Response, StreamingResponse
 
 from auth import require_auth, require_auth_or_embed
-from helpers import register_cleanup, make_cache_cleanup, get_video_info, invalidate_video_cache, http_client, is_youtube_url, VIDEO_ID_RE
+from helpers import register_cleanup, make_cache_cleanup, get_video_info, invalidate_video_cache, http_client, cdn_get, is_youtube_url, VIDEO_ID_RE
 
 log = logging.getLogger(__name__)
 
@@ -242,10 +242,7 @@ async def get_hls_segment(url: str, request: Request):
         if range_header:
             upstream_headers['Range'] = range_header
 
-        upstream = await http_client.send(
-            http_client.build_request('GET', url, headers=upstream_headers),
-            stream=True,
-        )
+        upstream = await cdn_get(url, headers=upstream_headers, stream=True)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Segment fetch failed: {e}")
 
