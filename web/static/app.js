@@ -260,6 +260,14 @@ downloadMenu.querySelectorAll('.download-option').forEach(opt => {
     });
 });
 
+function setAudioLang(lang) {
+    currentAudioLang = lang;
+    audioBtn.textContent = lang === 'original' ? '\ud83d\udd0a Original' : `\ud83d\udd0a ${langName(lang)}`;
+    audioMenu.querySelectorAll('.audio-option').forEach(o => {
+        o.classList.toggle('selected', o.dataset.lang === lang);
+    });
+}
+
 function switchAudioLanguage(lang) {
     if (!currentVideoId) return;
 
@@ -271,12 +279,7 @@ function switchAudioLanguage(lang) {
     // Remove existing subtitle tracks so they get recreated fresh after player switch
     [...videoPlayer.querySelectorAll('track')].forEach(t => t.remove());
 
-    // Update state and UI
-    currentAudioLang = lang;
-    audioBtn.textContent = lang === 'original' ? '\ud83d\udd0a Original' : `\ud83d\udd0a ${langName(lang)}`;
-    audioMenu.querySelectorAll('.audio-option').forEach(o => {
-        o.classList.toggle('selected', o.dataset.lang === lang);
-    });
+    setAudioLang(lang);
 
     if (lang === 'original') {
         // Switch back to DASH (restores full quality, up to 4K)
@@ -1441,6 +1444,7 @@ function startDashPlayer(videoId, startTime, initKbps, autoplay = true) {
         }
     });
 
+    let blockedCheckPending = false;
     dashPlayer.on(dashjs.MediaPlayer.events.ERROR, (e) => {
         if (!e.error || currentVideoId !== videoId) return;
         // MEDIA_ERR_DECODE: Firefox's WebM/VP9 MSE throws a transient decode error
@@ -1456,11 +1460,29 @@ function startDashPlayer(videoId, startTime, initKbps, autoplay = true) {
             markDecodeError(videoId);   // reload at the seek target once the drag settles
             return;
         }
+        if (blockedCheckPending) return;   // the check below decides for this player
         if (!_dashAutoRefreshed) {
             _dashAutoRefreshed = true;
-            console.warn('DASH error, auto-refreshing session');
-            savePosition();
-            playVideo(videoId, videoTitle.textContent, videoChannel.textContent, videoPlayer.dataset.expectedDuration);
+            blockedCheckPending = true;
+            // During a per-client 403 window (see "History" in web/dash.py) a
+            // DASH reload just fails again, while HLS keeps playing. The server
+            // knows when its self-heal got dead URLs too — ask before choosing.
+            fetch(`/api/dash-blocked/${videoId}`)
+                .then(r => r.ok ? r.json() : {})
+                .catch(() => ({}))
+                .then(data => {
+                    if (currentVideoId !== videoId || currentPlayerType !== 'dash' || !dashPlayer) return;
+                    if (data.blocked && Hls.isSupported()) {
+                        console.warn('DASH URLs blocked upstream, switching to HLS');
+                        pendingSeek = { time: videoPlayer.currentTime, play: !videoPlayer.paused };
+                        dashPlayer.destroy(); dashPlayer = null;
+                        startHlsPlayer(videoId, appendCookieParam(`/api/hls/master/${videoId}`));
+                    } else {
+                        console.warn('DASH error, auto-refreshing session');
+                        savePosition();
+                        playVideo(videoId, videoTitle.textContent, videoChannel.textContent, videoPlayer.dataset.expectedDuration);
+                    }
+                });
         } else if (Hls.isSupported()) {
             console.warn('DASH failed again, falling back to HLS');
             dashPlayer.destroy(); dashPlayer = null;
@@ -1534,6 +1556,9 @@ function startHlsPlayer(videoId, manifestUrl, live = false) {
             liveRetried = true;
             startHlsPlayer(videoId, manifestUrl, true);
         } else if (!live) {
+            // DASH and progressive only carry the original audio — keep the
+            // audio selector honest instead of showing the failed language.
+            if (currentAudioLang && currentAudioLang !== 'original') setAudioLang('original');
             if (_dashAutoRefreshed) {
                 // We already burned the DASH auto-refresh and its HLS fallback this
                 // session — going back to DASH would ping-pong forever. Try H.264

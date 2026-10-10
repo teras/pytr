@@ -2,11 +2,19 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """HLS streaming: proxy YouTube HLS manifests and segments to avoid CORS.
 
-YouTube multi-audio videos use muxed variants (audio+video per stream) with
-YT-EXT-AUDIO-CONTENT-ID rather than standard #EXT-X-MEDIA TYPE=AUDIO.
-We parse these and filter the manifest per audio language, so HLS.js only
-sees quality levels for the selected language.
+YouTube multi-audio videos come in two manifest layouts:
+- muxed variants (audio+video per stream) tagged with YT-EXT-AUDIO-CONTENT-ID,
+  the original audio being the variants WITHOUT that tag;
+- standard #EXT-X-MEDIA TYPE=AUDIO renditions, every one tagged with
+  YT-EXT-AUDIO-CONTENT-ID (original included) and all DEFAULT=NO, so HLS.js
+  would pick the first listed (alphabetical, e.g. Arabic).
+We filter the manifest per audio language, so HLS.js only sees the selected one.
+The rendition layout appeared ~2026-10 (seen on DJQmGYH7hdU); before that only
+the muxed one existed, and _filter_manifest_by_audio still handles both. HLS is
+also the escape route when DASH URLs hit a per-client 403 window (see
+"History" in dash.py), so this default-track choice is what users hear then.
 """
+import base64
 import asyncio
 import logging
 import re
@@ -33,6 +41,40 @@ register_cleanup(make_cache_cleanup(_hls_cache, _HLS_CACHE_TTL, "HLS"))
 
 _RE_AUDIO_ID = re.compile(r'YT-EXT-AUDIO-CONTENT-ID="([^"]+)"')
 _RE_URI = re.compile(r'URI="([^"]+)"')
+_RE_XTAGS = re.compile(r'YT-EXT-XTAGS="([^"]+)"')
+
+
+def _is_audio_rendition(line: str) -> bool:
+    return line.startswith('#EXT-X-MEDIA') and 'TYPE=AUDIO' in line
+
+
+def _is_original_rendition(line: str) -> bool:
+    """An #EXT-X-MEDIA audio rendition marked as the original (not dubbed) track.
+
+    YT-EXT-XTAGS is a base64 protobuf carrying acont=original|dubbed|descriptive.
+    """
+    m = _RE_XTAGS.search(line)
+    if m:
+        raw = m.group(1)
+        try:
+            return b'original' in base64.urlsafe_b64decode(raw + '=' * (-len(raw) % 4))
+        except ValueError:
+            pass
+    return 'original' in line.lower()
+
+
+def _rendition_lang(line: str) -> str | None:
+    m = _RE_AUDIO_ID.search(line)
+    # e.g. "en.3" -> "en", "en-GB.3" -> "en-GB"
+    return m.group(1).rsplit('.', 1)[0] if m else None
+
+
+def _original_rendition_lang(manifest: str) -> str | None:
+    """Language of the original audio in the #EXT-X-MEDIA layout, else None."""
+    for line in manifest.splitlines():
+        if _is_audio_rendition(line) and _is_original_rendition(line):
+            return _rendition_lang(line)
+    return None
 
 
 def _rewrite_uris_in_line(line: str, base_url: str, proxy_path: str) -> str:
@@ -85,16 +127,17 @@ def _extract_audio_langs(manifest: str) -> list[dict]:
     """
     langs = set()
     for line in manifest.splitlines():
-        m = _RE_AUDIO_ID.search(line)
-        if m:
-            # e.g. "en.3" -> "en", "en-GB.3" -> "en-GB"
-            lang = m.group(1).rsplit('.', 1)[0]
+        lang = _rendition_lang(line)
+        if lang:
             langs.add(lang)
 
     if not langs:
         return []
 
-    # The default audio has no YT-EXT-AUDIO-CONTENT-ID — we label it "original"
+    # Muxed layout: the default audio has no YT-EXT-AUDIO-CONTENT-ID.
+    # Rendition layout: the original is a tagged rendition — don't list it twice.
+    # Either way it's labelled "original".
+    langs.discard(_original_rendition_lang(manifest))
     result = [{'lang': 'original', 'default': True}]
     for lang in sorted(langs):
         result.append({'lang': lang, 'default': False})
@@ -108,6 +151,8 @@ def _filter_manifest_by_audio(manifest: str, audio_lang: str | None) -> str:
     audio_lang='fr': keep only variants with YT-EXT-AUDIO-CONTENT-ID="fr.N"
     """
     lines = manifest.splitlines()
+    if not any(l.startswith('#EXT-X-STREAM-INF') and _RE_AUDIO_ID.search(l) for l in lines):
+        return _filter_audio_renditions(lines, audio_lang)
     out = []
     skip_next_uri = False
 
@@ -145,6 +190,30 @@ def _filter_manifest_by_audio(manifest: str, audio_lang: str | None) -> str:
         else:
             out.append(stripped)
 
+    return '\n'.join(out)
+
+
+def _filter_audio_renditions(lines: list[str], audio_lang: str | None) -> str:
+    """#EXT-X-MEDIA layout: keep every variant, but only the selected language's
+    audio renditions, marked DEFAULT=YES. An unknown language falls back to the
+    original track.
+    """
+    renditions = [l.strip() for l in lines if _is_audio_rendition(l.strip())]
+    if audio_lang in (None, 'original') or not any(_rendition_lang(l) == audio_lang for l in renditions):
+        keep = _is_original_rendition
+    else:
+        keep = lambda l: _rendition_lang(l) == audio_lang
+    if not any(keep(l) for l in renditions):
+        return '\n'.join(l.strip() for l in lines)  # nothing recognisable — leave as is
+
+    out = []
+    for line in lines:
+        stripped = line.strip()
+        if _is_audio_rendition(stripped):
+            if not keep(stripped):
+                continue
+            stripped = stripped.replace('DEFAULT=NO', 'DEFAULT=YES')
+        out.append(stripped)
     return '\n'.join(out)
 
 

@@ -627,21 +627,71 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", uid: str = "",
 # YouTube sometimes invalidates videoplayback URLs long before their `expire`
 # timestamp (transient 403, aggressive on IPs it distrusts). dash.js keeps
 # requesting through the old manifest's URLs for hours, so after a heal we keep
-# a remap (video_id, itag) -> fresh URL and rewrite every subsequent request,
-# avoiding a 403 round-trip per segment.
-_healed_urls: dict = {}  # (video_id, itag) -> {"url": str, "created": float}
+# a remap (video_id, itag, xtags) -> fresh URL and rewrite every subsequent
+# request, avoiding a 403 round-trip per segment.
+#
+# ── History: per-client 403 windows (read this before touching the heal) ──
+# Besides one-off URL invalidations, YouTube periodically blocks ALL
+# videoplayback URLs of ONE innertube client for our egress IP for a few
+# minutes. A re-extraction with the same client then just returns more dead
+# URLs, so the heal cannot help — only another delivery path can.
+#   2026-08: ANDROID_VR (yt-dlp 2026.07.04 default) hit this constantly.
+#            Fixed by upgrading yt-dlp to 2026.08.19 (default -> VISIONOS);
+#            a temporary player_client override was removed again because we
+#            prefer plain upstream defaults.
+#   2026-10-10: VISIONOS does it too (DJQmGYH7hdU played ~80s, then audio+video
+#            403, re-extraction 403 as well, minutes later 206 again).
+#            Client rotation was evaluated and REJECTED for now: from our IP
+#            only visionos returned playable https formats; web/web_safari/ios/
+#            tv errored, mweb/tv_simply/android/android_vr gave SABR-only (no
+#            https formats), web_embedded gave URLs that 403 with any UA.
+#            yt-dlp upstream had no fix (no release after 2026.08.19; related:
+#            yt-dlp#17666 SABR-only sessions, PR #17723 tv_samsung client).
+#            HLS segments DID keep working during the window, so instead a
+#            failed heal is recorded (_heal_failed) and the frontend asks
+#            /api/dash-blocked/{id} on its first DASH error to jump straight to
+#            HLS instead of reloading DASH into the same block.
+# Picking this up again:
+#   - Re-test clients from the server (extract with
+#     extractor_args={'youtube': {'player_client': [name]}}, range-GET the
+#     best video/audio URL; 206 = usable). yt-dlp supports exclusion too:
+#     player_client=['default', '-visionos'] keeps the upstream defaults
+#     minus the blocked one — the natural hook for rotation once a second
+#     client works: on a failed heal, re-extract with the dead URL's client
+#     (its `c=` param) excluded for a few minutes.
+#   - If upstream fixes it (new default client / built-in fallback), the
+#     dash-blocked shortcut can stay (harmless) or be removed together with
+#     the _heal_failed bookkeeping and the frontend check in startDashPlayer.
+_healed_urls: dict = {}  # (video_id, itag, xtags) -> {"url": str, "created": float}
 _HEAL_WINDOW = 60        # s — max one re-extraction per video per window (circuit breaker)
 _last_heal: dict = {}    # video_id -> time of last re-extraction
 _heal_locks: dict = {}   # video_id -> asyncio.Lock
+_heal_failed: dict = {}  # video_id -> time a heal last failed (fresh URLs dead too)
+_HEAL_FAILED_TTL = 120   # s — how long /api/dash-blocked reports a video as blocked
 
 register_cleanup(make_cache_cleanup(_healed_urls, _DASH_CACHE_TTL, "healed-URL"))
 
 _ITAG_RE = re.compile(r'[?&]itag=(\d+)')
+_XTAGS_RE = re.compile(r'[?&]xtags=([^&]*)')
 
 
-async def _self_heal_url(video_id: str, itag: str, dead_url: str, cookie_mode: str, anon_uid: str = ""):
+def _heal_key(video_id: str, url: str):
+    """Remap key for a videoplayback URL, or None if it has no itag.
+
+    The itag alone is ambiguous on multi-audio videos: every dubbed track shares
+    itag 251/140 (format_ids "251-0".."251-16") and differs only in `xtags`
+    (e.g. acont=original:lang=en). Keying on itag alone would heal the English
+    track with whichever language came last."""
+    m = _ITAG_RE.search(url)
+    if not m:
+        return None
+    x = _XTAGS_RE.search(url)
+    return (video_id, m.group(1), x.group(1) if x else '')
+
+
+async def _self_heal_url(video_id: str, key: tuple, dead_url: str, cookie_mode: str, anon_uid: str = ""):
     """Re-extract fresh info once after an upstream 403/410 and return a fresh
-    URL for the same itag, or None if healing is not possible.
+    URL for the same itag+xtags, or None if healing is not possible.
 
     Concurrent failures for the same video (audio + video 403 together) share a
     single re-extraction via the per-video lock; a repeat failure within
@@ -649,7 +699,7 @@ async def _self_heal_url(video_id: str, itag: str, dead_url: str, cookie_mode: s
     blocked video never triggers an extraction storm."""
     lock = _heal_locks.setdefault(video_id, asyncio.Lock())
     async with lock:
-        healed = _healed_urls.get((video_id, itag))
+        healed = _healed_urls.get(key)
         if healed and healed['url'] != dead_url:
             return healed['url']  # another request already healed this video
         if time.time() - _last_heal.get(video_id, 0) < _HEAL_WINDOW:
@@ -665,10 +715,11 @@ async def _self_heal_url(video_id: str, itag: str, dead_url: str, cookie_mode: s
         now = time.time()
         fresh = None
         for f in info.get('formats', []):
-            fid, furl = f.get('format_id'), f.get('url')
-            if fid and furl:
-                _healed_urls[(video_id, fid)] = {'url': furl, 'created': now}
-                if fid == itag:
+            furl = f.get('url')
+            fkey = _heal_key(video_id, furl) if furl else None
+            if fkey:
+                _healed_urls[fkey] = {'url': furl, 'created': now}
+                if fkey == key:
                     fresh = furl
         return fresh
 
@@ -695,29 +746,45 @@ async def videoplayback_proxy(url: str, request: Request, v: str = "", cm: str =
     if not is_youtube_url(url):
         raise HTTPException(status_code=403, detail="URL not allowed")
     video_id = v if VIDEO_ID_RE.match(v) else ""
-    m = _ITAG_RE.search(url)
-    itag = m.group(1) if m else ""
-    if video_id and itag:
-        healed = _healed_urls.get((video_id, itag))
+    key = _heal_key(video_id, url) if video_id else None
+    if key:
+        healed = _healed_urls.get(key)
         if healed:
             url = healed['url']  # manifest may still carry a dead URL for hours
     try:
         return await proxy_range_request(request, url)
     except HTTPException as e:
-        if e.status_code in (403, 410) and video_id and itag:
+        if e.status_code in (403, 410) and key:
             # Self-heal: one re-extraction swaps in a fresh URL for the same
             # itag and the request is retried transparently. If healing is not
             # possible (circuit breaker, extraction failure), fall through to
             # cache invalidation so the frontend fallback re-extracts; min_age
             # guards against re-extraction storms when even fresh URLs fail.
-            fresh = await _self_heal_url(video_id, itag, url, cm, uid)
+            fresh = await _self_heal_url(video_id, key, url, cm, uid)
             if fresh:
-                log.info(f"Self-healed {video_id} itag {itag} after upstream {e.status_code}")
-                return await proxy_range_request(request, fresh)
+                log.info(f"Self-healed {video_id} itag {key[1]} after upstream {e.status_code}")
+                try:
+                    return await proxy_range_request(request, fresh)
+                except HTTPException as e2:
+                    if e2.status_code in (403, 410):
+                        # Fresh URL dead too: per-client 403 window (see History above)
+                        _heal_failed[video_id] = time.time()
+                    raise
+            _heal_failed[video_id] = time.time()
             if invalidate_video_cache(video_id, min_age=30):
                 _dash_cache.pop(video_id, None)
                 log.warning(f"Upstream {e.status_code} for {video_id}: invalidated info+DASH caches")
         raise
+
+
+@router.get("/api/dash-blocked/{video_id}")
+async def dash_blocked(video_id: str, auth: bool = Depends(require_auth_or_embed)):
+    """Whether a DASH self-heal for this video failed recently, i.e. fresh URLs
+    were dead too (per-client 403 window, see History above). The frontend asks
+    this on a DASH error to go straight to HLS instead of reloading DASH."""
+    if not VIDEO_ID_RE.match(video_id):
+        raise HTTPException(status_code=400, detail="Invalid video ID")
+    return {"blocked": time.time() - _heal_failed.get(video_id, 0) < _HEAL_FAILED_TTL}
 
 
 @router.post("/api/reset-guest")
