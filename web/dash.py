@@ -322,6 +322,54 @@ def dash_video_qualities(info: dict) -> list[dict]:
     ]
 
 
+# ── Capped extractions ───────────────────────────────────────────────────────
+
+# YouTube marks roughly one extraction in three (VISIONOS client, our IP,
+# 2026-10) as "capped": every videoplayback URL of that extraction serves only
+# the first ~60s of media and answers 403 for any byte range past it, audio and
+# video alike. Playback then dies ~30-80s in, and a heal that happens to land on
+# another capped extraction fails too. The cap is visible right after
+# extraction, so a single small range request past the limit tells capped and
+# clean extractions apart, and a capped one is simply re-extracted.
+# PO tokens do not help (2026-10-11): yt-dlp attaches none to VISIONOS URLs, and
+# mweb URLs with a bgutil-minted token were 403 from the first byte.
+_CAP_PROBE_SEC = 90       # media position to probe; the cap sits around 55-65s
+_CAP_MAX_EXTRACTIONS = 3  # extractions per request before accepting a capped one
+
+
+async def _is_capped(info: dict) -> bool:
+    """Whether this extraction's videoplayback URLs stop past the first minute.
+    Probes the smallest audio-only https format at _CAP_PROBE_SEC."""
+    duration = info.get('duration') or 0
+    if duration <= _CAP_PROBE_SEC + 10:
+        return False  # a short video fits (almost) entirely below the cap
+    audio = [f for f in info.get('formats', [])
+             if f.get('protocol') == 'https' and f.get('url') and f.get('filesize')
+             and f.get('vcodec') in (None, 'none') and f.get('acodec') not in (None, 'none')]
+    if not audio:
+        return False
+    fmt = min(audio, key=lambda f: f['filesize'])
+    off = int(fmt['filesize'] * _CAP_PROBE_SEC / duration)
+    try:
+        r = await cdn_get(fmt['url'], headers={'Range': f'bytes={off}-{off + 4095}'})
+    except httpx.HTTPError:
+        return False  # network trouble is not a cap; let playback handle it
+    return r.status_code == 403
+
+
+async def _get_uncapped_info(video_id: str, cookies: str, uid: str) -> dict:
+    """get_video_info, re-extracting up to _CAP_MAX_EXTRACTIONS times while the
+    extraction is capped. Returns the last extraction even if still capped."""
+    for attempt in range(1, _CAP_MAX_EXTRACTIONS + 1):
+        info = await asyncio.to_thread(get_video_info, video_id, cookies, uid)
+        if not await _is_capped(info):
+            return info
+        log.warning(f"Capped extraction for {video_id} (attempt {attempt}/{_CAP_MAX_EXTRACTIONS})")
+        if attempt < _CAP_MAX_EXTRACTIONS:
+            invalidate_video_cache(video_id)
+    return info
+
+
 # ── DASH manifest endpoint ───────────────────────────────────────────────────
 
 @router.get("/api/dash/{video_id}")
@@ -342,7 +390,7 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", uid: str = "",
                         headers={'Cache-Control': 'no-cache'})
 
     try:
-        info = await asyncio.to_thread(get_video_info, video_id, cookies, uid)
+        info = await _get_uncapped_info(video_id, cookies, uid)
     except Exception as e:
         err_msg = str(e)
         clean_msg = re.sub(r'^(?:ERROR:\s*)?\[youtube\]\s*[\w-]+:\s*', '', err_msg)
@@ -651,6 +699,9 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", uid: str = "",
 #            failed heal is recorded (_heal_failed) and the frontend asks
 #            /api/dash-blocked/{id} on its first DASH error to jump straight to
 #            HLS instead of reloading DASH into the same block.
+#   2026-10-11: the "window" is really capped extractions (see "Capped
+#            extractions" above): 403 only past ~60s of media, about one
+#            extraction in three. Manifest and heal now re-extract capped ones.
 # Picking this up again:
 #   - Re-test clients from the server (extract with
 #     extractor_args={'youtube': {'player_client': [name]}}, range-GET the
@@ -708,7 +759,7 @@ async def _self_heal_url(video_id: str, key: tuple, dead_url: str, cookie_mode: 
         invalidate_video_cache(video_id)
         _dash_cache.pop(video_id, None)
         try:
-            info = await asyncio.to_thread(get_video_info, video_id, cookie_mode, anon_uid)
+            info = await _get_uncapped_info(video_id, cookie_mode, anon_uid)
         except Exception as e:
             log.warning(f"Self-heal re-extraction failed for {video_id}: {e}")
             return None
