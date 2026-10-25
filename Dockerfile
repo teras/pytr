@@ -1,4 +1,5 @@
-FROM public.ecr.aws/docker/library/python:3.12-slim
+ARG BASE_IMAGE=public.ecr.aws/docker/library/python:3.12-slim
+FROM ${BASE_IMAGE}
 
 # Install ffmpeg, adb, and dependencies for deno
 RUN apt-get update && \
