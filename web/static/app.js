@@ -1191,6 +1191,9 @@ async function playVideo(videoId, title, channel, duration, startTime) {
     try {
         // Start SponsorBlock fetch early (in parallel with info)
         if (typeof initSponsorBlock === 'function') initSponsorBlock(videoId);
+        // Warm the DASH manifest in parallel with info: the server shares the
+        // extraction and caches the manifest, so dash.js's own request is instant.
+        fetch(window.location.origin + appendCookieParam(`/api/dash/${videoId}`)).catch(() => {});
 
         const resp = await fetch(appendCookieParam(`/api/info/${videoId}`));
         if (currentVideoId !== videoId) return; // user navigated away

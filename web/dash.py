@@ -372,6 +372,13 @@ async def _get_uncapped_info(video_id: str, cookies: str, uid: str) -> dict:
 
 # ── DASH manifest endpoint ───────────────────────────────────────────────────
 
+# In-progress manifest builds: video_id -> asyncio.Task. The frontend requests
+# the manifest in parallel with /api/info, so dash.js's own request usually
+# arrives while that build is still running and joins it instead of probing
+# every format a second time.
+_dash_building: dict = {}
+
+
 @router.get("/api/dash/{video_id}")
 async def get_dash_manifest(video_id: str, cookies: str = "auto", uid: str = "", auth: bool = Depends(require_auth_or_embed)):
     """Generate DASH MPD manifest with proxied URLs.
@@ -389,6 +396,17 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", uid: str = "",
         return Response(cached['mpd'], media_type='application/dash+xml',
                         headers={'Cache-Control': 'no-cache'})
 
+    task = _dash_building.get(video_id)
+    if task is None:
+        task = asyncio.ensure_future(_build_dash_manifest(video_id, cookies, uid))
+        _dash_building[video_id] = task
+        task.add_done_callback(lambda _: _dash_building.pop(video_id, None))
+    # shield: a requester going away (e.g. the prefetch on navigation) must not
+    # cancel the build the other requester is waiting on
+    return await asyncio.shield(task)
+
+
+async def _build_dash_manifest(video_id: str, cookies: str, uid: str):
     try:
         info = await _get_uncapped_info(video_id, cookies, uid)
     except Exception as e:
@@ -400,6 +418,11 @@ async def get_dash_manifest(video_id: str, cookies: str = "auto", uid: str = "",
                 'message': clean_msg or 'YouTube is temporarily blocking requests.',
             })
         raise HTTPException(status_code=500, detail=clean_msg or err_msg)
+
+    if info.get('is_live'):
+        # Live streams play over HLS; don't let the empty-formats retry below
+        # re-extract and reload yt-dlp for them.
+        raise HTTPException(status_code=404, detail="Live stream: no DASH")
 
     duration = info.get('duration') or 0
 
