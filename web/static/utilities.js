@@ -29,22 +29,15 @@ function thumbUrl(videoId) {
     return `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`;
 }
 
-// YouTube returns a 120x90 placeholder when a thumbnail variant doesn't exist.
-const _YT_PLACEHOLDER_MAX_WIDTH = 120;
 const _YT_VI_RE = /^https?:\/\/(?:i\.ytimg\.com|img\.youtube\.com)\/vi(?:_webp)?\/([A-Za-z0-9_-]{11})\//;
 
+// The server checks which HD variant exists (maxresdefault -> sddefault), so the
+// browser never loads a missing one and logs a 404 for it.
 function probeBestYtThumb(videoId, onBest) {
-    const base = `https://i.ytimg.com/vi/${videoId}`;
-    const tryLoad = (url, next) => {
-        const probe = new Image();
-        probe.onload = () => {
-            if (probe.naturalWidth > _YT_PLACEHOLDER_MAX_WIDTH) onBest(url);
-            else if (next) next();
-        };
-        probe.onerror = () => { if (next) next(); };
-        probe.src = url;
-    };
-    tryLoad(`${base}/maxresdefault.jpg`, () => tryLoad(`${base}/sddefault.jpg`, null));
+    fetch(`/api/best-thumb/${encodeURIComponent(videoId)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data && data.url) onBest(data.url); })
+        .catch(() => {});
 }
 
 function _upgradeYtThumb(img) {

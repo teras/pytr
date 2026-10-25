@@ -7,7 +7,7 @@ import re
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, Depends
 
-from auth import require_auth, get_session, extract_token
+from auth import require_auth, require_auth_or_embed, get_session, extract_token
 from helpers import VIDEO_ID_RE, http_client, is_youtube_url
 from iterators import create_search, create_channel, create_channel_playlists, create_related, fetch_more
 from directcalls import fetch_playlist_contents, resolve_channel_url, fetch_trending
@@ -170,6 +170,37 @@ async def get_playlist_contents(
     token, session = get_session(request)
     result = await fetch_playlist_contents(video_id, playlist_id)
     return _json_with_cookie(result, token, request)
+
+
+# Best existing thumbnail per video_id (None = only hqdefault exists). Probed
+# here with HEAD so the browser never requests a missing variant and logs a 404.
+_best_thumb_cache: dict = {}
+_BEST_THUMB_CACHE_MAX = 5000
+
+
+@router.get("/best-thumb/{video_id}")
+async def best_thumb(video_id: str, auth: bool = Depends(require_auth_or_embed)):
+    """Return the highest-res YouTube thumbnail that exists: maxresdefault -> sddefault."""
+    if not VIDEO_ID_RE.match(video_id):
+        raise HTTPException(status_code=400, detail="Invalid video ID")
+    if video_id not in _best_thumb_cache:
+        best = None
+        for variant in ("maxresdefault", "sddefault"):
+            url = f"https://i.ytimg.com/vi/{video_id}/{variant}.jpg"
+            try:
+                resp = await http_client.head(url, timeout=5)
+            except Exception:
+                # don't cache a network failure as "no HD thumbnail"
+                return {"url": None}
+            if resp.status_code == 200:
+                best = url
+                break
+        if len(_best_thumb_cache) >= _BEST_THUMB_CACHE_MAX:
+            _best_thumb_cache.clear()
+        _best_thumb_cache[video_id] = best
+    return Response(content=json.dumps({"url": _best_thumb_cache[video_id]}),
+                    media_type="application/json",
+                    headers={"Cache-Control": "public, max-age=86400"})
 
 
 @router.get("/img-proxy")
