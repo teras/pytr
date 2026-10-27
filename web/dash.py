@@ -47,7 +47,7 @@ _PROXY_CHUNK = 2 * 1024 * 1024   # 2 MB per upstream sub-request
 # (~4 connections at ≈31 Mbps each); beyond that extra connections add no speed,
 # only load. 3 gives ample headroom above any format's bitrate without waste.
 _PROXY_CONCURRENCY = 3           # parallel sub-requests in flight
-_PROXY_RETRIES = 3               # attempts per sub-request before giving up
+_PROXY_RETRIES = 2               # full host rounds per sub-request before giving up
 _PROXY_RETRY_BACKOFF = 0.25      # seconds, linear backoff between attempts
 
 
@@ -60,27 +60,20 @@ class _UpstreamChunkError(Exception):
 async def _fetch_chunk(url: str, lo: int, hi: int):
     """GET a single byte range [lo, hi] on a fresh connection.
 
-    Retries transient upstream failures (connection resets, timeouts, 5xx) so a
-    momentary googlevideo hiccup re-fetches the chunk instead of stalling playback.
-    An unreachable CDN host is skipped in favour of the URL's fallback hosts.
+    cdn_get already moves past failing or stalled CDN hosts (and logs each one);
+    this retries the whole host round once more after a short pause, for a
+    transient 5xx or reset that hit every host at once.
     """
     headers = {'Range': f'bytes={lo}-{hi}'}
-    last_exc = None
     for attempt in range(_PROXY_RETRIES):
         try:
             r = await cdn_get(url, headers=headers)
-            if r.status_code < 500:
+            if r.status_code < 500 or attempt + 1 == _PROXY_RETRIES:
                 return r
-            last_exc = None
-            log.warning(f"chunk {lo}-{hi}: upstream {r.status_code} (attempt {attempt + 1}/{_PROXY_RETRIES})")
-        except httpx.RequestError as e:
-            last_exc = e
-            log.warning(f"chunk {lo}-{hi}: {type(e).__name__} (attempt {attempt + 1}/{_PROXY_RETRIES})")
-        if attempt + 1 < _PROXY_RETRIES:
-            await asyncio.sleep(_PROXY_RETRY_BACKOFF * (attempt + 1))
-    if last_exc is not None:
-        raise last_exc
-    return r
+        except httpx.RequestError:
+            if attempt + 1 == _PROXY_RETRIES:
+                raise
+        await asyncio.sleep(_PROXY_RETRY_BACKOFF * (attempt + 1))
 
 
 async def proxy_range_request(request: Request, video_url: str, filesize: int = None):

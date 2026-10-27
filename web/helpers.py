@@ -1,6 +1,7 @@
 # Copyright (c) 2026 Panayotis Katsaloulis
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Shared configuration, yt-dlp instances, helper functions, and cleanup registry."""
+import asyncio
 import hashlib
 import logging
 import re
@@ -283,10 +284,10 @@ http_client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
 # (query or path form) lists server names that can serve the same bytes, the
 # first being the one in the hostname (`rrN---sn-a.googlevideo.com`). When a host
 # is unreachable (typically a dead ISP-hosted Google Global Cache node) the
-# official player retries on the next name; we do the same. Hosts that failed at
-# the transport level are remembered briefly so later requests go straight to a
-# live one instead of waiting out timeouts, but are still tried last in case
-# every host looks dead.
+# official player retries on the next name; we do the same. Hosts that failed
+# (transport error, 5xx) or stalled are remembered briefly so later requests go
+# straight to a live one instead of waiting out timeouts, but are still tried
+# last in case every host looks dead.
 _DEAD_HOST_TTL = 120.0
 # A live CDN edge connects in milliseconds; a short connect timeout bounds how long
 # the first request after a node dies waits before moving on to a fallback host.
@@ -313,21 +314,126 @@ def _cdn_is_dead(url: str) -> bool:
     return time.time() - _dead_hosts.get(urlparse(url).netloc, 0) < _DEAD_HOST_TTL
 
 
-async def cdn_get(url: str, headers: dict = None, stream: bool = False):
-    """GET a googlevideo URL, moving on to its fallback CDN hosts on transport
-    errors (connect failures, timeouts). With stream=True the body is left
-    unread and the caller must aclose() the response."""
-    last_exc = None
-    for u in sorted(_cdn_candidate_urls(url), key=_cdn_is_dead):  # stable: live hosts first
+# A healthy edge answers within a fraction of a second. A node that accepts the
+# connection but then stalls (no headers for 10-20s, then 503) would hold a request
+# up to the read timeout and drain the player's buffer, so a host that hasn't sent
+# headers after this long is raced against the next fallback host. Measured to the
+# headers, not the body: a slow body on a busy uplink is not a dead node, and
+# racing it would only double the traffic on that uplink.
+_CDN_HEDGE_AFTER = 4.0
+# Some fallback hosts answer every request with a 302 to another edge, carrying a
+# full re-signed URL. Remember it per source URL (the Range lives in a header, so
+# every chunk of a format reuses it) instead of paying the redirect on each chunk.
+_CDN_REDIRECT_TTL = 300
+_cdn_redirects: dict = {}  # requested URL -> {'url': final URL, 'created': ts}
+register_cleanup(make_cache_cleanup(_cdn_redirects, _CDN_REDIRECT_TTL, "CDN redirect"))
+
+
+def _close_unused(t: asyncio.Task):
+    """Done-callback for a raced request we no longer want: close its response."""
+    if not t.cancelled() and t.exception() is None:
+        asyncio.ensure_future(t.result().aclose())
+
+
+async def _cdn_open(u: str, headers: dict):
+    """Send one GET to one host and return once headers arrive (body unread).
+    A transport error or 5xx marks the host dead for _DEAD_HOST_TTL."""
+    cached = _cdn_redirects.get(u)
+    if cached and time.time() - cached['created'] < _CDN_REDIRECT_TTL:
         try:
-            req = http_client.build_request('GET', u, headers=headers, timeout=_CDN_TIMEOUT)
-            return await http_client.send(req, stream=stream)
-        except httpx.TransportError as e:
-            host = urlparse(u).netloc
-            _dead_hosts[host] = time.time()
-            log.warning(f"CDN {host}: {type(e).__name__}, trying next host")
-            last_exc = e
-    raise last_exc
+            req = http_client.build_request('GET', cached['url'], headers=headers, timeout=_CDN_TIMEOUT)
+            r = await http_client.send(req, stream=True)
+            if r.status_code < 400:
+                return r
+            await r.aclose()
+        except httpx.TransportError:
+            pass
+        _cdn_redirects.pop(u, None)  # stale redirect: go through the source host again
+    try:
+        req = http_client.build_request('GET', u, headers=headers, timeout=_CDN_TIMEOUT)
+        r = await http_client.send(req, stream=True)
+    except httpx.TransportError:
+        _dead_hosts[urlparse(u).netloc] = time.time()
+        raise
+    if r.status_code >= 500:
+        _dead_hosts[urlparse(u).netloc] = time.time()
+    elif r.history and r.status_code < 400:
+        _cdn_redirects[u] = {'url': str(r.url), 'created': time.time()}
+    return r
+
+
+async def cdn_get(url: str, headers: dict = None, stream: bool = False):
+    """GET a googlevideo URL across its fallback CDN hosts.
+
+    Hosts are tried live-first; one that fails (transport error, 5xx) or hasn't
+    sent headers within _CDN_HEDGE_AFTER is raced against the next. Returns the
+    first non-5xx response, else the last 5xx response, else raises the last
+    transport error. With stream=True the body is left unread and the caller
+    must aclose() the response."""
+    cands = sorted(_cdn_candidate_urls(url), key=_cdn_is_dead)  # stable: live hosts first
+    pending = set()
+    hosts = {}  # task -> host
+    order = {}  # task -> launch index
+    last = None  # last 5xx response or transport error
+    r = None
+    try:
+        for i, u in enumerate(cands):
+            t = asyncio.create_task(_cdn_open(u, headers))
+            hosts[t] = urlparse(u).netloc
+            order[t] = i
+            pending.add(t)
+            more = i + 1 < len(cands)
+            while pending and r is None:
+                done, pending = await asyncio.wait(
+                    pending, timeout=_CDN_HEDGE_AFTER if more else None,
+                    return_when=asyncio.FIRST_COMPLETED)
+                if not done:
+                    log.warning(f"CDN {hosts[t]}: no answer in {_CDN_HEDGE_AFTER:.0f}s, racing next host")
+                    break
+                failed = False
+                for d in done:
+                    try:
+                        res = d.result()
+                    except httpx.TransportError as e:
+                        log.warning(f"CDN {hosts[d]}: {type(e).__name__}, trying next host")
+                        last, failed = e, True
+                        continue
+                    if r is not None:
+                        await res.aclose()  # two answered at once; keep the first
+                    elif res.status_code >= 500:
+                        log.warning(f"CDN {hosts[d]}: upstream {res.status_code}, trying next host")
+                        if isinstance(last, httpx.Response):
+                            await last.aclose()
+                        last, failed = res, True
+                    else:
+                        r = res
+                        # Hosts raced before the winner and still silent are stalled:
+                        # skip them for the next requests instead of waiting again.
+                        for p in pending:
+                            if order[p] < order[d]:
+                                _dead_hosts[hosts[p]] = time.time()
+                if failed and more and r is None:
+                    break  # a host failed: bring in the next one right away
+            if r is not None:
+                break
+    finally:
+        for p in pending:
+            p.add_done_callback(_close_unused)
+            p.cancel()
+    if r is None:
+        if isinstance(last, Exception):
+            raise last
+        r = last
+    elif isinstance(last, httpx.Response):
+        await last.aclose()
+    if not stream:
+        try:
+            await r.aread()
+        except httpx.TransportError:
+            _dead_hosts[r.url.host] = time.time()
+            await r.aclose()
+            raise
+    return r
 
 
 def _yt_url(video_id: str) -> str:
