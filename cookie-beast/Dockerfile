@@ -4,12 +4,13 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends firefox-esr wget && \
     rm -rf /var/lib/apt/lists/*
 
-# Install geckodriver
-RUN GECKO_VER=$(wget -qO- https://api.github.com/repos/mozilla/geckodriver/releases/latest | \
-    python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])") && \
-    wget -q "https://github.com/mozilla/geckodriver/releases/download/${GECKO_VER}/geckodriver-${GECKO_VER}-linux64.tar.gz" && \
-    tar xzf geckodriver-*.tar.gz -C /usr/local/bin/ && \
-    rm geckodriver-*.tar.gz
+# Pin the driver so builds do not depend on GitHub's unauthenticated API quota.
+ARG GECKODRIVER_VERSION=v0.37.1
+RUN wget --no-verbose --tries=3 --timeout=30 -O /tmp/geckodriver.tar.gz \
+    "https://github.com/mozilla/geckodriver/releases/download/${GECKODRIVER_VERSION}/geckodriver-${GECKODRIVER_VERSION}-linux64.tar.gz" && \
+    tar xzf /tmp/geckodriver.tar.gz -C /usr/local/bin/ && \
+    geckodriver --version && \
+    rm /tmp/geckodriver.tar.gz
 
 RUN pip install --no-cache-dir selenium undetected-geckodriver
 
