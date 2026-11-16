@@ -84,9 +84,8 @@ jobs:
           VIDEO_ID="dQw4w9WgXcQ"
           BASE="http://localhost:8000"
 
-          # A genuine yt-dlp regression fails on every attempt (extraction
-          # yields no formats), so retries only absorb transient datacenter
-          # 403s on googlevideo — they can never mask a real break.
+          # Retry transient extraction and CDN failures; persistent failures
+          # still fail the canary and need the diagnostics below to classify.
           retry() {
             local n=1 max=3
             while ! "$@"; do
@@ -96,15 +95,15 @@ jobs:
             done
           }
 
-          # 1. Extraction (metadata) — pure yt-dlp, fetches no googlevideo
-          #    bytes, so it is IP-independent and the real regression detector.
+          # 1. Metadata extraction. This does not verify playable formats and
+          #    can also fail because YouTube blocks the runner's IP.
           check_info() {
             local title
-            title=$(curl -sf "$BASE/api/info/$VIDEO_ID" | jq -r '.title') || return 1
+            title=$(curl --fail-with-body --silent --show-error --max-time 120 "$BASE/api/info/$VIDEO_ID" | jq -r '.title') || return 1
             [ -n "$title" ] && [ "$title" != "null" ] && echo "   Title: $title"
           }
           echo ":: [1/2] Extraction — /api/info"
-          retry check_info || { echo "::error::extraction failed — yt-dlp regression"; exit 1; }
+          retry check_info || { echo "::error::metadata extraction failed; inspect server logs for the cause"; exit 1; }
 
           # 2. DASH — the primary production path. Builds the MPD (adaptive
           #    format extraction + range-probe) and plays 5s through the
@@ -112,10 +111,17 @@ jobs:
           #    per-connection throttle. This is exactly what users play.
           check_dash() {
             local mpd
-            mpd=$(curl -sf "$BASE/api/dash/$VIDEO_ID") || return 1
-            grep -q "<MPD" <<<"$mpd" || return 1
-            grep -q "<Representation" <<<"$mpd" || return 1
-            grep -q "/api/videoplayback" <<<"$mpd" || return 1
+            mpd=$(curl --fail-with-body --silent --show-error --max-time 120 "$BASE/api/dash/$VIDEO_ID") || {
+              echo "DASH manifest request failed; response body:"
+              printf '%s\n' "$mpd"
+              return 1
+            }
+            if ! grep -q "<MPD" <<<"$mpd" ||
+               ! grep -q "<Representation" <<<"$mpd" ||
+               ! grep -q "/api/videoplayback" <<<"$mpd"; then
+              echo "DASH response is missing the expected manifest elements"
+              return 1
+            fi
             timeout 60 ffmpeg -loglevel error -i "$BASE/api/dash/$VIDEO_ID" -t 5 -f null -
           }
           echo ":: [2/2] DASH playback — /api/dash (production path)"
@@ -134,6 +140,10 @@ jobs:
           else
             echo "::warning::progressive stream-live failed (expected on datacenter IPs; not a regression)"
           fi
+
+      - name: Show server logs on failure
+        if: failure() && steps.check.outputs.update == 'true'
+        run: docker logs --timestamps pytr-test
 
       - name: Cleanup test container
         if: always() && steps.check.outputs.update == 'true'
