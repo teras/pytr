@@ -102,6 +102,10 @@ def init_ydl():
     """(Re)create the global yt-dlp instances."""
     global ydl_info, ydl_info_auth, _cookies_mtime
     anon_opts = dict(_BASE_YDL_OPTS)
+    # yt-dlp 2026.10.26 prefers tv_samsung's TVHTML5 formats, whose CDN
+    # URLs currently return 403 even when visionos formats work. Exclude it
+    # for guest extraction while retaining the other upstream defaults.
+    anon_opts['extractor_args'] = {'youtube': {'player_client': ['default', '-tv_samsung']}}
     anon_opts['cookiefile'] = str(COOKIES_ANON_FILE)  # persistent guest session
     ydl_info = yt_dlp.YoutubeDL(anon_opts)
     if COOKIES_FILE.is_file():

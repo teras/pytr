@@ -11,6 +11,7 @@ permissions:
 jobs:
   check-and-update:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 
@@ -77,8 +78,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg
 
+      - name: Install browser playback test dependencies
+        if: steps.check.outputs.update == 'true'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pytr-smoke-venv"
+          "$RUNNER_TEMP/pytr-smoke-venv/bin/pip" install playwright==1.65.2
+          "$RUNNER_TEMP/pytr-smoke-venv/bin/playwright" install --with-deps chromium
+
       - name: Smoke test — verify extraction and play production path
         if: steps.check.outputs.update == 'true'
+        timeout-minutes: 10
         run: |
           set -uo pipefail
           VIDEO_ID="dQw4w9WgXcQ"
@@ -105,10 +114,9 @@ jobs:
           echo ":: [1/2] Extraction — /api/info"
           retry check_info || { echo "::error::metadata extraction failed; inspect server logs for the cause"; exit 1; }
 
-          # 2. DASH — the primary production path. Builds the MPD (adaptive
-          #    format extraction + range-probe) and plays 5s through the
-          #    chunked /api/videoplayback proxy that bypasses YouTube's
-          #    per-connection throttle. This is exactly what users play.
+          # 2. DASH — use the app's dash.js build in a browser. ffmpeg's DASH
+          #    demuxer fails on our WebM SegmentList, which works in dash.js.
+          #    Decode 5s, then seek beyond 90s to exercise cap recovery too.
           check_dash() {
             local mpd
             mpd=$(curl --fail-with-body --silent --show-error --max-time 120 "$BASE/api/dash/$VIDEO_ID") || {
@@ -122,7 +130,7 @@ jobs:
               echo "DASH response is missing the expected manifest elements"
               return 1
             fi
-            timeout 60 ffmpeg -loglevel error -i "$BASE/api/dash/$VIDEO_ID" -t 5 -f null -
+            timeout --kill-after=5s 150s "$RUNNER_TEMP/pytr-smoke-venv/bin/python" tests/playback_smoke.py "$BASE" "$VIDEO_ID"
           }
           echo ":: [2/2] DASH playback — /api/dash (production path)"
           retry check_dash || { echo "::error::DASH production path failed"; exit 1; }
@@ -135,7 +143,7 @@ jobs:
           # single-audio VOD exposes no HLS manifest via the default client
           # (HLS is only used for multi-audio / live). Both are reported only.
           echo ":: (info) progressive /api/stream-live — non-fatal"
-          if timeout 30 ffmpeg -loglevel error -i "$BASE/api/stream-live/$VIDEO_ID" -t 5 -f null -; then
+          if timeout --kill-after=5s 30s ffmpeg -nostdin -loglevel error -i "$BASE/api/stream-live/$VIDEO_ID" -t 5 -f null -; then
             echo "   progressive OK"
           else
             echo "::warning::progressive stream-live failed (expected on datacenter IPs; not a regression)"

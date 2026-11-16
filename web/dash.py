@@ -718,6 +718,11 @@ async def _build_dash_manifest(video_id: str, cookies: str, uid: str):
 #   2026-10-11: the "window" is really capped extractions (see "Capped
 #            extractions" above): 403 only past ~60s of media, about one
 #            extraction in three. Manifest and heal now re-extract capped ones.
+#   2026-11-16: yt-dlp 2026.10.26 prefers tv_samsung (TVHTML5), whose URLs
+#            403 from the first byte locally and on GitHub Actions. Excluding
+#            tv_samsung restores playable VISIONOS URLs locally. Guest
+#            extraction excludes it in helpers.init_ydl; cap probes and the
+#            DASH-to-HLS recovery remain necessary for VISIONOS.
 # Picking this up again:
 #   - Re-test clients from the server (extract with
 #     extractor_args={'youtube': {'player_client': [name]}}, range-GET the
