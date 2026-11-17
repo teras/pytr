@@ -843,10 +843,17 @@ function _renderQueue() {
         });
     });
 
-    // Scroll active item into view
+    // Scroll active item into view within the queue list only. scrollIntoView
+    // would also scroll the page, which in theater mode (queue below the
+    // player) pulls the player out of place on every auto-advance.
     const activeItem = queueList.querySelector('.queue-item.active');
     if (activeItem) {
-        activeItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        const listRect = queueList.getBoundingClientRect();
+        const itemRect = activeItem.getBoundingClientRect();
+        let delta = 0;
+        if (itemRect.top < listRect.top) delta = itemRect.top - listRect.top;
+        else if (itemRect.bottom > listRect.bottom) delta = itemRect.bottom - listRect.bottom;
+        if (delta) queueList.scrollBy({ top: delta, behavior: 'smooth' });
     }
 }
 
